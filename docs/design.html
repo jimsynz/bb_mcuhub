@@ -69,6 +69,7 @@
   .callout{border-radius:12px;padding:16px 20px;margin:18px 0;border:1px solid}
   .callout.bad{border-color:rgba(255,111,107,.4);background:rgba(255,111,107,.06)}
   .callout.good{border-color:rgba(70,201,112,.4);background:rgba(70,201,112,.06)}
+  .callout.note{border-color:rgba(86,182,255,.35);background:rgba(86,182,255,.05)}
   .callout .ct{font-weight:700;font-size:.92rem;margin-bottom:.2em;display:flex;align-items:center;gap:8px}
 
   .mermaid{background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:18px;margin:18px 0;text-align:center}
@@ -125,7 +126,7 @@
   <div class="wrap">
     <div class="kicker">Architecture documentation · worked example · Elixir + Arduino-C</div>
     <h1>The cog framework, <em>coming together</em></h1>
-    <p class="sub">A companion to the architecture proposal: this document shows the framework <b>in practice</b>. One concrete robot — <b>follower_segby</b>, a self-balancing two-wheeler that holds a set distance from whatever is in front of it — traced end to end across all three nodes. You'll see the supervision tree, the dataflow for a single 50&nbsp;Hz tick, the wire format, and real code: the master in <b>Elixir/OTP</b>, the cog and Blaster in <b>C with Arduino libraries</b>. Diagrams first, prose second.</p>
+    <p class="sub">This document is the reference for the framework, shown <b>in practice</b>. One concrete robot — <b>follower_segby</b>, a self-balancing two-wheeler that holds a set distance from whatever is in front of it — traced end to end across all three nodes. You'll see the supervision tree, the dataflow for a single 50&nbsp;Hz tick, the wire format, and real code: the master in <b>Elixir/OTP</b>, and the cogs on the MCUs in <b>C with Arduino libraries</b>. Diagrams first, prose second.</p>
     <div class="meta">
       <span class="pill">example: follower_segby</span>
       <span class="pill">3 nodes · 2 wires</span>
@@ -146,433 +147,548 @@
     <a href="#s4"><b>04</b> One tick, end to end</a>
     <a href="#s5"><b>05</b> The wire: a value becomes a frame</a>
     <a href="#s6"><b>06</b> Master code — Elixir / OTP</a>
-    <a href="#s7"><b>07</b> Cog &amp; Blaster code — Arduino-C</a>
+    <a href="#s7"><b>07</b> Cog code on an actuator board — Arduino-C</a>
     <a href="#s8"><b>08</b> Lifecycles &amp; failure walkthroughs</a>
     <a href="#s9"><b>09</b> The communication core — slot · manifest · monitor</a>
     <a href="#s10"><b>10</b> How the library is laid out</a>
+    <a href="#s11"><b>11</b> Relationship to the BeamBots ecosystem</a>
   </div>
 </div>
 
 <!-- ===================== 00 ===================== -->
 <section id="s0">
 <h2><span class="num">00</span>Core principles, goals &amp; invariants</h2>
-<p class="lead">Read this first. It is the contract the rest of the document implements — the <em>why</em> behind every seam. When you extend or change the framework, come back here: a change that violates an invariant below is almost always reintroducing the complecting that made the previous version unreliable.</p>
+<p class="lead">Read this first. It is the contract the rest of the document implements — the <em>why</em> behind every seam. When you extend the framework, come back here: a change that violates an invariant below is almost always letting two concerns that can vary independently share one home.</p>
 
 <h3>Goals — what we optimise for</h3>
-<p>Stated as outcomes, not features. Every design decision should be traceable to one of these.</p>
+<p>Stated as outcomes, not features. Every design decision traces to one of these.</p>
 <div class="grid3">
-  <div class="panel tight"><b style="color:var(--teal)">Compose, don't build</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A new robot is assembled from existing cogs via a manifest. You write core logic; the framework owns the plumbing.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Compose, don't build</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A new robot is assembled from existing cogs through a manifest. You write core logic; the framework owns the plumbing.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Declare, don't wire by hand</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">From the consumer's side it is a composable system of cogs: you declare which cogs you want and how they connect. The framework owns all the non-declarative work — moving commands and readings, checking the link follows through, deciding if a signal is fresh, surfacing an error.</p></div>
   <div class="panel tight"><b style="color:var(--teal)">Fail into legibility</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A fault names itself — what broke, and where — and never collapses into ambiguous silence.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Safe in the gap</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">The robot reaches a safe state on any fault, independently of the part that failed — never depending on recovery succeeding.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Safe in the gap</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">The robot reaches a safe state on any fault, independently of the part that failed, never depending on recovery succeeding.</p></div>
   <div class="panel tight"><b style="color:var(--teal)">Reason locally</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">You can understand and change one cog without holding the whole system in your head.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Test without hardware</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Core logic is pure and replayable: develop on a laptop, replay a run from a log of values.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Right-rate, not max-rate</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Move only the information that's needed, when it's needed. Never flood a wire or a CPU.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Evolve without rewrites</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Add a cog, re-home it to another board, or swap a control law by editing data — not by rippling code.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Test without hardware</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Core logic is pure and replayable: develop on a laptop, reproduce a run from a log of values.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Right-rate, not max-rate</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Move only the information that is needed, when it is needed. Never flood a wire or a CPU.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Evolve without rewrites</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Add a cog, move it to another node, or swap a control law by editing data, not by rippling code.</p></div>
 </div>
 
 <h3>Principles — how we think</h3>
-<p>The tenets that produce those goals. Mostly one idea: keep concerns that can vary independently in separate homes.</p>
+<p>The tenets that produce those goals. Mostly one idea: concerns that can vary independently live in separate homes.</p>
 <div class="panel">
 <ul class="clean" style="list-style:none;padding-left:0">
-  <li><b style="color:var(--gold)">01 · Decomplect relentlessly.</b> What a cog computes, when it runs, how it crosses the wire, what happens when it breaks, and where it physically lives are <em>five</em> separate things — never one object.</li>
+  <li><b style="color:var(--gold)">01 · Keep concerns separate.</b> What a cog computes, when it runs, how it crosses the wire, what happens when it breaks, and which node it lives on are <em>five</em> separate things — never one object.</li>
   <li><b style="color:var(--gold)">02 · Prefer values and pure functions.</b> Push as much of the system as possible into immutable data and input→output functions; reserve processes for what genuinely owns time or a socket.</li>
-  <li><b style="color:var(--gold)">03 · Values carry a generation, not a clock.</b> Every slot value carries a counter that bumps once per write. Freshness is change-detection — did the generation move within a window of the consumer's own local beat — so it needs no timestamp and no clock anywhere. Time is bought back only in the payload of the few slots that fuse, never in the core.</li>
-  <li><b style="color:var(--gold)">04 · One space of named slots; name slots, not peers.</b> Producers and consumers name <em>slots</em>, never each other; a value flows through a named place that holds the latest write. Whether a slot is backed by local memory, an in-process bus, or a wire is hidden from both sides.</li>
-  <li><b style="color:var(--gold)">05 · Transport is meaning-blind.</b> A link moves bytes and counts failures; it never knows what a value means. Consumers see a value, never a frame.</li>
-  <li><b style="color:var(--gold)">06 · Fail-safe ≠ self-heal ≠ observability.</b> Three separate mechanisms with three separate homes. Seeing a fault, being safe in it, and recovering from it are different jobs.</li>
-  <li><b style="color:var(--gold)">07 · Supervision recovers code; an independent floor keeps the actuator fail-passive.</b> A restart is never the safe-state mechanism. The floor guarantees bounded, non-runaway output — not task-safety, which is plant-specific (de-energising is safe for a coasting plant, a controlled fall for a balancer).</li>
-  <li><b style="color:var(--gold)">08 · Configuration is data; mechanism and safety are code.</b> Parameters live in the manifest; the safety transition graph is tested code, never bot-editable.</li>
-  <li><b style="color:var(--gold)">09 · Build in dependency order.</b> Nothing is sound until the layer beneath it is true: bounded I/O before watchdogs before health rows.</li>
+  <li><b style="color:var(--gold)">03 · Values carry a counter, not a clock.</b> Every slot value carries <code>seq</code>, a counter the producer bumps by one on each write. Freshness is change-detection — did <code>seq</code> advance within a window of the consumer's own local beat — so it needs no shared clock anywhere. A producer's local <code>t_dev</code> rides along too, used only for same-device differences (jitter, fusion time-alignment, replay), never to compare one node's clock to another's.</li>
+  <li><b style="color:var(--gold)">04 · One space of named slots; name slots, not nodes.</b> Producers and consumers name <em>slots</em>, never each other. A value flows through a named place that holds the latest write. Whether a slot is backed by local memory or copied across a wire is hidden from both sides — a reader cannot tell local from remote.</li>
+  <li><b style="color:var(--gold)">05 · Transport is meaning-blind.</b> A link moves bytes and counts failures; it never knows what a value means. Consumers read a value, never a frame.</li>
+  <li><b style="color:var(--gold)">06 · Detect, be safe, recover — three jobs.</b> Seeing a fault, being safe in it, and recovering from it are different jobs with three separate homes.</li>
+  <li><b style="color:var(--gold)">07 · Supervision recovers code; an independent floor keeps the actuator safe.</b> A restart is never the safe-state mechanism. The floor lives on the actuator's own chip and drives the plant to its safe action on silence — so it fires even if the master is entirely gone. The safe action is plant-specific (zero torque for the balancer).</li>
+  <li><b style="color:var(--gold)">08 · Configuration is data; mechanism and safety are code.</b> Numbers (gains, thresholds, windows) live in the manifest; the safety transition graph is tested code, never authored by a bot.</li>
+  <li><b style="color:var(--gold)">09 · Declare, pick, validate — one rail.</b> A cog declares a <em>contract</em> — what it consumes and produces, the rate range its hardware allows, which gains are tunable and within what bounds, its safe action and arm gate. The wiring <em>picks</em> concrete values within that contract. The framework <em>validates</em> every pick against the cog's declared limits and refuses to start on any pick that does not fit. No negotiation, no solver — one bounds check, run on a laptop before power-up. Rate, type-match, freshness window and tunable range are all the same check. A cog ships its own contract, so the same cog drops into different bots and each bot picks differently within its limits.</li>
+  <li><b style="color:var(--gold)">10 · Build in dependency order.</b> Nothing above is sound until the layer beneath it is true: bounded I/O before monitors before health rows.</li>
 </ul>
 </div>
 
 <h3>Invariants — what must stay true when you change things</h3>
-<p>The guardrails. Before merging a change, check it against every line. The italic clause is the <em>tell</em> — the symptom that you're about to break the invariant.</p>
+<p>The guardrails. Before merging a change, check it against every line. The italic clause is the <em>tell</em> — the symptom that you are about to break the invariant.</p>
 <div class="panel" style="border-color:rgba(255,111,107,.35)">
 <ul class="clean" style="list-style:none;padding-left:0">
   <li><span class="tag t-bad">never</span> &nbsp;A cog owns transport, scheduling, supervision, or wire-identity. <span style="color:var(--mute)"><em>If a change has a cog reaching for a socket or a timer, a seam is missing — add the seam, don't thicken the cog.</em></span></li>
-  <li><span class="tag t-bad">never</span> &nbsp;A value crosses a slot without a generation. <span style="color:var(--mute)"><em>A frozen-but-trusted field — a value re-presented as fresh though its generation never moved — is the exact bug that made v1 unreliable.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;A value crosses a slot without a <code>seq</code>. <span style="color:var(--mute)"><em>A frozen-but-trusted field — a value re-presented as fresh though its <code>seq</code> never moved — is exactly the failure the counter exists to catch.</em></span></li>
   <li><span class="tag t-bad">never</span> &nbsp;The manifest decides <em>whether</em> to enter the safe state. <span style="color:var(--mute)"><em>It may set thresholds; the transition graph stays in tested code.</em></span></li>
-  <li><span class="tag t-bad">never</span> &nbsp;A second <em>bus</em>, a fault bus, or an optional "health cog." <span style="color:var(--mute)"><em>Faults are domain events on the one bus (L3); liveness is a priority lane in the transport (L2). Health may be <b>scoped</b> into per-subsystem topics (<code>:health/limb_a</code>…) folded to a global truth — that is many topics on the one bus, not a second bus.</em></span></li>
-  <li><span class="tag t-bad">never</span> &nbsp;More than one producer per actuator/command topic. <span style="color:var(--mute)"><em>One writer per command topic. When several sources must command one actuator, an <b>optional arbiter cog</b> becomes that single writer and merges their intents.</em></span></li>
-  <li><span class="tag t-bad">never</span> &nbsp;Freshness measured by a clock, or a raw time gate in a manifest. <span style="color:var(--mute)"><em>A slot is fresh when its generation moved within a <code>fresh_for</code> window of the monitor's local ticks — never a wall-clock age. The communication core that makes this true is §09.</em></span></li>
-  <li><span class="tag t-bot">always</span> &nbsp;Every device read is bounded; every link send is bounded by construction. <span style="color:var(--mute)"><em>L0 is a precondition — establish it before anything above assumes "non-blocking."</em></span></li>
-  <li><span class="tag t-bot">always</span> &nbsp;A new stateful component declares its restart posture and engages the floor while recovering. <span style="color:var(--mute)"><em>A restart is not a safe state; safe-then-resume or restart-clean, stated explicitly.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;A second data plane or an optional "health cog." <span style="color:var(--mute)"><em>A fault is a counter-plus-reason in an ordinary slot; liveness is the platform's reserved low slot range. Health is the <b>fold</b> of monitors that already exist, scoped per subsystem (<code>:health/limb_a</code>…) and folded to one global word — not a separate service to keep in sync.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;More than one producer per command slot. <span style="color:var(--mute)"><em>One writer per command slot. When several sources must command one actuator, an <b>arbiter cog</b> becomes that single writer and merges their intents by a tested priority.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;Freshness measured by a clock, or a raw time gate in the manifest. <span style="color:var(--mute)"><em>A slot is fresh when its <code>seq</code> moved within the consumer's <code>fresh_for</code> window, counted in the consumer's own beats — never a wall-clock age. <code>fresh_for</code> is a multiple of the writer's period, so a window shorter than one write cannot be expressed.</em></span></li>
+  <li><span class="tag t-bot">always</span> &nbsp;Every device read is bounded; every link send is bounded by construction. <span style="color:var(--mute)"><em>This is a precondition — establish it before anything above assumes "non-blocking."</em></span></li>
+  <li><span class="tag t-bot">always</span> &nbsp;A new reader is born stale, and a new stateful component engages the floor while recovering. <span style="color:var(--mute)"><em>A fresh or rebooted reader distrusts whatever value is sitting there until it personally witnesses a new write. A restart is not a safe state.</em></span></li>
   <li><span class="tag t-bot">always</span> &nbsp;The pure core stays pure. <span style="color:var(--mute)"><em>Tempted to put I/O or a clock inside a <code>step</code> or a cook? Thread state as a value and lift the effect into the shell.</em></span></li>
-  <li><span class="tag t-bot">always</span> &nbsp;The actuator floor survives total master loss — and it is tested. <span style="color:var(--mute)"><em>The dead-man lives on a different chip; if the master supervisor dies entirely, torque still zeros on silence.</em></span></li>
+  <li><span class="tag t-bot">always</span> &nbsp;The actuator floor survives total master loss — and it is tested. <span style="color:var(--mute)"><em>The dead-man lives on a different chip; if the master is gone entirely, torque still zeros on silence.</em></span></li>
   <li><span class="tag t-bot">always</span> &nbsp;The master is sized to meet its tightest control loop, and that margin is monitored. <span style="color:var(--mute)"><em>Soft real-time is fine with headroom plus a fail-passive floor; surface worst-case loop latency before it bites — don't discover it in a fall.</em></span></li>
-  <li><span class="tag t-val">check</span> &nbsp;Adding a bot or a cog must not require editing <code>platform/</code>. <span style="color:var(--mute)"><em>If it does, that's the signal to add a seam, not a feature.</em></span></li>
-  <li><span class="tag t-val">check</span> &nbsp;A new wire field earns its place. <span style="color:var(--mute)"><em>Every frame change is a codec bump plus a parity vector — not free bytes.</em></span></li>
-  <li><span class="tag t-val">check</span> &nbsp;Never display confidence you can't observe — and no counter without an incrementer. <span style="color:var(--mute)"><em>A green chip, or a counter hardcoded to 0, with no real signal behind it is worse than none; each counter needs a test proving it actually moves.</em></span></li>
+  <li><span class="tag t-val">check</span> &nbsp;Adding a bot or a cog must not require editing <code>platform/</code>. <span style="color:var(--mute)"><em>If it does, that is the signal to add a seam, not a feature.</em></span></li>
+  <li><span class="tag t-val">check</span> &nbsp;A new wire field earns its place. <span style="color:var(--mute)"><em>Every frame change is a codec bump through the generator, and the drift test must pass — not free bytes.</em></span></li>
+  <li><span class="tag t-val">check</span> &nbsp;Never display confidence you cannot observe — and no counter without an incrementer. <span style="color:var(--mute)"><em>A green chip, or a counter hardcoded to 0, with no real signal behind it is worse than none; each counter needs a test proving it actually moves.</em></span></li>
 </ul>
 </div>
 
 <h3>Capabilities — what the design delivers</h3>
 <p>The features that fall out of the principles above. Each is a property of the framework, free to every bot.</p>
 <div class="grid3">
-  <div class="panel tight"><span class="tag t-bot">compose</span><p style="margin:.4em 0 0;font-size:.9rem">Cogs composed into bots from a single manifest — composition-as-data, read once at boot.</p></div>
-  <div class="panel tight"><span class="tag t-val">pure</span><p style="margin:.4em 0 0;font-size:.9rem">Replayable core logic: develop and unit-test on a laptop; reproduce any run from a value log.</p></div>
-  <div class="panel tight"><span class="tag t-cog">edge</span><p style="margin:.4em 0 0;font-size:.9rem">Push-down processing with backpressure by conflation — cook fast at the edge, report at the master's declared rate.</p></div>
-  <div class="panel tight"><span class="tag t-plat">wire</span><p style="margin:.4em 0 0;font-size:.9rem">Transport-transparent comms over UART / CAN / serial — the same code whether a value is local or three boards away.</p></div>
-  <div class="panel tight"><span class="tag t-plat">health</span><p style="margin:.4em 0 0;font-size:.9rem">Health truth per subsystem (scoped topics) folded to a global nominal/degraded/safe — all on the one bus — driving dashboard, log, the safe-state floor, and firmware validation.</p></div>
-  <div class="panel tight"><span class="tag t-bad">fail-passive</span><p style="margin:.4em 0 0;font-size:.9rem">Independent floors — a comms-independent dead-man at every actuator plus a master-side staleness floor — guaranteeing bounded, non-runaway output (task-safety is plant-specific).</p></div>
+  <div class="panel tight"><span class="tag t-bot">compose</span><p style="margin:.4em 0 0;font-size:.9rem">Cogs composed into bots from a single manifest — composition-as-data, read once at boot, then frozen.</p></div>
+  <div class="panel tight"><span class="tag t-val">contract</span><p style="margin:.4em 0 0;font-size:.9rem">Every cog ships a contract — slots in/out, a rate range, tunable bounds, safe action. The wiring picks values; construction validates each pick and fails loudly on an out-of-range or mis-typed connection, on a laptop.</p></div>
+  <div class="panel tight"><span class="tag t-val">pure</span><p style="margin:.4em 0 0;font-size:.9rem">Replayable core logic: develop and unit-test on a laptop; reproduce any run by re-feeding a recorded value log into <code>step</code>.</p></div>
+  <div class="panel tight"><span class="tag t-cog">edge</span><p style="margin:.4em 0 0;font-size:.9rem">Push-down processing with backpressure by conflation — cook fast at the edge, report at the producer's declared rate.</p></div>
+  <div class="panel tight"><span class="tag t-plat">wire</span><p style="margin:.4em 0 0;font-size:.9rem">Transport-transparent comms over UART / CAN / serial — the same code whether a value is local or three nodes away.</p></div>
+  <div class="panel tight"><span class="tag t-plat">health</span><p style="margin:.4em 0 0;font-size:.9rem">Health truth per subsystem (scopes) folded to a global nominal / degraded / safe, driving the dashboard, the log, and firmware validation.</p></div>
+  <div class="panel tight"><span class="tag t-bad">fail-passive</span><p style="margin:.4em 0 0;font-size:.9rem">An independent floor at every actuator — a comms-independent dead-man on the actuator's own chip — driving the plant to its safe action when the command goes silent.</p></div>
   <div class="panel tight"><span class="tag t-cog">heal</span><p style="margin:.4em 0 0;font-size:.9rem">Per-device self-heal: bounded re-probe behind the device seam — online for soft sensors, at-rest only for load-bearing actuators, never live-energising one mid-task.</p></div>
-  <div class="panel tight"><span class="tag t-plat">recover</span><p style="margin:.4em 0 0;font-size:.9rem">OTP supervision on the master; task watchdog plus A/B firmware revert on the microcontrollers.</p></div>
+  <div class="panel tight"><span class="tag t-plat">recover</span><p style="margin:.4em 0 0;font-size:.9rem">OTP supervision on the master; A/B firmware that is made permanent only after a node's own slots show sustained healthy function, reverted otherwise.</p></div>
   <div class="panel tight"><span class="tag t-val">observe</span><p style="margin:.4em 0 0;font-size:.9rem">Honest link counters (CRC-fail / resync / last-rx-age) that separate garbage from silence from idle-but-alive.</p></div>
-  <div class="panel tight"><span class="tag t-plat">deadline</span><p style="margin:.4em 0 0;font-size:.9rem">Control-loop deadline monitoring — per-tick latency and worst-case jitter are tracked and surfaced, so timing pressure appears on the dashboard before it appears as a fall.</p></div>
-  <div class="panel tight"><span class="tag t-bot">re-home</span><p style="margin:.4em 0 0;font-size:.9rem">Location independence — move a cog to a different board by editing data, not rewriting code.</p></div>
-  <div class="panel tight"><span class="tag t-bot">arbitrate</span><p style="margin:.4em 0 0;font-size:.9rem">Single-writer command topics. When several sources must command one actuator, an <em>optional</em> arbiter cog is the sole producer, merging intents by a tested priority — otherwise it isn't there.</p></div>
-  <div class="panel tight"><span class="tag t-plat">freshness</span><p style="margin:.4em 0 0;font-size:.9rem">Clock-free freshness — a generation counter plus a local beat answer "is this still good?" as binary fresh-or-stale, with no timestamp and no clock sync. The whole communication core is three primitives (§09).</p></div>
+  <div class="panel tight"><span class="tag t-plat">deadline</span><p style="margin:.4em 0 0;font-size:.9rem">Control-loop deadline monitoring — per-tick interval and worst-case jitter are tracked and folded into health, so timing pressure appears on the dashboard before it appears as a fall.</p></div>
+  <div class="panel tight"><span class="tag t-bot">re-home</span><p style="margin:.4em 0 0;font-size:.9rem">Location independence — move a cog to a different node by editing data, then regenerate and reflash; no code rewrite.</p></div>
+  <div class="panel tight"><span class="tag t-bot">arbitrate</span><p style="margin:.4em 0 0;font-size:.9rem">Single-writer command slots. When several sources must command one actuator, an <em>optional</em> arbiter cog is the sole producer, merging intents by a tested priority — otherwise it isn't there.</p></div>
+  <div class="panel tight"><span class="tag t-plat">freshness</span><p style="margin:.4em 0 0;font-size:.9rem">Clock-free freshness — <code>seq</code> plus a local beat answer "is this still good?" as binary fresh-or-stale, with no timestamp and no clock sync. The whole communication core is three primitives (§09).</p></div>
   <div class="panel tight"><span class="tag t-plat">mixed</span><p style="margin:.4em 0 0;font-size:.9rem">Mixed runtime — a BEAM/Elixir master with C/Arduino cogs (or Elixir on the ESP32 via AtomVM).</p></div>
+  <div class="panel tight"><span class="tag t-plat">ecosystem</span><p style="margin:.4em 0 0;font-size:.9rem">Integrates into <a href="https://beambots.dev">BeamBots</a> — define the bot in its topology DSL, surface each off-BEAM cog as a <code>BB.Sensor</code>/<code>BB.Actuator</code> view, and reach the microcontroller it can't (§11).</p></div>
 </div>
 
-<blockquote><p>One sentence to hold all of it: <b>keep the cog thin, make every value carry a generation so freshness needs no clock, and keep fail-safe, self-heal and observability as three separate things</b> — and never let a restart pretend to be a safe state.</p></blockquote>
+<blockquote><p>One sentence to hold all of it: <b>keep the cog thin, make every value carry a counter and a local timestamp so freshness needs no shared clock, answer "is it flowing?" with the counter and "is it real?" with the cook, and keep detecting a fault, being safe in it, and recovering from it as three separate jobs</b> — and never let a restart, a single fresh frame, or a stale intent pretend to be a safe state or an arming.</p></blockquote>
 </section>
 
-<!-- ===================== 01 ===================== -->
 <section id="s1">
 <h2><span class="num">01</span>The system at a glance</h2>
-<p class="lead">Three independent compute units, two wire protocols, one space of named slots on the master. Signal is cooked at the edge and reported upward as low-rate values; intent flows downward and is gated by a local fail-safe floor at the actuator. Colour tells you which <b>stratum</b> each box belongs to. Underneath all of it sit just three ideas — <b>slot · manifest · monitor</b> — detailed in §09; the rest of this document is what you build out of them.</p>
+<p class="lead">Three nodes, two wires, one space of named slots on the master. Signal is cooked at the edge and reported upward as low-rate values; intent flows downward and is gated by a fail-safe floor on the actuator's own chip. Colour tells you which <b>stratum</b> each box belongs to. Underneath all of it sit just three ideas — <b>slot · manifest · monitor</b>, detailed in §09; the rest of this document is what you build out of them.</p>
 
 <figure>
 <div class="mermaid">
 flowchart TB
   subgraph MASTER["🟡 MASTER · Raspberry Pi · Elixir/OTP (BEAM, under Nerves)"]
     direction TB
-    BUS(["slot space · holds latest value + generation"])
+    BUS(["slot space · latest value + seq + t_dev"])
     FOLLOW["follow cog<br/>range → setpoint"] --> BUS
     BAL["balance cog<br/>(pose,setpoint) → motor_target"] --> BUS
     BUS --> BAL
-    BUS --> MB["motor_bridge<br/>publishes downward"]
-    HM["health_monitor<br/>nominal · degraded · safe"] --> BUS
+    BUS --> MB["motor_bridge<br/>writes the command frame"]
+    HM["health fold<br/>nominal · degraded · safe"] --> BUS
     BUS --> HM
-    DASH["dashboard (bot UI)<br/>subscribes :health, :pose"]
-    BUS --> DASH
-    LINK["blaster_link<br/>UART, bounded by construction"]
-    DECODE["decode/translate<br/>frame → Obs value · checks fw_id"]
+    DASH["dashboard (bot UI)"]
+    DASH --> BUS
+    LINK["node_link<br/>UART, bounded by construction"]
+    DECODE["decode<br/>frame → slot value · checks fw_id"]
     BUS --> LINK
     LINK --> DECODE
     DECODE --> BUS
   end
-  MASTER -->|"UART · COBS+CRC · 1 Mbit · value-frames"| BLASTER
-  subgraph BLASTER["🟣 BLASTER · ESP32 · Arduino-C · the comms hub"]
+  MASTER -->|"UART · COBS+CRC · 1 Mbit · value-frames keyed by slot id"| SENSORS
+  subgraph SENSORS["🟣 sensors · ESP32 · Arduino-C · a sensor node"]
     direction TB
     SCHED["cooperative scheduler<br/>(framework owns the loop)"]
     SCHED --- IMU["imu cog<br/>MPU-9250 · 1kHz→50Hz cook"]
-    SCHED --- RNG["range cog<br/>HC-SR04 · 20Hz"]
+    SCHED --- RNG["range cog<br/>HC-SR04 · 20Hz cook"]
     SCHED --- L2["transport: frame · CRC · conflate · count"]
   end
-  BLASTER -->|"serial · value-frames over COBS+CRC"| SMART
-  subgraph SMART["🟢 SMART COG · ESP32 · Arduino-C · MKS FOC"]
+  SENSORS -->|"serial · value-frames over COBS+CRC"| SMART
+  subgraph SMART["🟢 wheels · ESP32 · Arduino-C · MKS FOC"]
     direction TB
-    DM["dead-man floor<br/>no cmd → zero torque"] --> FOC["loopFOC ~kHz<br/>(bounded I²C)"]
+    DM["floor (dead-man)<br/>no fresh cmd → zero torque"] --> FOC["loopFOC ~kHz<br/>(bounded I²C)"]
+    ARM["armed latch + boot nonce"] --> FOC
+    FOC --> ST["status slot<br/>applied seq · floored? · enc ok · reboots"]
     FOC --- ENC["2× AS5600 encoders"]
   end
+  SMART -.->|"status slot · applied seq · floored?"| MASTER
   classDef m fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
   classDef b fill:#1a1733,stroke:#9b8cff,color:#ece9ff;
   classDef c fill:#0c211e,stroke:#46d6c2,color:#dff6f1;
   classDef g fill:#0d2415,stroke:#46c970,color:#dcf6e4;
-  class BUS,FOLLOW,BAL,MB,HM,DASH,LINK,DECODE m; class SCHED,IMU,RNG,L2 b; class DM,FOC,ENC g;
+  class BUS,FOLLOW,BAL,MB,HM,DASH,LINK,DECODE m; class SCHED,IMU,RNG,L2 b; class DM,FOC,ENC,ARM,ST g;
 </div>
-<figcaption>The master is the only place the whole robot's truth lives. Inbound frames become values at a thin decode/translate seam — the one place frame layouts and the board-identity check live; above it, no consumer ever sees a frame. The Blaster is a meaning-blind router that also hosts two sensor cogs; the smart cog protects its own actuator with a comms-independent floor.</figcaption>
+<figcaption>The master is the only place the whole robot's truth lives. Every reader — control cogs, the health fold, the dashboard — pulls its inputs from the slot space on its own beat; the arrows into the slot box are writes, the arrows out are pulls. Inbound frames become slot values at a thin decode seam — the one place frame layouts and the board-identity check live; above it no consumer ever sees a frame. The sensors node is a meaning-blind router that also hosts two sensor cogs. The wheels node protects its own actuator with a floor that runs on its own chip and publishes a status slot so the master can see when it is floored.</figcaption>
 </figure>
 
 <div class="legend">
   <span><span class="sw" style="background:var(--plat)"></span> Master / platform (Elixir)</span>
-  <span><span class="sw" style="background:var(--violet)"></span> Blaster (Arduino-C)</span>
-  <span><span class="sw" style="background:var(--green)"></span> Smart cog (Arduino-C)</span>
+  <span><span class="sw" style="background:var(--violet)"></span> sensors node (Arduino-C)</span>
+  <span><span class="sw" style="background:var(--green)"></span> wheels node (Arduino-C)</span>
   <span><span class="sw" style="background:var(--teal)"></span> values in slots</span>
 </div>
 
 <div class="grid3" style="margin-top:18px">
-  <div class="panel tight"><b style="color:var(--teal)">Slot</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A named place holding one value plus a <em>generation</em> counter. Writing overwrites and bumps the counter; reading never blocks and returns the latest. Backed by memory or a wire — the reader can't tell.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Manifest</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">One file naming every slot and its wiring — who writes, who reads, its <code>fresh_for</code> window. Read once at boot, then frozen. Nothing is discovered at runtime, so the whole shape is checkable on a laptop.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Monitor</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Wakes on a steady local beat and asks one thing per watched slot: did the generation move within its window? Yes → fresh, no → stale. Two answers, no clock. Everything else is composed from these.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Slot</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A named place holding one value plus two stamps: <code>seq</code>, a counter the producer bumps by one on every write, and <code>t_dev</code>, the producer's own local time at that write. Writing overwrites; reading never blocks and returns the latest. Backed by memory or a wire — the reader can't tell.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Manifest</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">One file naming every node, every slot, and its wiring — who writes, who reads, its <code>fresh_for</code> window. Read once at boot, then frozen. Nothing is discovered at runtime, so the whole shape is checkable on a laptop before power-up.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Monitor</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Wakes on a steady local beat and asks one thing per watched slot: did <code>seq</code> advance within its <code>fresh_for</code> window? Yes → fresh, no → stale. Two answers, no shared clock. Everything else is composed from these.</p></div>
 </div>
 </section>
 
-<!-- ===================== 02 ===================== -->
 <section id="s2">
 <h2><span class="num">02</span>The example bot &amp; its cog roster</h2>
-<p><b>follower_segby</b> balances on two wheels and holds a target gap from an obstacle ahead. That single behaviour exercises every concern in the framework: high-rate sensing with push-down, a two-stage controller, a safety-critical actuator, link health, and self-heal. The roster:</p>
+<p><b>follower_segby</b> balances on two wheels and holds a target gap from an obstacle ahead. That single behaviour exercises every concern in the framework: high-rate sensing reduced to a 50 Hz value, a two-stage controller, a safety-critical actuator, link health, and self-heal. The roster:</p>
 
 <table>
 <tr><th style="width:130px">Cog</th><th style="width:70px">Kind</th><th style="width:90px">Node</th><th>Produces → Consumes</th><th>Carries</th></tr>
-<tr><td><b>imu</b></td><td>sensor</td><td><span class="t-cog">blaster</span></td><td>→ <code>:pose</code></td><td>edge transform (1 kHz → 50 Hz), device seam, self-heal</td></tr>
-<tr><td><b>range</b></td><td>sensor</td><td><span class="t-cog">blaster</span></td><td>→ <code>:range</code></td><td>edge transform (median filter), 20 Hz report</td></tr>
+<tr><td><b>imu</b></td><td>sensor</td><td><span class="t-cog">sensors</span></td><td>→ <code>:pose</code></td><td>cook over a 1 kHz read, reported at 50 Hz; device seam; self-heal</td></tr>
+<tr><td><b>range</b></td><td>sensor</td><td><span class="t-cog">sensors</span></td><td>→ <code>:range</code></td><td>cook (median filter), reported at 20 Hz</td></tr>
 <tr><td><b>follow</b></td><td>controller</td><td><span class="t-plat">master</span></td><td><code>:range</code> → <code>:lean_setpoint</code></td><td>pure P-law: gap error → lean target</td></tr>
-<tr><td><b>balance</b></td><td>controller</td><td><span class="t-plat">master</span></td><td><code>:pose</code>,<code>:lean_setpoint</code> → <code>:motor_target</code></td><td>pure PID step (explicit integral value); staleness floor</td></tr>
-<tr><td><b>motor</b></td><td>actuator</td><td><span class="t-cog">smartcog</span></td><td><code>:motor_target</code> →</td><td><b>dead-man floor</b> (mechanism); FOC; encoder fault → stop</td></tr>
-<tr><td><b>health</b></td><td>platform</td><td><span class="t-plat">master</span></td><td>watched inputs → <code>:health/&lt;scope&gt;</code> + global</td><td>platform process, not a cog; per-scope truth folded to a global one; gates firmware validation</td></tr>
+<tr><td><b>balance</b></td><td>controller</td><td><span class="t-plat">master</span></td><td><code>:pose</code>,<code>:lean_setpoint</code> → <code>:motor_target</code></td><td>pure PID step (explicit integral value); returns "no command" when its angle is stale</td></tr>
+<tr><td><b>motor</b></td><td>actuator</td><td><span class="t-cog">wheels</span></td><td><code>:motor_target</code> → <code>:motor_status</code></td><td><b>the floor</b> + armed latch on its own chip; FOC; publishes an applied-command status slot</td></tr>
+<tr><td><b>health</b></td><td>cog</td><td><span class="t-plat">master</span></td><td>watched slots → <code>:health/&lt;scope&gt;</code> + global</td><td>fold of the monitors that already exist; per-scope truth folded to a global one; gates firmware validation</td></tr>
 </table>
 
-<p>The entire bot is a piece of <b>data</b> — composition, addresses, node placement, rates, and the safety <em>parameters</em> (never the safety <em>graph</em>). This is the only "configuration" surface; everything below is framework.</p>
+<p>The whole bot is a piece of <b>data</b> — composition, node placement, the rates and gains <em>picked</em> for each cog, and the wiring between slots. The manifest does not <em>define</em> cogs; each cog ships its own contract (§03) and the manifest only <b>picks values inside that contract and connects the slots</b>. The framework then validates every pick — a rate inside the cog's range, a tunable gain inside its bounds, a producer's output type matching its consumer's input — and refuses to start on any pick that does not fit. The manifest sets numbers; the safety graph is code. This is the only "configuration" surface; everything below is framework.</p>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge data">DATA</span><span class="fn">bots/follower_segby/manifest.exs</span><span style="margin-left:auto">read once at boot → values</span></div>
+  <div class="codehdr"><span class="badge data">DATA</span><span class="fn">bots/follower_segby/manifest.exs</span><span style="margin-left:auto">read once at boot → frozen</span></div>
 <pre class="code"><span class="c"># A bot is composition-as-data. The framework interprets it; nothing here is code.</span>
 %{
   name: :follower_segby,
 
-  <span class="c"># each slot declares its own fresh_for window (and, rarely, a ring depth) in §09;</span>
-  <span class="c"># the cogs below just name which slots they read and write</span>
-
-  cogs: [
-    %{cog: :imu,    addr: <span class="s">"cog.imu"</span>,    node: :blaster},
-    %{cog: :range,  addr: <span class="s">"cog.front"</span>,  node: :blaster},
-    %{cog: :follow, addr: <span class="s">"cog.follow"</span>, node: :master,
-       params: %{gap_mm: 400, kp: 0.0009, lean_max: 0.08}},
-    %{cog: :balance, addr: <span class="s">"cog.balance"</span>, node: :master,
-       params: %{kp: 14.0, ki: 0.6, kd: 0.8, i_max: 0.5},
-       fresh_for: %{pose: 3},           <span class="c"># pose is stale after 3 idle monitor ticks (§09)</span>
-       on_stale: :zero},                <span class="c"># the law's choice when an input is stale: the balancer wants ZERO</span>
-    %{cog: :motor,  addr: <span class="s">"cog.drive"</span>, node: :smartcog,
-       params: %{deadman_ms: 120, on_stale: :zero}}   <span class="c"># selects a compiled-in mechanism</span>
+  <span class="c"># a node has a runtime and a link to its parent; the master is the one node</span>
+  <span class="c"># with no parent — it hosts the slot space and the supervision tree.</span>
+  nodes: [
+    %{node: :master,  runtime: :beam},
+    %{node: :sensors, runtime: :c_esp32,
+       link: %{parent: :master,  transport: :uart, port: <span class="s">"/dev/ttyAMA0"</span>, baud: 1_000_000}},
+    %{node: :wheels,  runtime: :c_esp32,
+       link: %{parent: :sensors, transport: :uart, baud: 1_000_000}}
   ],
 
-  <span class="c"># health is scoped per subsystem and folded to a global truth. follower_segby</span>
-  <span class="c"># has one scope; a multi-limb bot declares one per limb, each watching its own</span>
-  <span class="c"># sensors and flooring only its own actuators.</span>
-  health: %{scopes: %{all: %{watch: [:pose], critical: [:pose], floors: [:motor]}}}
+  <span class="c"># each entry PICKS values inside a cog's declared contract (§03) and places</span>
+  <span class="c"># it on a node; it never restates the contract. `rate:` is a pick inside the</span>
+  <span class="c"># cog's rate range — construction fails if it falls outside. each reader's</span>
+  <span class="c"># own fresh_for window is a multiple of the writer's nominal period (§09).</span>
+  cogs: [
+    %{cog: :imu,    node: :sensors, rate: 50},   <span class="c"># imu can do [20,1000]; pick 50 Hz — valid</span>
+    %{cog: :range,  node: :sensors, rate: 20},
+    %{cog: :follow, node: :master,
+       params: %{gap_mm: 400, kp: 0.0009, lean_max: 0.08}},
+    %{cog: :balance, node: :master,
+       params: %{kp: 14.0, ki: 0.6, kd: 0.8, i_max: 0.5},
+       tunable: [:kp, :ki, :kd],        <span class="c"># live-tunable gains (§06); i_max feeds a -D, so NOT tunable</span>
+       fresh_for: %{pose: 3},           <span class="c"># pose is stale after 3 missed writes (§09)</span>
+       on_stale: :no_command},          <span class="c"># the law's choice when an input is stale</span>
+    %{cog: :motor,  node: :wheels,
+       arm_gate: :upright,              <span class="c"># selects a compiled-in safe-to-arm check (§07)</span>
+       params: %{fresh_for: %{motor_target: 6}, arm_beats: 50}}  <span class="c"># floor window + arm dwell</span>
+  ],
+
+  <span class="c"># health is the fold of the monitors that already exist, scoped per</span>
+  <span class="c"># subsystem and folded to a global truth. follower_segby has one scope;</span>
+  <span class="c"># a multi-limb bot declares one per limb, each watching its own sensors.</span>
+  health: %{scopes: %{all: %{watch: [:pose, :motor_status], critical: [:pose]}}}
 }</pre>
 </div>
 
 <div class="panel">
-<h3 style="margin-top:.2em">Command topics have a single writer</h3>
-<p>Each actuator/command topic is produced by <b>exactly one cog</b>. On <code>follower_segby</code> that's <code>balance</code> producing <code>:motor_target</code> — one writer, so there is no arbiter and nothing to arbitrate. The arbiter is an <em>optional</em> seam that appears only when more than one source must command the same actuator: the controllers publish <em>intents</em> and an arbiter cog becomes the single producer, merging them by a tested priority.</p>
-<p style="color:var(--mute);font-size:.94rem">Often you don't need it even with teleop in the mix — teleop can steer <em>through</em> the policy by adjusting the setpoint the policy consumes, leaving the policy as the single writer. The arbiter is only for the case where teleop <em>bypasses</em> the policy to command the actuator directly.</p>
+<h3 style="margin-top:.2em">A command slot has a single writer</h3>
+<p>Each command slot is produced by <b>exactly one cog</b>. On <code>follower_segby</code> that is <code>balance</code> producing <code>:motor_target</code> — one writer, so there is no arbiter and nothing to arbitrate. An arbiter is a seam that appears only when more than one source must command the same actuator: the controllers write <em>intent</em> slots and an arbiter cog becomes the single writer of <code>:motor_target</code>, merging them by a tested priority.</p>
+<p style="color:var(--mute);font-size:.94rem">Teleop can steer <em>through</em> the policy by adjusting the setpoint slot the policy reads, which leaves the policy as the single writer. The arbiter is for the case where teleop <em>bypasses</em> the policy to command the actuator directly.</p>
 <div class="mermaid">
 flowchart LR
-  B["balance"] --> BI["balance_intent"]
-  K["teleop"] --> KI["teleop_intent"]
-  BI --> ARB["arbiter — sole writer of motor_target<br/>priority teleop over balance"]
-  KI --> ARB
-  ARB --> MT["motor_target"]
+  B["balance"] --> BI["balance_intent · slot"]
+  K["teleop"] --> KI["teleop_intent · slot"]
+  ARB["arbiter — sole writer of motor_target<br/>priority: teleop over balance"] --> BI
+  ARB --> KI
+  ARB --> MT["motor_target · slot"]
   classDef ok fill:#0d2415,stroke:#46c970,color:#dcf6e4;
   class ARB ok
 </div>
+<figcaption>The arbiter pulls both intent slots on its beat and writes the one chosen slot. Pull arrows run consumer → slot; the arbiter is the single producer of <code>:motor_target</code>.</figcaption>
 <div class="codewrap" style="margin-bottom:0">
   <div class="codehdr"><span class="badge data">DATA</span><span class="fn">manifest — present only when two sources command one actuator</span></div>
-<pre class="code"><span class="c"># omit entirely on a single-writer bot like follower_segby</span>
-%{cog: :arbiter, addr: <span class="s">"cog.arb"</span>, node: :master,
+<pre class="code"><span class="c"># omitted entirely on a single-writer bot like follower_segby</span>
+%{cog: :arbiter, node: :master,
    consumes: [:teleop_intent, :balance_intent], produces: :motor_target,
-   params: %{priority: [:teleop_intent, :balance_intent]}}   <span class="c"># first present wins</span></pre>
+   params: %{priority: [:teleop_intent, :balance_intent]}}   <span class="c"># first fresh one wins</span></pre>
 </div>
 </div>
 </section>
 
-<!-- ===================== 03 ===================== -->
 <section id="s3">
 <h2><span class="num">03</span>Anatomy of a cog</h2>
-<p>A cog is a thin shell the framework provides, wrapped around the few things the user actually writes. The diagram shows the split: <span class="t-val">teal</span> is yours (pure, hardware-free, unit-testable); <span class="t-plat">gold</span> is framework (everything with a clock or a socket).</p>
+<p>A cog is the software unit the user writes, plus a thin shell the framework wraps around it. The diagram shows the split: <span class="t-val">teal</span> is yours (pure, hardware-free, unit-testable); <span class="t-plat">gold</span> is framework (everything with a clock or a socket). A node is the physical board a cog runs on; the two are never confused.</p>
 
 <figure>
 <div class="mermaid">
 flowchart LR
-  subgraph SHELL["framework shell (you never edit this)"]
+  subgraph SHELL["framework shell"]
     direction TB
-    SUB["bus adapter<br/>subscribe consumed topics"] --> GATE
-    GATE["freshness gate<br/>marks stale inputs, hands them to the law"] --> USER
-    USER --> PUB["bus adapter<br/>publish produced topic"]
-    SUP["supervisor<br/>restart per declared posture"] -. wraps .- USER
-    SCH["scheduler / link<br/>time and transport"] -. drives .- SUB
+    PULL["pull on beat<br/>sample consumed slots from the slot space"] --> GATE
+    GATE["freshness check<br/>per slot: did seq advance within fresh_for?<br/>marks each input fresh or stale"] --> USER
+    USER --> STAMP["stamp + write<br/>bump seq, set t_dev, Slot.put"]
+    SUP["supervisor<br/>own restart budget"] -. wraps .- USER
+    SCH["scheduler / link<br/>time and transport"] -. drives .- PULL
   end
-  subgraph YOURS["what you write — pure and declarative"]
+  subgraph YOURS["what you write — pure"]
     direction TB
-    CONTRACT["contract: produces/consumes + types"]
-    PARAMS["params (from manifest)"]
-    USER["step(State, Inputs, Stale, Params)<br/>returns a Value · or · no_command<br/>your core logic"]
+    CONTRACT["contract: slots in/out · rate range · safe action · tunable bounds"]
+    PARAMS["params: boot value, or a tuning slot"]
+    USER["step(State, Fresh, Stale, Params)<br/>returns Value + next State · or · no_command"]
   end
   classDef s fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
   classDef y fill:#0c211e,stroke:#46d6c2,color:#dff6f1;
-  class SUB,GATE,PUB,SUP,SCH s; class CONTRACT,PARAMS,USER y;
+  class PULL,GATE,STAMP,SUP,SCH s; class CONTRACT,PARAMS,USER y;
 </div>
-<figcaption>The cog's only required moving part is a pure <code>step</code>. It returns a <em>value</em> (the shell, not the law, stamps it) plus its next state — so a PID integral is threaded in and out as an explicit value, and the law touches no clock or socket. That is "value + time," decomplected.</figcaption>
+<figcaption>The cog's only required moving part is a pure <code>step</code>. It returns a <em>value</em> plus its next state; the shell, not the law, bumps <code>seq</code>, sets <code>t_dev</code>, and writes the slot. A balancer's integral is threaded in and out of <code>step</code> as an explicit value, so the law touches no clock and no socket — and a recorded run can be replayed by re-feeding the same inputs and state.</figcaption>
 </figure>
 
-<p>So a sensor cog supplies a device binding + an edge transform; a controller cog supplies a <code>step</code>; an actuator cog supplies a safe-state mechanism. None of them supply transport, timing, supervision, or wire-identity. Section 6 and 7 show all three kinds in real code.</p>
+<p>Each kind of cog supplies a small pure core and nothing else. A sensor cog supplies a device binding plus a cook that turns a window of raw samples into <code>{:ok, value}</code> or <code>:invalid</code>. A controller cog supplies a <code>step</code> that is told which inputs are stale and decides how to degrade. An actuator cog supplies a plant-specific safe action for its floor. None of them supply transport, timing, supervision, or wire identity — the shell owns all of that. Sections 6 and 7 show all three kinds in real code.</p>
+
+<h3>The cog interface — a pure core plus a contract</h3>
+<p>The pure core is one half of what a cog author writes; the other half is the <b>contract</b> — a small block of data that declares everything the framework needs to wire the cog safely without ever reading its code. The contract is the cog's public face, and it is deliberately short. These are the only eight things an author states; everything else (slot ids, freshness windows in beats, wire budget, firmware schedules) the framework <em>derives</em> from them.</p>
+
+<table>
+<tr><th style="width:120px">Contract field</th><th>What it declares</th><th style="width:150px">Who it constrains</th></tr>
+<tr><td><code>consumes</code></td><td>the slots this cog reads, each with its value type</td><td>type-checked at wiring</td></tr>
+<tr><td><code>produces</code></td><td>the slots this cog writes, each with its value type</td><td>single-writer, type-checked</td></tr>
+<tr><td><code>rate</code></td><td>the range of rates the hardware can sustain — <code>rate_max</code>, optionally <code>rate_min</code></td><td>the wiring picks a rate inside it</td></tr>
+<tr><td><code>core</code></td><td>the one pure function — a <code>cook</code> (sensor), a <code>step</code> (controller), or a <code>floor</code> (actuator)</td><td>the only code the author writes</td></tr>
+<tr><td><code>safe_action</code></td><td>the plant-specific action the floor takes on silence (zero torque, brakes on…)</td><td>actuators only; intrinsic</td></tr>
+<tr><td><code>arm_gate</code></td><td>names a compiled-in safe-to-arm predicate (<code>:upright</code>, <code>:at_rest</code>, <code>:always</code>)</td><td>actuators only; selected, never authored</td></tr>
+<tr><td><code>on_stale</code></td><td>how this cog degrades when a named input goes stale (<code>:no_command</code>, hold-last…)</td><td>the author's degradation intent</td></tr>
+<tr><td><code>tunable</code></td><td>which params may change at runtime, each with a compiled-in <code>[min,max]</code> and max slew</td><td>bounded live tuning (§06)</td></tr>
+</table>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge data">DATA</span><span class="fn">cogs/imu/contract.exs</span><span style="margin-left:auto">the cog's public face — travels with the cog</span></div>
+<pre class="code"><span class="c"># A cog ships its OWN contract. The bot manifest doesn't restate any of this —</span>
+<span class="c"># it only PICKS values inside the limits declared here (see §02).</span>
+%{
+  cog:      :imu,
+  produces: %{pose: <span class="t">Pose</span>},               <span class="c"># one slot, typed; single-writer by construction</span>
+  rate:     %{max: 1_000, min: 20},        <span class="c"># Hz the MPU-9250 can sustain — a fact about the hardware</span>
+  core:     {<span class="t">CookPose</span>, :cook},            <span class="c"># the pure cook: window -> {:ok, value} | :invalid</span>
+  on_stale: :no_value                      <span class="c"># a sensor degrades by simply not writing → seq freezes</span>
+}</pre>
+</div>
+
+<h3>Declare · pick · validate</h3>
+<p>The contract is half of one rail that runs through the whole framework (principle 09). The cog <b>declares</b> its limits; the bot's wiring <b>picks</b> a concrete value inside them; construction <b>validates</b> the pick and refuses to start if it does not fit. There is no negotiation and no solver — the framework never searches for an optimum. You say <code>50&nbsp;Hz</code>; if that is inside the cog's range it stands, and if it isn't, the build fails on a laptop and prints the cog, the limit, and the value that broke it. One bounds check, run before any hardware moves.</p>
+
+<p>What makes this powerful is that <em>every</em> wiring decision is the same check. Rate, type-match, the freshness window, and a tunable gain are all "is this pick inside that declared range?" — so there is one rule to learn, not four. And because a cog declares limits rather than fixing a number, the same published cog drops into many bots: a temperature cog that can sample <code>[0.1, 10]&nbsp;Hz</code> is read every 5&nbsp;s in one bot and every 30&nbsp;s in another, each a legal pick; ask for 5&nbsp;kHz and construction refuses it. The constraint lives where the truth lives — on the cog, next to the hardware that imposes it.</p>
+
+<div class="callout good">
+<div class="ct"><span class="t-val">a slot is constrained from both ends</span> because a cog is bidirectional</div>
+<p style="margin:.3em 0 0">A cog is not always a producer — an actuator <em>consumes</em> a command. So a rate limit is not "the producer's rate"; it is a constraint on the <b>slot</b>, contributed by whichever side touches it. A sensor constrains its slot from the output side (<em>"I can produce pose up to 1&nbsp;kHz"</em>); an actuator constrains its command slot from the input side (<em>"drive me no slower than 10&nbsp;Hz or my floor fires"</em>). The picked rate must satisfy every constraint on the slot, so a 5&nbsp;Hz controller wired to that actuator is a construction error — the dead-man-versus-rate mismatch is caught on a laptop, not discovered in a fall. The wire-budget check (§09) is the same idea at the link level: it confirms all the rate picks on a link have room to coexist.</p>
+</div>
+
+<p>One value, resolved as late as is safe and no later. A rate is fixed at construction and frozen into the generated firmware. A safety window or an arm gate is <em>compiled in</em>, because the floor must hold even if the master is gone — it can never wait on a runtime value. Only a <code>tunable</code> gain resolves at runtime, and only inside its compiled-in bounds. The author picks values; the value's safety role picks <em>when</em> it binds.</p>
 </section>
 
-<!-- ===================== 04 ===================== -->
 <section id="s4">
 <h2><span class="num">04</span>One tick, end to end</h2>
-<p>This is the heart of "how it comes together." Follow a single 50&nbsp;Hz control cycle from an IMU sample on the Blaster to torque at the wheels, crossing both wires. Notice that no participant knows the topology of any other — they exchange <em>values on topics</em>.</p>
+<p class="lead">Follow a single 50&nbsp;Hz cycle of <code>follower_segby</code> from an IMU sample to torque at the wheels, crossing both wires. No participant knows where any other lives. Each one reads or writes a <span class="tag t-val">slot</span> by id and never names a peer.</p>
 
 <figure>
 <div class="mermaid">
 sequenceDiagram
   autonumber
-  participant IMU as imu cog (Blaster)
-  participant TX as transport (Blaster)
-  participant BUS as cog_bus (Master)
-  participant BAL as balance cog (Master)
-  participant MB as motor_bridge (Master)
-  participant DM as motor cog (Smart cog)
-  Note over IMU: sampled ~20× at 1 kHz since last report
-  IMU->>IMU: cook_pose(window) → Pose  (pure edge transform)
-  IMU->>TX: link_send(Obs :pose, gen++)
-  Note over TX: conflate per (type,addr): keep latest, drop intermediates
-  TX->>BUS: value-frame → write slot :pose
-  BUS->>BAL: pose value
-  Note over BAL: freshness check: pose generation moved within 3 ticks
-  BAL->>BAL: u,i = BalancePid.step(i, inputs, stale, p) — pure, no clock
-  Note over BAL: shell writes Cmd setpoint=u — the write bumps the gen
-  BAL->>BUS: write slot :motor_target
-  BUS->>MB: motor_target Cmd
-  MB->>DM: value-frame down the wire
-  DM->>DM: on_command: target=Cmd (its generation moved → reset idle)
-  Note over DM: control_tick (~kHz): commands fresh → drive
-  DM->>DM: loopFOC(target)  → torque at wheels
+  participant IMU as imu cog (sensors)
+  participant TX as link (sensors)
+  participant SLOT as slot space (master)
+  participant BAL as balance cog (master)
+  participant TXM as link (master)
+  participant DM as motor cog (wheels)
+  Note over IMU: ~20 raw samples gathered at 1 kHz this beat
+  IMU->>IMU: cook(window) returns ok-pose, or invalid
+  Note over IMU: a valid value is written, an invalid one is not, so seq is frozen
+  IMU->>TX: shell writes slot pose (seq++ , t_dev stamped)
+  Note over TX: conflate per slot id — hold one pending value, send the newest
+  TX->>SLOT: frame{slot_id=pose, fw_id, seq, t_dev, payload, crc} → Slot.put
+  Note over BAL: on its own beat, BAL pulls its inputs
+  BAL->>SLOT: Slot.get pose
+  Note over BAL: monitor — did pose seq advance within fresh_for? fresh or stale
+  BAL->>BAL: BalanceLaw.step(state, fresh, stale, params) returns torque + next state — pure, no clock
+  Note over BAL: the shell writes the result and the write bumps seq
+  BAL->>SLOT: Slot.put motor_target (seq++ , t_dev stamped)
+  SLOT->>TXM: conflate, frame motor_target down the wire
+  TXM->>DM: frame{slot_id=motor_target, ...}
+  Note over DM: floor monitor — command seq advancing within window AND armed?
+  DM->>DM: armed & fresh → loopFOC(target) → torque at wheels
 </div>
-<figcaption>Twelve hops, two wires, zero topology knowledge. The balance cog never learns the IMU lives on another board; the motor cog never learns who computed its target. Each step is either a pure function or a value moving through a slot. Steps 5 and 13 are the safety seams — a stale pose floors the output at the cog, and a stale command floors the torque at the actuator, each independently.</figcaption>
+<figcaption>Diagrams first: one beat, two wires, no topology knowledge. The balance cog never learns the IMU lives on <code>sensors</code>; the motor cog never learns who computed its target. Every step is either a pure function or a value moving through a slot keyed by its id. The two safety seams are the freshness checks: a stale <code>:pose</code> makes the law return "no command" so its <code>:motor_target</code> seq freezes, and that frozen command floors the torque at <code>wheels</code> — each check independent, each firing by a producer going silent.</figcaption>
 </figure>
+
+<div class="grid2">
+<div class="panel tight">
+<h3>The freshness seam at the cog</h3>
+<p>The balance cog samples <code>:pose</code> on its own beat and asks its monitor one question: did <code>:pose</code>'s <code>seq</code> advance within the <code>fresh_for</code> window? If <code>:pose</code> is stale, the law is told so and degrades — a balancer with no fresh angle returns "no command". The shell then writes nothing, so <code>:motor_target</code>'s <code>seq</code> stops moving. The cog never invents a safe value; it simply stops producing.</p>
+</div>
+<div class="panel tight">
+<h3>The freshness seam at the actuator</h3>
+<p>The motor cog on <code>wheels</code> runs a monitor of its own, on its own chip: it watches <code>:motor_target</code>'s <code>seq</code> against its local beat. When the <code>seq</code> stops advancing within the window, the floor drives zero torque — the safe action for a balancer. The floor lives on the actuator's own chip, so it fires even if the master is entirely gone.</p>
+</div>
+</div>
+
+<div class="codewrap">
+<div class="codehdr"><span class="fn">balance/step.ex</span><span class="badge erl">Elixir</span></div>
+<pre><code># Pure: state in, value + next state out. No clock, no socket.
+# `fresh` carries the slot values whose seq advanced in-window;
+# `stale` names the slots whose seq did not.
+def step(st, fresh, stale, params) do
+  if :pose in stale do
+    # No fresh angle → no trustworthy command this beat.
+    # Returning :no_command means the shell does not write,
+    # so :motor_target seq freezes and the floor on wheels engages.
+    {:no_command, st}
+  else
+    {err, i} = integrate(st.i, params.setpoint - fresh.pose.tilt)
+    u = params.kp * err + params.ki * i + params.kd * fresh.pose.rate
+    {clamp(u, params.u_limit), %{st | i: i}}
+  end
+end
+</code></pre>
+</div>
 
 <div class="callout good">
 <div class="ct"><span class="t-val">why this is debuggable</span> Replay, not re-run</div>
-<p style="margin:.3em 0 0">Because the law is pure — the shell, not the law, stamps the result — you can log the bus and the wire and <b>replay the tick on a laptop</b>: feed the recorded <code>:pose</code> stream into <code>BalancePid.step</code> and get <b>deterministic</b> outputs with no robot attached. Replay is bit-exact on the same target and tolerance-bounded across targets (floats round differently on ESP32 vs ARM vs x86), so it's ideal for logic bugs, not for chasing the last LSB. A control bug becomes "diff two value streams," not "re-create the fault on hardware."</p>
+<p style="margin:.3em 0 0">The law is pure and the shell — not the law — stamps the result, so the recorder logs each beat's record: the fresh inputs and their <code>seq</code>s, the stale set, the parameters, the law's incoming state, and the emitted output. Replaying is literally re-feeding that record into <code>BalanceLaw.step</code> and getting the same output, with no robot attached. Replay is exact on the same target and tolerance-bounded across targets, because floats round differently on an MCU than on the master. A control bug becomes "diff two value streams," not "re-create the fault on hardware."</p>
 </div>
 </section>
 
-<!-- ===================== 05 ===================== -->
 <section id="s5">
 <h2><span class="num">05</span>The wire: a value becomes a frame (and back)</h2>
-<p>Above the wire, everything is a value living in a named <em>slot</em>. On the wire, a value is a flat, fixed-layout frame wrapped in COBS framing with a CRC. The codec is the <em>only</em> place that knows the byte layout — data structure and serialization are separate things, so changing a payload never means hand-editing byte math in a cog.</p>
+<p>Above the wire, everything is a value living in a named <em>slot</em>. On the wire, that value is a flat, fixed-layout frame wrapped in framing with a CRC. The codec is the only place that knows the byte layout — the data and its serialization are separate concerns, so changing a payload never means hand-editing byte math inside a cog.</p>
 
 <div class="bytes">
-  <div class="bf f"><b>0x00</b><span>COBS delim</span></div>
+  <div class="bf f"><b>0x00</b><span>frame delim</span></div>
   <div class="bf f"><b>LEN</b><span>1 B</span></div>
-  <div class="bf h"><b>TYPE</b><span>1 B · slot id</span></div>
-  <div class="bf h"><b>ADDR</b><span>1 B · cog.imu</span></div>
-  <div class="bf f"><b>FW_ID</b><span>1 B · every frame</span></div>
-  <div class="bf m"><b>GEN</b><span>2 B · generation</span></div>
-  <div class="bf p"><b>PAYLOAD</b><span>n B · value (+ t_dev if fusing)</span></div>
+  <div class="bf h"><b>SLOT_ID</b><span>2 B · the one identity</span></div>
+  <div class="bf f"><b>FW_ID</b><span>2 B · every frame</span></div>
+  <div class="bf m"><b>SEQ</b><span>2 B · write counter</span></div>
+  <div class="bf p"><b>T_DEV</b><span>8 B · producer's own 64-bit clock</span></div>
+  <div class="bf p"><b>PAYLOAD</b><span>n B · value</span></div>
   <div class="bf f"><b>CRC16</b><span>2 B</span></div>
-  <div class="bf f"><b>0x00</b><span>COBS delim</span></div>
+  <div class="bf f"><b>0x00</b><span>frame delim</span></div>
 </div>
-<p style="font-size:.9rem;color:var(--mute);margin-top:-2px">The same value exists three times along its journey — a C struct on the Blaster, these bytes on the UART, an Elixir <code>%Obs{}</code> on the master — but it is conceptually <em>one value in one slot</em>. What crosses the wire to answer "is this still good?" is the <b>generation</b>: a small counter that bumps once per write. The reader compares it to the last it saw — moved means new, unmoved past its <code>fresh_for</code> window means stale — so the exact same fresh/stale check works for a slot in local memory and a slot three boards away, with no clock and nothing to synchronise. There is <em>no edge timestamp in the frame</em>: time is bought back only inside the <b>payload</b> of the few slots that fuse — a per-device monotonic stamp (§09) — never as a tax on every frame. The firmware id rides on every frame and is checked at the decode seam against a per-node expected value, so a mis-flashed board surfaces as a <em>fault</em> and is refused arming. Slot <code>TYPE</code>s live in a dedicated range; a small low range is reserved for platform/liveness frames so a value type can never collide with the liveness lane. Routing keys on <b>ADDR</b>, so one shared frame type carrying many sources is a table lookup, not a dispatcher special case.</p>
+<p style="font-size:.9rem;color:var(--mute);margin-top:-2px">The same value exists three times along its journey — a C struct on the wheel board, these bytes on the UART, an Elixir term on the master — but it is conceptually <em>one value in one slot</em>. There is exactly one identity on the wire: the <b>slot id</b>. The frame never names a producer. What crosses to answer "is this still flowing?" is the <b>seq</b>: a counter the producer bumps by one on every write. The reader compares it to the last seq it saw — moved means a new write, unmoved past its <code>fresh_for</code> window means stale — so the exact same fresh/stale check works for a slot in local memory and a slot three boards away, with no clock and nothing to synchronise. The frame also carries <b>t_dev</b>, the producing node's own 64-bit monotonic time at the write. It is never compared across nodes; the freshness check never reads it. It is carried so a fusing reader can time-align same-device samples, so per-producer latency and jitter are observable, and so a recorded run replays against its own in-band clock; it is 64-bit so a node's monotonic clock never wraps in the field. The <b>firmware id</b> rides on every frame and is checked at the decode seam against the value expected for that slot's node, so a mis-flashed board surfaces as a fault and is refused arming — it is two bytes because folding only one byte would let a wrong image alias to a clean one. Slot ids live in a dedicated range; a small low range is reserved for platform frames — liveness, arming, global stop — so a value slot id can never collide with the platform lane. Routing keys on the slot id through the generated topology: a hub forwards a number toward the side that produces or consumes that slot, a table lookup, never a peer-name dispatch.</p>
 
 <div class="callout good" style="border-color:rgba(70,214,194,.4);background:rgba(70,214,194,.05)">
 <div class="ct" style="font-weight:700;color:var(--teal);font-family:'JetBrains Mono',monospace;font-size:.82rem;letter-spacing:.04em">ONE CONTRACT, GENERATED — THE WIRE CANNOT DRIFT</div>
-<p style="margin:.3em 0 0">The frame layout, <code>TYPE</code>/<code>ADDR</code> constants, and codecs come from a single source of truth (<code>topic_contract.ex</code>); the C header is <b>generated</b> from it and a drift test fails the build if the on-disk header differs. The C constants physically cannot diverge from the Elixir definition, and byte-exact parity vectors stay as the cross-language witness for the codecs. This is what makes "a wire change is a codec bump plus a parity vector" safe rather than scary. A slot's freshness window and ring depth are manifest data, generated into the firmware the same way — see §09.</p>
+<p style="margin:.3em 0 0">The frame layout, the slot ids, the codecs, and the per-slot routing all come from the manifest through one generator. The C headers are generated from it, and a drift test fails the build if a generated header on disk differs from the manifest. The C constants physically cannot diverge from the Elixir definitions, and byte-exact parity vectors stand as the cross-language witness for the codecs. A slot's <code>fresh_for</code> window is manifest data, generated into the firmware the same way — see §09. Because <code>fresh_for</code> is a multiple of the writer's nominal period, a window shorter than one write cannot even be expressed.</p>
 </div>
 
 <div class="grid3">
-  <div class="panel tight"><b style="color:var(--teal)">Lean by default</b><p style="margin:.4em 0 0;font-size:.9rem">Counters on the wire carry only what disambiguates failure: <code>crc_fail</code>, <code>resync</code>, <code>last_rx_age</code>, <code>bytes_in</code>. Decorative histograms can wait — every new frame field is a version bump and a parity vector.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Three buckets, honestly</b><p style="margin:.4em 0 0;font-size:.9rem">Those counters separate <em>garbage-on-the-wire</em> from <em>nothing-on-the-wire</em> from <em>idle-but-alive</em>. They cannot separate dead/unpowered/mis-wired — those all read <code>bytes_in==0</code> and are a bring-up problem, not a runtime one.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Conflated, not queued</b><p style="margin:.4em 0 0;font-size:.9rem">The link holds one pending slot per <code>(type,addr)</code>. A fast producer overwrites its own slot; the wire carries the latest, never a backlog. Backpressure by construction, not by alarm.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Lean by default</b><p style="margin:.4em 0 0;font-size:.9rem">Link counters carry only what disambiguates failure: <code>crc_fail</code>, <code>resync</code>, <code>last_rx_age</code>, <code>bytes_in</code>. Decorative histograms stay off the wire — every new frame field is a codec bump and a parity vector.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Three buckets, honestly</b><p style="margin:.4em 0 0;font-size:.9rem">Those counters separate <em>garbage on the wire</em> from <em>nothing on the wire</em> from <em>idle but alive</em>. They cannot separate dead from unpowered from mis-wired — those all read <code>bytes_in == 0</code> and are a bring-up problem, not a runtime one.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Conflated, not queued</b><p style="margin:.4em 0 0;font-size:.9rem">The link holds one pending value per slot. A fast producer overwrites its own pending value; the wire carries the latest, never a backlog. Bandwidth is slots × window rate × frame size, independent of bursts.</p></div>
+</div>
+
+<div class="codewrap">
+<div class="codehdr"><span class="fn">wire/decode.ex</span><span class="badge erl">Elixir</span></div>
+<pre><code>def decode(frame) do
+  with {:ok, %{slot_id: id, fw_id: fw, seq: seq, t_dev: t, payload: raw}} &lt;- unframe(frame),
+       {:ok, entry} &lt;- Topology.lookup(id) do          # one slot-id table lookup
+    if fw == entry.expected_fw do
+      value = entry.codec.decode(raw)                    # the codec owns the byte layout
+      Slot.put(id, value, seq, t)                        # atomic write of the whole row
+    else
+      Fault.bump(:fw_mismatch, slot: id)                 # mis-flashed board → refused arming
+    end
+  else
+    :error -> Link.bump(:unknown_slot)                   # unknown id: dropped and counted, never guessed
+  end
+end</code></pre>
 </div>
 </section>
 
-<!-- ===================== 06 ===================== -->
 <section id="s6">
 <h2><span class="num">06</span>Master code — Elixir / OTP</h2>
-<p>The master is plain OTP, written in Elixir, running on the BEAM under Nerves on the Pi. Four pieces: the bus, the generic cog shell, a pure law, and the health authority — plus the supervision tree that composes them from the manifest.</p>
+<p class="lead">The master is plain OTP, written in Elixir, running on the BEAM under Nerves on the Pi. Five pieces: the slot table, the generic cog shell, a pure law, the health fold, and the loop instrument — composed into a supervision tree from the manifest.</p>
 
 <figure>
 <div class="mermaid">
 flowchart TB
   APP["follower_segby · application"] --> SUP["follower_segby_sup · one_for_one"]
-  SUP --> BUS["cog_bus"]
-  SUP --> LINK["blaster_link<br/>restart-clean: reopen UART"]
-  SUP --> HM["health_monitor<br/>always-on platform process"]
+  SUP --> SLOT["slot_table<br/>holder + heir · node-lifetime"]
+  SUP --> LINK["node_link · sensors<br/>restart-clean: reopen the link"]
   SUP --> C1["cog_server · follow"]
-  SUP --> C2["cog_server · balance<br/>restart → integral re-zeros (safe init)"]
+  SUP --> C2["cog_server · balance<br/>restart → monitor reborn STALE"]
   SUP --> C3["cog_server · motor_bridge<br/>near-stateless forwarder"]
+  SUP --> HM["health_monitor<br/>fold of the slot monitors"]
+  SUP --> LM["loop_monitor<br/>per-tick interval · p99"]
   classDef m fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
-  class APP,SUP,BUS,LINK,HM,C1,C2,C3 m;
+  class APP,SUP,SLOT,LINK,C1,C2,C3,HM,LM m;
 </div>
-<figcaption>The supervisor recovers <em>code</em>; the floors (§8) make the actuator <em>safe in the gap</em>. Restart-cleanliness is declared per child: the balancer is restart-clean because its integral zeros on init; a stateful estimator would instead come up "safe-then-resume."</figcaption>
+<figcaption>The spine is dependency-ordered: the table holder first (it carries the robot's whole truth), then the node link, then control cogs, then health and instrumentation. The supervisor recovers <em>code</em>; the floors (§8) make the actuator <em>safe in the gap</em>. A restarted cog's monitor is reborn stale, so it distrusts the now-frozen inputs until it personally witnesses a fresh write.</figcaption>
 </figure>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/cog_bus.ex</span><span style="margin-left:auto">L3 · one bus, topics</span></div>
-<pre class="code"><span class="k">defmodule</span> <span class="t">CogBus</span> <span class="k">do</span>
-  <span class="c"># ONE bus. Topics, not addresses. Transport-transparent: a subscriber gets a</span>
-  <span class="c"># value and never learns whether it came from this BEAM or three boards away.</span>
-  <span class="c"># CogBus is the interface; the backend is Phoenix.PubSub when a LiveView</span>
-  <span class="c"># dashboard shares the broker (:pg shown here for the minimal illustration).</span>
-  <span class="k">def</span> subscribe(topic), <span class="k">do:</span> :pg.join(:cog_bus, topic, self())
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/slot.ex</span><span style="margin-left:auto">one named in-memory table</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">Slot</span> <span class="k">do</span>
+  <span class="c"># The slot space is ONE named in-memory table. A slot is one row:</span>
+  <span class="c"># {value, seq, t_dev}. get is one lookup; put is one atomic write of the</span>
+  <span class="c"># whole row, so a reader can never see a torn value/stamp. Reads never</span>
+  <span class="c"># block and return the latest. The table is owned by a tiny holder with</span>
+  <span class="c"># a standby heir at node lifetime, so the truth survives any restart.</span>
+  <span class="k">def</span> get(id), <span class="k">do:</span> :ets.lookup_element(:slots, id, 2)   <span class="c"># {value, seq, t_dev}</span>
 
-  <span class="k">def</span> publish(topic, value) <span class="k">do</span>
-    <span class="k">for</span> pid &lt;- :pg.get_members(:cog_bus, topic), <span class="k">do:</span> send(pid, {:cog_bus, topic, value})
+  <span class="k">def</span> put(id, value) <span class="k">do</span>
+    seq = :ets.update_counter(:seq, id, 1)            <span class="c"># producer bumps seq by one per write</span>
+    :ets.insert(:slots, {id, {value, seq, mono_us()}}) <span class="c"># t_dev = this node's own monotonic clock</span>
     :ok
   <span class="k">end</span>
 <span class="k">end</span></pre>
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/values.ex</span><span style="margin-left:auto">L1 · the value vocabulary</span></div>
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/values.ex</span><span style="margin-left:auto">the value vocabulary</span></div>
 <pre class="code"><span class="c"># Plain data. No behaviour, no clock. The whole language the robot speaks.</span>
-<span class="c"># Nested under Platform.Values so they don't squat bare top-level atoms.</span>
-<span class="k">defmodule</span> <span class="t">Values.Obs</span>,    <span class="k">do:</span> <span class="k">defstruct</span> [:addr, :type, :gen, :payload]   <span class="c"># a reading; gen bumps once per write</span>
-<span class="k">defmodule</span> <span class="t">Values.Cmd</span>,    <span class="k">do:</span> <span class="k">defstruct</span> [:addr, :type, :gen, :setpoint]  <span class="c"># an intent for an actuator</span>
-<span class="k">defmodule</span> <span class="t">Values.Health</span>, <span class="k">do:</span> <span class="k">defstruct</span> [:source, :level, :gen, :reason]  <span class="c"># level: :nominal | :degraded | :safe</span></pre>
+<span class="c"># A slot carries the value plus two stamps (seq, t_dev) outside the struct;</span>
+<span class="c"># these structs are just the payloads. An EVENT is a monotonic counter</span>
+<span class="c"># carried in a level slot — be in the state implied by N, applied when N moves.</span>
+<span class="k">defmodule</span> <span class="t">Values.Obs</span>,    <span class="k">do:</span> <span class="k">defstruct</span> [:slot, :type, :payload]     <span class="c"># a reading</span>
+<span class="k">defmodule</span> <span class="t">Values.Cmd</span>,    <span class="k">do:</span> <span class="k">defstruct</span> [:slot, :type, :setpoint]    <span class="c"># a held target an actuator converges to</span>
+<span class="k">defmodule</span> <span class="t">Values.Health</span>, <span class="k">do:</span> <span class="k">defstruct</span> [:source, :level, :reason]   <span class="c"># level: :nominal | :degraded | :safe</span>
+<span class="k">defmodule</span> <span class="t">Values.Fault</span>,  <span class="k">do:</span> <span class="k">defstruct</span> [:source, :count, :reason]   <span class="c"># a cumulative counter + latest reason</span></pre>
 </div>
 
 <div class="codewrap">
   <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/cog_server.ex</span><span style="margin-left:auto">the shell that wraps a pure law</span></div>
 <pre class="code"><span class="k">defmodule</span> <span class="t">CogServer</span> <span class="k">do</span>
   <span class="k">use</span> <span class="t">GenServer</span>
-  <span class="c"># Owns subscription, freshness, publishing and state-HOLDING.</span>
-  <span class="c"># The user writes only mod.init/1 and the pure mod.step/4.</span>
-  <span class="k">defstruct</span> [:mod, :params, :produces, :fresh_for, :law, inputs: %{}, gen: %{}, idle: %{}]
+  <span class="c"># Owns the beat, freshness, the slot writes, and state-HOLDING.</span>
+  <span class="c"># The author writes only mod.init/1 and the pure mod.step/4.</span>
+  <span class="k">defstruct</span> [:mod, :params, :produces, :fresh_for, :law, inputs: %{}, seq: %{}, idle: %{}]
 
   <span class="k">def</span> start_link(spec), <span class="k">do:</span> <span class="t">GenServer</span>.start_link(__MODULE__, spec)
 
   <span class="f">@impl true</span>
-  <span class="k">def</span> init(%{mod: mod, params: p, consumes: in_slots,
-             produces: out, fresh_for: ff}) <span class="k">do</span>
-    <span class="t">Enum</span>.each(in_slots, &amp;<span class="t">Slot</span>.subscribe/1)
+  <span class="k">def</span> init(%{mod: mod, params: p, produces: out, fresh_for: ff}) <span class="k">do</span>
     :timer.send_interval(beat_ms(ff), :step)     <span class="c"># the cog's OWN local beat — its only timing</span>
     {:ok, %<span class="t">CogServer</span>{mod: mod, params: p, produces: out,
-                     fresh_for: ff, law: mod.init(p)}}
+                     fresh_for: ff, law: mod.init(p)}}  <span class="c"># idle starts empty → every input born STALE</span>
   <span class="k">end</span>
 
-  <span class="c"># On each beat: pull the latest of every input slot, see whose GENERATION moved,</span>
+  <span class="c"># On each beat: PULL the latest of every input slot, see whose SEQ advanced,</span>
   <span class="c"># and hand the law the freshness facts. No clock — staleness is idle beats.</span>
   <span class="f">@impl true</span>
   <span class="k">def</span> handle_info(:step, st0) <span class="k">do</span>
-    st    = sample_inputs(st0)                    <span class="c"># {value, gen} per slot; reset idle if gen moved, else +1</span>
+    st    = sample_inputs(st0)                    <span class="c"># {value, seq} per slot; reset idle if seq moved, else +1</span>
     stale = <span class="k">for</span> {slot, n} &lt;- st.idle, n &gt; st.fresh_for[slot], <span class="k">do:</span> slot
 
     <span class="c"># The shell never invents a "safe value." It hands the law the freshness facts</span>
-    <span class="c"># and lets the law decide how to degrade.</span>
+    <span class="c"># and lets the law decide how to degrade. params come from a slot too (live tuning).</span>
     <span class="k">case</span> st.mod.step(st.law, st.inputs, stale, st.params) <span class="k">do</span>
       {:emit, setpoint, law} -&gt;
-        <span class="t">Slot</span>.put(st.produces, %<span class="t">Cmd</span>{type: st.produces, setpoint: setpoint})  <span class="c"># a write bumps the gen</span>
+        <span class="t">Slot</span>.put(st.produces, %<span class="t">Cmd</span>{type: st.produces, setpoint: setpoint})  <span class="c"># a write bumps seq, stamps t_dev</span>
         {:noreply, %{st | law: law}}
-      {:no_command, law} -&gt;                 <span class="c"># law can't act safely → write nothing;</span>
-        {:noreply, %{st | law: law}}         <span class="c"># the actuator's own dead-man takes over</span>
+      {:no_command, law} -&gt;                 <span class="c"># law can't act safely → write NOTHING;</span>
+        {:noreply, %{st | law: law}}         <span class="c"># seq freezes → the actuator's own floor takes over</span>
     <span class="k">end</span>
   <span class="k">end</span>
 
-  <span class="c"># pull each input slot; a moved generation resets its idle count, silence grows it</span>
+  <span class="c"># pull each input slot; an advanced seq resets its idle count, silence grows it</span>
   <span class="k">defp</span> sample_inputs(st) <span class="k">do</span>
     <span class="t">Enum</span>.reduce(<span class="t">Map</span>.keys(st.fresh_for), st, <span class="k">fn</span> slot, acc -&gt;
-      {v, g} = <span class="t">Slot</span>.get(slot)
-      moved? = g != <span class="t">Map</span>.get(acc.gen, slot)
-      %{acc | inputs: <span class="t">Map</span>.put(acc.inputs, slot, v), gen: <span class="t">Map</span>.put(acc.gen, slot, g),
-              idle: <span class="t">Map</span>.update(acc.idle, slot, 0, &amp;(<span class="k">if</span> moved?, <span class="k">do:</span> 0, <span class="k">else:</span> &amp;1 + 1))}
+      {v, seq, _t_dev} = <span class="t">Slot</span>.get(slot)
+      moved? = seq != <span class="t">Map</span>.get(acc.seq, slot)
+      %{acc | inputs: <span class="t">Map</span>.put(acc.inputs, slot, v), seq: <span class="t">Map</span>.put(acc.seq, slot, seq),
+              idle: <span class="t">Map</span>.update(acc.idle, slot, 999, &amp;(<span class="k">if</span> moved?, <span class="k">do:</span> 0, <span class="k">else:</span> &amp;1 + 1))}
     <span class="k">end</span>)
   <span class="k">end</span>
 <span class="k">end</span></pre>
 </div>
 
+<div class="callout good" style="border-color:rgba(234,168,74,.4);background:rgba(234,168,74,.05)">
+<div class="ct" style="font-weight:700;color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:.84rem;letter-spacing:.04em">LIVE PARAMS — TUNE WITHOUT A REBOOT</div>
+<p style="margin:.3em 0 0">The manifest freezes a cog's <em>shape</em>, not its <em>numbers</em>. The author declares which gains are <code>tunable:</code> (reviewed like the safety graph; anything unlisted defaults to non-tunable, and a param that also feeds a compiled-in <code>-D</code> safety constant — <code>i_max</code>, <code>lean_max</code> — is a boot error if listed). A <code>:params/&lt;cog&gt;</code> slot is seeded from the manifest at boot and has a single writer, the tuner; the shell samples it each beat like any other input and hands it to <code>step/4</code>. The one genuinely new mechanism is a per-param compiled-in <code>[min,max]</code> plus a max-slew-per-beat, applied by the shell <em>after</em> sampling and <em>before</em> <code>step/4</code> — so a fat-fingered gain can neither jump out of range nor step-impulse the plant. Tuner death is the law's call (a per-cog <code>:hold_last | :revert_boot</code> choice, default hold-last for a balancer), not a framework decree. Save-back writes the manifest <em>file</em> on the dev laptop for an offline commit; no code path mutates the loaded manifest at runtime.</p>
+</div>
+
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">cogs/balance/balance_pid.ex</span><span style="margin-left:auto">L5 · YOUR core logic — pure</span></div>
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">cogs/balance/balance_pid.ex</span><span style="margin-left:auto">YOUR core logic — pure</span></div>
 <pre class="code"><span class="k">defmodule</span> <span class="t">BalancePid</span> <span class="k">do</span>
   <span class="c"># PURE. No process, no clock, no socket. Returns a plain value (the shell</span>
-  <span class="c"># stamps it). The integral is an explicit VALUE threaded through step/4.</span>
+  <span class="c"># stamps it). The integral is an explicit VALUE threaded through step/4,</span>
+  <span class="c"># so a recorded run replays by re-feeding the same inputs and state.</span>
   <span class="k">def</span> init(_p), <span class="k">do:</span> %{i: 0.0, prev: 0.0, last_set: 0.0}
 
-  <span class="c"># step/4 is told which inputs are STALE and decides how to degrade —</span>
-  <span class="c"># the framework no longer guesses a "safe value" on our behalf.</span>
+  <span class="c"># step/4 is told which inputs are STALE and decides how to degrade.</span>
+  <span class="c"># The shell never guesses a safe value on the law's behalf.</span>
   <span class="k">def</span> step(law, _inputs, stale, _p) <span class="k">when</span> :pose <span class="k">in</span> stale,
-    <span class="k">do:</span> {:no_command, law}        <span class="c"># no angle ⇒ can't stabilise; the dead-man handles the fall</span>
+    <span class="k">do:</span> {:no_command, law}        <span class="c"># no angle ⇒ can't stabilise; the floor handles the fall</span>
 
   <span class="k">def</span> step(law, inputs, stale, p) <span class="k">do</span>
     %<span class="t">Obs</span>{payload: %{angle: a, rate: r}} = inputs[:pose]
-    set = <span class="k">if</span> :lean_setpoint <span class="k">in</span> stale, <span class="k">do:</span> law.last_set,  <span class="c"># range stale → hold last lean, stay upright</span>
+    set = <span class="k">if</span> :lean_setpoint <span class="k">in</span> stale, <span class="k">do:</span> law.last_set,  <span class="c"># gap stale → hold last lean, stay upright</span>
                                        <span class="k">else:</span> setpoint(inputs[:lean_setpoint])
     err = set - a
     i1  = clamp(law.i + err * p.ki, p.i_max)
@@ -586,23 +702,21 @@ flowchart TB
   <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/health_monitor.ex</span><span style="margin-left:auto">monitors folded → one truth</span></div>
 <pre class="code"><span class="k">defmodule</span> <span class="t">HealthMonitor</span> <span class="k">do</span>
   <span class="k">use</span> <span class="t">GenServer</span>
-  <span class="c"># PLATFORM, always-on. Health is just the FOLD of the slot monitors — no separate</span>
+  <span class="c"># Health is the FOLD of the slot monitors that already exist — no separate</span>
   <span class="c"># service to keep in sync. Each watched slot is binary fresh/stale (did its</span>
-  <span class="c"># generation move within fresh_for ticks of this local beat — NO clock). A scope</span>
-  <span class="c"># folds to one word; criticality decides safe vs degraded. Scopes are manifest data.</span>
+  <span class="c"># SEQ advance within fresh_for beats of this local beat — NO clock, NO t_dev).</span>
+  <span class="c"># A scope folds to one word; criticality decides safe vs degraded.</span>
   <span class="k">def</span> start_link(scopes), <span class="k">do:</span> <span class="t">GenServer</span>.start_link(__MODULE__, scopes)
 
   <span class="f">@impl true</span>
   <span class="k">def</span> init(scopes) <span class="k">do</span>
-    watched = scopes |&gt; <span class="t">Map</span>.values() |&gt; <span class="t">Enum</span>.flat_map(&amp; &amp;1.watch) |&gt; <span class="t">Enum</span>.uniq()
-    <span class="t">Enum</span>.each([:link_stats, :loop_stats | watched], &amp;<span class="t">Slot</span>.subscribe/1)
     :timer.send_interval(20, :beat)            <span class="c"># the monitor's OWN local beat — the only timing it needs</span>
-    {:ok, %{scopes: scopes, gen: %{}, idle: %{}, levels: %{}, nominal_since: nil}}
+    {:ok, %{scopes: scopes, seq: %{}, idle: %{}, levels: %{}, nominal_since: nil}}
   <span class="k">end</span>
 
   <span class="f">@impl true</span>
   <span class="k">def</span> handle_info(:beat, s0) <span class="k">do</span>
-    s = sample_generations(s0)                  <span class="c"># per slot: did gen move? reset idle or +1</span>
+    s = sample_seqs(s0)                          <span class="c"># per slot: did seq advance? reset idle or +1</span>
     levels = <span class="k">for</span> {scope, spec} &lt;- s.scopes, into: %{},
                <span class="k">do:</span> {scope, derive(s, spec)}            <span class="c"># PURE per-scope fold of fresh/stale</span>
     <span class="t">Enum</span>.each(levels, <span class="k">fn</span> {scope, lvl} -&gt;
@@ -616,7 +730,8 @@ flowchart TB
   <span class="k">end</span>
 
   <span class="c"># a scope folds its monitors: a CRITICAL slot stale floors to :safe; a non-critical</span>
-  <span class="c"># one stale is :degraded; everything fresh is :nominal. Binary in, three words out.</span>
+  <span class="c"># one stale is :degraded; everything fresh is :nominal. The actuator's own status</span>
+  <span class="c"># slot is watched too, so a floored or rebooted board can never read green.</span>
   <span class="k">defp</span> derive(s, %{watch: w, critical: crit}) <span class="k">do</span>
     <span class="k">cond</span> <span class="k">do</span>
       <span class="t">Enum</span>.any?(crit, &amp;stale?(s, &amp;1))                  -&gt; :safe
@@ -626,13 +741,13 @@ flowchart TB
     <span class="k">end</span>
   <span class="k">end</span>
 
-  <span class="c"># stale = the generation has not moved for longer than fresh_for ticks. No timestamps.</span>
+  <span class="c"># stale = the seq has not advanced for longer than fresh_for beats. No timestamps.</span>
   <span class="k">defp</span> stale?(s, slot), <span class="k">do:</span> <span class="t">Map</span>.get(s.idle, slot, 999) &gt; fresh_for(slot)
 <span class="k">end</span></pre>
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">bots/follower_segby/supervisor.ex</span><span style="margin-left:auto">L4 · composition → children</span></div>
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">bots/follower_segby/supervisor.ex</span><span style="margin-left:auto">composition → children</span></div>
 <pre class="code"><span class="k">defmodule</span> <span class="t">FollowerSegby.Supervisor</span> <span class="k">do</span>
   <span class="k">use</span> <span class="t">Supervisor</span>
 
@@ -642,19 +757,24 @@ flowchart TB
   <span class="k">def</span> init(_) <span class="k">do</span>
     cogs = <span class="t">Manifest</span>.cogs_on(:master, :follower_segby)   <span class="c"># read the manifest data</span>
 
+    <span class="c"># Dependency-ordered: the table holder first (the robot's whole truth), then the</span>
+    <span class="c"># node link, then control cogs, then health and instrumentation. If the link</span>
+    <span class="c"># restarts, its downstream readers restart too and are reborn stale.</span>
     children =
-      [ <span class="t">CogBus</span>,
-        {<span class="t">BlasterLink</span>, %{port: <span class="s">"/dev/ttyAMA0"</span>, baud: 1_000_000}},
-        {<span class="t">HealthMonitor</span>, <span class="t">Manifest</span>.health_scopes(:follower_segby)},
-        <span class="t">LoopMonitor</span> ] ++ <span class="t">Enum</span>.map(cogs, &amp;cog_child/1)  <span class="c"># control (incl. balance) runs here</span>
+      [ <span class="t">SlotTable</span>,
+        {<span class="t">NodeLink</span>, %{node: :sensors, port: <span class="s">"/dev/ttyAMA0"</span>, baud: 1_000_000}} ]
+      ++ <span class="t">Enum</span>.map(cogs, &amp;cog_child/1)                    <span class="c"># control (incl. balance) runs here</span>
+      ++ [ {<span class="t">HealthMonitor</span>, <span class="t">Manifest</span>.health_scopes(:follower_segby)}, <span class="t">LoopMonitor</span> ]
 
-    <span class="t">Supervisor</span>.init(children, strategy: :one_for_one, max_restarts: 4, max_seconds: 5)
+    <span class="t">Supervisor</span>.init(children, strategy: :rest_for_one, max_restarts: 4, max_seconds: 5)
   <span class="k">end</span>
 
+  <span class="c"># each safety-critical cog gets its OWN restart budget, so one crash loop</span>
+  <span class="c"># cannot exhaust a shared budget and take a healthy sibling down.</span>
   <span class="k">defp</span> cog_child(%{cog: :balance} = c) <span class="k">do</span>
     <span class="t">Supervisor</span>.child_spec(
-      {<span class="t">CogServer</span>, %{mod: <span class="t">BalancePid</span>, consumes: [:pose, :lean_setpoint],
-                    produces: :motor_target, fresh_for: %{pose: 3, lean_setpoint: 10}, params: c.params}},
+      {<span class="t">CogServer</span>, %{mod: <span class="t">BalancePid</span>, produces: :motor_target,
+                    fresh_for: %{pose: 3, lean_setpoint: 10}, params: c.params}},  <span class="c"># fresh_for in writer periods</span>
       id: :balance)
   <span class="k">end</span>
 <span class="k">end</span></pre>
@@ -662,7 +782,7 @@ flowchart TB
 
 <div class="callout good" style="border-color:rgba(234,168,74,.4);background:rgba(234,168,74,.05)">
 <div class="ct" style="font-weight:700;color:var(--gold);font-family:'JetBrains Mono',monospace;font-size:.84rem;letter-spacing:.04em">CONTROL RUNS ON THE MASTER</div>
-<p style="margin:.3em 0 0">Control — including a balance loop driven by reinforcement learning — runs on the master, where the policy and the learning live; an RL controller cannot be pushed onto a microcontroller. The master is therefore <b>sized to meet its tightest loop's deadline</b>. The BEAM is soft real-time, so the loop is given headroom (capable compute, kept clear of GC pressure and dashboard contention) and, crucially, it is <b>measured</b>: a <code>LoopMonitor</code> tracks per-tick interval and worst-case jitter and feeds <code>:loop_stats</code> into the one health truth, so a loop drifting toward its deadline shows up as <span class="t-bad">degraded</span> on the dashboard <em>before</em> it shows up as a fall. The actuator dead-man backstops the rare miss. Pushing a tight, fixed loop down to an edge MCU is an available option — not the default.</p>
+<p style="margin:.3em 0 0">Control — including a balance loop driven by reinforcement learning — runs on the master, where the policy and the learning live; an RL controller does not fit on a microcontroller. The master is therefore <b>sized to meet its tightest loop's deadline</b>. The BEAM is soft real-time, so the loop is given headroom (capable compute, kept clear of GC pressure and dashboard contention) and, crucially, it is <b>measured</b>: a <code>LoopMonitor</code> tracks per-tick interval and worst-case jitter and feeds <code>:loop_stats</code> into the one health truth, so a loop drifting toward its deadline shows up as <span class="t-bad">degraded</span> on the dashboard <em>before</em> it shows up as a fall. The actuator floor (§8) backstops the rare miss. A tight, fixed loop can also be placed on an edge MCU — that is a data edit in the manifest, then regenerate and reflash.</p>
 </div>
 
 <div class="codewrap">
@@ -670,14 +790,15 @@ flowchart TB
 <pre class="code"><span class="k">defmodule</span> <span class="t">LoopMonitor</span> <span class="k">do</span>
   <span class="k">use</span> <span class="t">GenServer</span>
   <span class="c"># Instruments a control loop: per-tick interval, worst case, rolling p99.</span>
-  <span class="c"># Publishes :loop_stats so HealthMonitor flags deadline pressure EARLY —</span>
-  <span class="c"># degraded long before a missed deadline becomes a fall.</span>
-  <span class="k">def</span> tick(label), <span class="k">do:</span> <span class="t">GenServer</span>.cast(__MODULE__, {:tick, label, now_us()})
+  <span class="c"># Writes :loop_stats so HealthMonitor flags deadline pressure EARLY —</span>
+  <span class="c"># degraded long before a missed deadline becomes a fall. Because every value</span>
+  <span class="c"># carries t_dev, per-producer production-vs-arrival latency is observable too.</span>
+  <span class="k">def</span> tick(label), <span class="k">do:</span> <span class="t">GenServer</span>.cast(__MODULE__, {:tick, label, mono_us()})
 
   <span class="f">@impl true</span>
   <span class="k">def</span> handle_cast({:tick, label, t}, s) <span class="k">do</span>
-    s = record(s, label, t - <span class="t">Map</span>.get(s.last, label, t))   <span class="c"># update max + p99</span>
-    <span class="t">CogBus</span>.publish(:loop_stats,
+    s = record(s, label, t - <span class="t">Map</span>.get(s.last, label, t))   <span class="c"># update max + p99 (same-device diff)</span>
+    <span class="t">Slot</span>.put(:loop_stats,
       %{label =&gt; %{p99_us: s.p99[label], max_us: s.max[label], budget_us: s.budget[label]}})
     {:noreply, %{s | last: <span class="t">Map</span>.put(s.last, label, t)}}
   <span class="k">end</span>
@@ -685,39 +806,38 @@ flowchart TB
 </div>
 </section>
 
-<!-- ===================== 07 ===================== -->
 <section id="s7">
-<h2><span class="num">07</span>Cog &amp; Blaster code — C with Arduino libraries</h2>
-<p>Same architecture, different runtime. The Blaster has no BEAM, no supervisor, no "let it crash" — so the framework's job on the microcontroller is a cooperative scheduler, bounded I/O, framing, and a watchdog. The cog author still only writes read + cook (sensors) or a dead-man (actuators).</p>
+<h2><span class="num">07</span>Cog code on an actuator board — C with Arduino libraries</h2>
+<p class="lead">Same architecture, a different runtime. An actuator board has no BEAM and no supervision tree, so on the board the framework provides a cooperative scheduler, bounded I/O, framing, and a watchdog. The cog author still writes only a read plus a cook (for a sensor) or a floor (for an actuator). In <code>follower_segby</code> this board hosts the IMU sensor cog and the wheel-motor cog.</p>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge c">ARDUINO-C</span><span class="fn">platform/firmware/substrate.c</span><span style="margin-left:auto">L0 · make "non-blocking" TRUE first</span></div>
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">platform/firmware/substrate.c</span><span style="margin-left:auto">make bounded I/O true first</span></div>
 <pre class="code"><span class="t">#include</span> <span class="s">&lt;Wire.h&gt;</span>
 <span class="t">#include</span> <span class="s">"esp_task_wdt.h"</span>
 
-<span class="c">/* Establish "non-blocking" &amp; "recoverable" BEFORE anything above relies on it. */</span>
+<span class="c">/* Every device read is bounded so one stuck transaction cannot wedge the loop. */</span>
 <span class="f">void</span> setup() {
   Wire.begin();
   Wire.setClock(400000);
-  Wire.setTimeOut(3);            <span class="c">/* ms — THE precondition. One NACK can't wedge the loop. */</span>
-  esp_task_wdt_init(200, true);  <span class="c">/* 200 ms task-watchdog backstop                          */</span>
+  Wire.setTimeOut(3);            <span class="c">/* ms — a NACK or stuck bus returns, never blocks  */</span>
+  esp_task_wdt_init(200, true);  <span class="c">/* 200 ms hardware watchdog backstop               */</span>
   esp_task_wdt_add(NULL);
-  link_init(1000000);            <span class="c">/* UART up to the master                                  */</span>
-  imu_begin();                   <span class="c">/* device seam                                            */</span>
+  link_init(1000000);            <span class="c">/* UART up to the parent node                      */</span>
+  imu_begin();                   <span class="c">/* device binding                                  */</span>
 }</pre>
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge c">ARDUINO-C</span><span class="fn">platform/firmware/scheduler.c</span><span style="margin-left:auto">framework owns the loop, not the cog</span></div>
-<pre class="code"><span class="c">/* Each on-Blaster cog = a cadence + a tick. Compute and schedule, decomplected.</span>
-<span class="c">   No cog runs its own timer; one loop drives them all.                        */</span>
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">platform/firmware/scheduler.c</span><span style="margin-left:auto">the framework owns the loop, not the cog</span></div>
+<pre class="code"><span class="c">/* Each cog on this node is a cadence plus a tick. One loop drives them all;</span>
+<span class="c">   no cog runs its own timer. Cadences are generated from the manifest.       */</span>
 <span class="f">typedef struct</span> { uint32_t period_us, last_us; <span class="f">void</span> (*tick)(uint32_t now); } Task;
 
 <span class="f">static</span> Task tasks[] = {
-  {   1000, 0, imu_sample_tick  },   <span class="c">/* sample IMU ~1 kHz                          */</span>
-  {  20000, 0, pose_report_tick },   <span class="c">/* cook + publish :pose at 50 Hz  (push-down) */</span>
-  {  50000, 0, range_report_tick},   <span class="c">/* :range at 20 Hz                            */</span>
-  { 100000, 0, heartbeat_tick   },   <span class="c">/* UNCONDITIONAL liveness                     */</span>
+  {   1000, 0, imu_sample_tick  },   <span class="c">/* sample IMU ~1 kHz                         */</span>
+  {  20000, 0, pose_write_tick  },   <span class="c">/* cook + write the pose slot at 50 Hz      */</span>
+  {  20000, 0, status_write_tick},   <span class="c">/* write the actuator status slot at 50 Hz  */</span>
+  {  20000, 0, liveness_tick    },   <span class="c">/* always write liveness — never gated      */</span>
 };
 
 <span class="f">void</span> loop() {
@@ -728,14 +848,14 @@ flowchart TB
       tasks[i].last_us = now;
       tasks[i].tick(now);
     }
-  link_pump();   <span class="c">/* drain inbound frames, route by ADDR */</span>
+  link_pump();   <span class="c">/* drain inbound frames, route by SLOT_ID */</span>
 }</pre>
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge c">ARDUINO-C</span><span class="fn">cogs/imu/imu_cog.c</span><span style="margin-left:auto">device seam + PURE edge transform</span></div>
-<pre class="code"><span class="c">/* A device binding behind a seam + a pure cook. The cog owns read+cook only;</span>
-<span class="c">   transport, timing and identity belong to the framework.                    */</span>
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">cogs/imu/imu_cog.c</span><span style="margin-left:auto">device binding + pure cook</span></div>
+<pre class="code"><span class="c">/* A bounded device read plus a pure cook. The cog owns read + cook only;</span>
+<span class="c">   transport, timing and identity belong to the framework.                 */</span>
 <span class="f">static float</span> win[ACC_N]; <span class="f">static int</span> wi; <span class="f">static bool</span> imu_ok;
 
 <span class="f">void</span> imu_sample_tick(uint32_t now) {
@@ -745,171 +865,199 @@ flowchart TB
   win[wi++ % ACC_N] = complementary(ax, az, gy);             <span class="c">/* pure */</span>
 }
 
-<span class="f">void</span> pose_report_tick(uint32_t now) {
-  <span class="k">if</span> (!imu_ok) { imu_reprobe(); <span class="k">return</span>; }   <span class="c">/* self-heal: soft sensor, re-begin is safe */</span>
-  Pose p = cook_pose(win, ACC_N);             <span class="c">/* PURE: a window of samples → one value    */</span>
-  Obs  o = { .type = T_POSE, .addr = ADDR_IMU, .fw_id = FW_ID,
-             .gen = pose_gen++, .payload = p };  <span class="c">/* bump the generation — no clock */</span>
-  link_send(&amp;o);    <span class="c">/* master measures freshness as ARRIVAL age — no shared clock needed */</span>
+<span class="f">void</span> pose_write_tick(uint32_t now) {
+  <span class="k">if</span> (!imu_ok) { imu_reprobe(); <span class="k">return</span>; }            <span class="c">/* no fresh read this beat → write nothing */</span>
+  Cook c = cook_pose(win, ACC_N);   <span class="c">/* PURE: a window of samples → {:ok, value} | :invalid */</span>
+  <span class="k">if</span> (c.invalid) <span class="k">return</span>;       <span class="c">/* :invalid writes nothing → seq stalls → reader goes stale → floor */</span>
+  Frame f = { .slot_id = SLOT_POSE, .fw_id = FW_ID,
+              .seq = pose_seq++, .t_dev = esp_timer_get_time(), .payload = c.value };
+  link_send(&amp;f);   <span class="c">/* seq advances on every write; t_dev is this board's own 64-bit clock */</span>
 }</pre>
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge c">ARDUINO-C</span><span class="fn">platform/firmware/transport.c</span><span style="margin-left:auto">L2 · meaning-blind, conflated</span></div>
-<pre class="code"><span class="c">/* Frames, CRC, conflation, counters. "Don't flood the wire" is enforced HERE,</span>
-<span class="c">   once, not in any cog.                                                       */</span>
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">platform/firmware/transport.c</span><span style="margin-left:auto">meaning-blind, conflated, one identity</span></div>
+<pre class="code"><span class="c">/* Frames, CRC, conflation, counters. Bandwidth is bounded HERE, once, not in</span>
+<span class="c">   any cog: one pending value per slot, the newest wins, never a backlog.    */</span>
 <span class="f">typedef struct</span> { uint16_t crc_fail, resync, bytes_in; uint32_t last_rx_us; } LinkStats;
 <span class="f">static</span> LinkStats stats;
 
-<span class="f">static</span> Obs  pending[N_SLOTS];   <span class="c">/* one slot per (type,addr) */</span>
-<span class="f">static bool</span> dirty[N_SLOTS];
+<span class="f">static</span> Frame pending[N_SLOTS];   <span class="c">/* one entry per slot id produced here */</span>
+<span class="f">static bool</span>  dirty[N_SLOTS];
 
-<span class="f">void</span> link_send(<span class="f">const</span> Obs *o) {
-  <span class="f">int</span> s = slot_of(o-&gt;type, o-&gt;addr);
-  pending[s] = *o; dirty[s] = <span class="k">true</span>;          <span class="c">/* overwrite → intermediate dropped */</span>
+<span class="f">void</span> link_send(<span class="f">const</span> Frame *f) {
+  <span class="f">int</span> s = slot_index(f-&gt;slot_id);
+  pending[s] = *f; dirty[s] = <span class="k">true</span>;          <span class="c">/* overwrite → an unsent older value is dropped */</span>
 }
 
 <span class="f">void</span> link_pump(<span class="f">void</span>) {
-  <span class="k">if</span> (hb_due()) write_frame(heartbeat_frame());  <span class="c">/* PRIORITY lane: liveness first, never conflated,</span>
-                                                <span class="c">   never subject to data backpressure → busy ≠ dead */</span>
-  <span class="k">for</span> (<span class="f">int</span> s = 0; s &lt; N_SLOTS; s++)              <span class="c">/* data fills what's left of the budget */</span>
+  <span class="k">for</span> (<span class="f">int</span> s = 0; s &lt; N_SLOTS; s++)              <span class="c">/* each slot re-sends its latest level on its beat */</span>
     <span class="k">if</span> (dirty[s]) { write_frame(cobs_crc_encode(&amp;pending[s])); dirty[s] = <span class="k">false</span>; }
-  read_inbound(&amp;stats);   <span class="c">/* decode; bad CRC bumps stats.crc_fail; fw_id mismatch → fault */</span>
+  read_inbound(&amp;stats);   <span class="c">/* decode by SLOT_ID; bad CRC bumps crc_fail; unknown id is dropped &amp; counted;</span>
+                          <span class="c">   fw_id mismatch is refused so a wrong image cannot drive a motor          */</span>
 }</pre>
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge c">ARDUINO-C</span><span class="fn">cogs/motor/deadman.c</span><span style="margin-left:auto">the single biggest safety item</span></div>
-<pre class="code"><span class="c">/* The fail-safe FLOOR. Mechanism is code; the threshold is a manifest parameter</span>
-<span class="c">   compiled in as -D DEADMAN_MS=120. Comms-independent by design.              */</span>
-<span class="t">#ifndef</span> DEADMAN_MS
-<span class="t">#define</span> DEADMAN_MS 120
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">cogs/motor/floor.c</span><span style="margin-left:auto">the floor and the armed latch</span></div>
+<pre class="code"><span class="c">/* The dead-man FLOOR and the armed latch live on this chip, independent of the</span>
+<span class="c">   master. The window is a multiple of the command's nominal period, compiled in</span>
+<span class="c">   as a safety constant. Mechanism is code; the manifest sets only the numbers. */</span>
+<span class="t">#ifndef</span> FLOOR_MISSES
+<span class="t">#define</span> FLOOR_MISSES 6              <span class="c">/* tolerate 6 missed writes — generated, not hand-set */</span>
 <span class="t">#endif</span>
-<span class="f">static</span> uint32_t last_cmd_ms;
+<span class="f">static</span> uint32_t cmd_seq, last_seq, last_advance_ms;
+<span class="f">static bool</span>     armed;               <span class="c">/* false at every boot — born disarmed */</span>
+<span class="f">static</span> uint32_t boot_nonce;          <span class="c">/* minted this boot; an arm must echo it */</span>
 
-<span class="f">void</span> on_command(<span class="f">const</span> Cmd *c) {        <span class="c">/* a :motor_target arrived from the master */</span>
-  target_torque = c-&gt;setpoint;
-  last_cmd_ms   = millis();             <span class="c">/* the timestamp v1's last_cmd_ never had  */</span>
+<span class="f">void</span> on_command(<span class="f">const</span> Frame *c) {     <span class="c">/* the motor-target slot arrived from the master */</span>
+  target_torque = c-&gt;payload.setpoint;
+  cmd_seq       = c-&gt;seq;                <span class="c">/* the floor watches seq, not a value */</span>
 }
 
-<span class="f">void</span> control_tick(<span class="f">void</span>) {              <span class="c">/* ~kHz FOC loop                           */</span>
-  <span class="k">if</span> (millis() - last_cmd_ms &gt; DEADMAN_MS)   <span class="c">/* no fresh command → SAFE, no comms      */</span>
-    target_torque = 0.0f;                    <span class="c">/* zero torque locally                    */</span>
-  <span class="k">if</span> (!encoder_ok)                           <span class="c">/* garbage angle → stop commutating       */</span>
-    { target_torque = 0.0f; motor_ready = <span class="k">false</span>; }
-  loopFOC(target_torque);                    <span class="c">/* bounded by Wire.setTimeOut             */</span>
+<span class="f">void</span> control_tick(<span class="f">void</span>) {              <span class="c">/* ~kHz FOC loop */</span>
+  uint32_t now = millis();
+  <span class="k">if</span> (cmd_seq != last_seq) { last_seq = cmd_seq; last_advance_ms = now; }  <span class="c">/* fresh */</span>
+
+  bool fresh = (now - last_advance_ms) &lt; FLOOR_MISSES * CMD_PERIOD_MS;
+  <span class="k">if</span> (!fresh || !encoder_ok || stop_counter_moved() || !enable_line_high())
+    { armed = <span class="k">false</span>; target_torque = 0.0f; }   <span class="c">/* enter safe: instant, automatic */</span>
+  <span class="k">else</span> <span class="k">if</span> (!armed
+        &amp;&amp; arm_intent_fresh() &amp;&amp; arm_intent_advanced()
+        &amp;&amp; arm_echoes(boot_nonce)                   <span class="c">/* a stale, pre-reboot arm cannot re-arm */</span>
+        &amp;&amp; upright_and_at_rest()                     <span class="c">/* per-plant arm gate, selected by manifest */</span>
+        &amp;&amp; sustained_in_window())                    <span class="c">/* leaving safe is earned over many beats */</span>
+    { armed = <span class="k">true</span>; }
+
+  loopFOC(armed ? target_torque : 0.0f);            <span class="c">/* disarmed → zero torque, the plant-safe action */</span>
+}</pre>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">cogs/motor/status_cog.c</span><span style="margin-left:auto">the board reports its own truth</span></div>
+<pre class="code"><span class="c">/* The actuator writes a status slot the health fold reads, so a floored, wedged</span>
+<span class="c">   or rebooted board is always visible — the dashboard cannot read green while</span>
+<span class="c">   the robot lies floored.                                                     */</span>
+<span class="f">void</span> status_write_tick(uint32_t now) {
+  Status st = { .applied_seq = last_seq,      <span class="c">/* seq of the command actually applied   */</span>
+                .floored     = !armed,        <span class="c">/* the master's view of the armed latch   */</span>
+                .boot_nonce  = boot_nonce,    <span class="c">/* THIS boot's nonce — an arm must echo it */</span>
+                .encoder_ok  = encoder_ok,
+                .reboots     = reboot_count };
+  Frame f = { .slot_id = SLOT_MOTOR_STATUS, .fw_id = FW_ID,
+              .seq = status_seq++, .t_dev = esp_timer_get_time(), .payload = st };
+  link_send(&amp;f);
 }</pre>
 </div>
 </section>
 
-<!-- ===================== 08 ===================== -->
 <section id="s8">
 <h2><span class="num">08</span>Lifecycles &amp; failure walkthroughs</h2>
-<p>Two state machines run constantly: a per-device lifecycle (drives self-heal) and the health FSM, one instance per scope (drives that scope's floor and, via the global fold, firmware validation). They are deliberately separate machines — seeing a fault, recovering from it, and being safe in it are three concerns.</p>
+<p>Two state machines run constantly. A per-device lifecycle drives a sensor's read seam toward a working binding. A health state machine, one instance per scope, folds that scope's watched slots to one word and so decides when the scope's actuators are floored. They are separate machines on purpose: seeing a fault, being safe in it, and recovering from it are three jobs, and the framework keeps them apart.</p>
 
 <div class="grid2">
 <figure>
 <div class="mermaid">
 stateDiagram-v2
   [*] --> Probing
-  Probing --> Present: begin ok
+  Probing --> Bound: begin ok
   Probing --> Absent: NACK / timeout
-  Present --> Absent: read fails, bounded
+  Bound --> Absent: reads fail, bounded
   Absent --> Reprobing: at a safe point
-  Reprobing --> Present: re-begin ok
+  Reprobing --> Bound: re-begin ok
   Reprobing --> Absent: still failing
-  note right of Absent: cog emits invalid marker → floor engages upstream
+  note right of Absent: the cook returns invalid → no write → seq frozen → floor engages on its own chip
 </div>
-<figcaption>Per-device lifecycle (the imu cog). Soft sensors re-probe online; a load-bearing actuator re-probes only at rest — a balancer has no safe upright moment to re-energise a wheel — so in practice actuator recovery is reboot-recovers, not graceful online repair.</figcaption>
+<figcaption>Per-device lifecycle for the <code>imu</code> cog. A sensor re-probes online. A load-bearing actuator re-probes only at rest, since a balancer has no safe upright moment to re-energise a wheel, so actuator recovery is reboot-recovers rather than online repair. While the device is absent the cook writes nothing, so the value goes stale on its own.</figcaption>
 </figure>
 
 <figure>
 <div class="mermaid">
 stateDiagram-v2
   [*] --> Safe
-  Safe --> Nominal: inputs fresh + links clean, sustained
-  Nominal --> Degraded: counters climb / input stale / loop nearing deadline
+  Safe --> Nominal: watched inputs fresh, sustained
+  Nominal --> Degraded: counters climb / non-critical input stale / loop nearing deadline
   Degraded --> Nominal: recovers
-  Degraded --> Safe: a watched input over 60 ms
-  Nominal --> Safe: a watched input over 60 ms
-  note right of Nominal: first sustained global Nominal → validate firmware
+  Degraded --> Safe: a critical input goes stale
+  Nominal --> Safe: a critical input goes stale
+  note right of Nominal: first sustained global Nominal → a node may validate its pending firmware
   note right of Safe: that scope's actuators take their floor
 </div>
-<figcaption>The health FSM runs <em>per scope</em>: a scope goes <code>:safe</code> when one of its watched inputs ages out, flooring only that scope's actuators; the global truth is a fold of the scopes. The transition graph is platform code; the scopes and thresholds are manifest data.</figcaption>
+<figcaption>The health state machine runs <em>per scope</em>: a scope goes <code>:safe</code> when one of its watched critical inputs ages out, flooring only that scope's actuators; the global truth is the fold of the scopes. The transition graph is platform code; the scopes and thresholds are manifest data.</figcaption>
 </figure>
 </div>
 
 <p>Tracing four concrete faults through the running <code>follower_segby</code> shows the layers doing their separate jobs:</p>
 <table>
 <tr><th style="width:170px">Fault</th><th>Detected by</th><th>Immediate response (floor)</th><th>Recovery (self-heal / restart)</th></tr>
-<tr><td><b>IMU NACKs</b> mid-balance</td><td><code>imu_read</code> returns false (bounded by <code>setTimeOut</code>) → <code>:pose</code> generation stops moving</td><td>the balance law gets <code>:pose</code> in <code>stale</code> → returns <code>:no_command</code>; the actuator dead-man de-energises → <b>controlled fall</b> (fail-passive); health → <span class="t-bad">safe</span></td><td><code>imu_reprobe()</code> clears the seam and re-begins; pose resumes; health returns to nominal</td></tr>
-<tr><td><b>UART drops</b> (Blaster goes silent)</td><td><code>last_rx_age</code> climbs; heartbeat stops arriving</td><td>pose ages out → both the balance floor and master <span class="t-bad">safe</span> engage; wheels zero</td><td><code>blaster_link</code> restarts and reopens the port; conflation means no backlog refloods it</td></tr>
-<tr><td><b>Policy emits garbage</b> setpoint (e.g. half-trained RL)</td><td>not a "fault" — the floor doesn't trust the policy in the first place</td><td>command is clamped in <code>step</code>; the dead-man + staleness floor bound torque regardless of policy output</td><td>swap the policy module; transport &amp; safety untouched (RL is just an L5 law)</td></tr>
-<tr><td><b>Control loop slips</b> toward its deadline</td><td><code>LoopMonitor</code> p99 / worst-case exceeds the rate budget → <code>:loop_stats</code></td><td>health → <span class="t-bad">degraded</span> and it surfaces on the dashboard <em>early</em>; the dead-man still backstops an actual missed deadline</td><td>add headroom — more capable compute, pin the control loop, reduce contention on the control node — visible before it becomes a fall</td></tr>
-<tr><td><b>Smart cog hangs</b> inside <code>loopFOC</code></td><td>commands stop being consumed; <code>esp_task_wdt</code> fires</td><td>watchdog reboot drops the shared enable → de-energise; dead-man would zero on restart</td><td>board reboots into a validated slot; comes up de-energised, awaits fresh commands</td></tr>
+<tr><td><b>IMU stuck or NACKing</b> mid-balance</td><td>the read NACKs or times out, or the cook sees a degenerate window (a frozen reading) and returns <code>:invalid</code> → the framework does not write → <code>:pose</code>'s <code>seq</code> stops advancing</td><td>the balance law gets <code>:pose</code> in its stale set → returns <code>:no_command</code>; <code>:pose</code> ages out of the wheel board's <code>fresh_for</code> window, its floor de-energises on its own chip → <b>controlled fall</b>; that scope folds to <span class="t-bad">safe</span></td><td>the cook re-probes the seam and a valid sample re-begins; <code>:pose</code>'s <code>seq</code> advances again; the wheel board witnesses a fresh write; health folds back to nominal</td></tr>
+<tr><td><b>Link drops</b> (the wheel node goes silent)</td><td>the link's <code>last_rx_age</code> climbs; the slots produced by that node stop having their <code>seq</code> advanced</td><td>those slots age out → the wheel board's own floor engages and that scope folds to <span class="t-bad">safe</span>; wheels go to zero torque</td><td>the node link restarts and reopens the port; the transport conflates, so no backlog refloods the reader; downstream readers were reborn stale and distrust the frozen inputs until a fresh write arrives</td></tr>
+<tr><td><b>A law emits a wild setpoint</b> (a half-trained policy, say)</td><td>not a freshness fault — the floor and the arm gate never trusted the law's output as proof of anything</td><td>the value is clamped in <code>step</code> against its compiled-in range and slew; the floor and the freshness window bound torque regardless of what the law emits</td><td>swap the cog's pure <code>step</code>; the wire, the floor, and the arm sequence are untouched</td></tr>
+<tr><td><b>Control loop slips</b> toward its deadline</td><td>loop timing (per-tick interval, worst case, rolling p99) exceeds the rate budget → it shows in <code>:loop_stats</code></td><td>that scope folds to <span class="t-bad">degraded</span> and surfaces on the dashboard <em>early</em>; the floor still backstops an actually missed beat</td><td>add headroom — more capable compute, pin the control loop, reduce contention on the node — visible before it becomes a fall</td></tr>
+<tr><td><b>A cog hangs</b> on the wheel node</td><td>the command slot's <code>seq</code> stops being applied; the board's task watchdog fires</td><td>the watchdog reboot drops the gate-driver enable line → de-energise; the <code>armed</code> latch is false at boot, so the board comes up disarmed</td><td>the board reboots into a validated image; it comes up de-energised and awaits a fresh, in-window, valid command before the full arm sequence can re-arm it</td></tr>
 </table>
 
-<blockquote><p>Read the columns, not the rows: <b>"detected by"</b> is observability, <b>"immediate response"</b> is the fail-safe floor, <b>"recovery"</b> is self-heal. They never share a mechanism — which is exactly why a single fault no longer collapses into ambiguous silence.</p></blockquote>
+<blockquote><p>Read the columns, not the rows: <b>"detected by"</b> is observability, <b>"immediate response"</b> is the floor, <b>"recovery"</b> is self-heal. They never share a mechanism, which is why a single fault resolves into one clear answer instead of ambiguous silence.</p></blockquote>
 </section>
 
-<!-- ===================== 09 ===================== -->
 <section id="s9">
 <h2><span class="num">09</span>The communication core — slot · manifest · monitor</h2>
-<p class="lead">Strip a robot down and almost every part is doing the same thing: reading a value someone else produced and deciding whether to trust it — a camera frame, a motor's reported angle, a "go" command. The hard part was never moving the bytes; it is knowing whether the bytes are still <em>true</em>. So the whole communication layer is the smallest thing that answers that one question, and everything else — safety, transport, health, recovery — is built out of it rather than bolted beside it.</p>
+<p class="lead">Strip a robot down and almost every part is doing the same thing: reading a value someone else produced and deciding whether to trust it — a camera frame, a motor's reported angle, a "go" command. The hard part is not moving the bytes; it is knowing whether the bytes are still <em>true</em>. So the whole communication layer is the smallest thing that answers that one question, and everything else — safety, transport, health, recovery — is composed from it.</p>
 
 <div class="callout note">
 <div class="ct"><span class="t-val">one question, asked everywhere</span> is this value still good?</div>
-<p style="margin:.3em 0 0">Three primitives answer it. The <b>slot</b> holds data. The <b>manifest</b> says who's connected. The <b>monitor</b> decides fresh-or-stale. Learn these three and you've learned the system; the rest is composition. This section carries its own goals, principles and invariants — each a specialisation of §00 — because freshness is the core the whole framework stands on.</p>
+<p style="margin:.3em 0 0">Three primitives answer it. The <b>slot</b> holds data. The <b>manifest</b> says who is connected. The <b>monitor</b> decides fresh-or-stale. Learn these three and you have learned the system; the rest is composition. This section carries its own goals, principles and invariants — each a specialisation of §00 — because freshness is the core the whole framework stands on.</p>
 </div>
 
 <h3>Sub-goals — what the communication core optimises for</h3>
 <div class="grid3">
   <div class="panel tight"><b style="color:var(--teal)">Answer one question fast</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Is this value still good? Everything is shaped to answer that — quickly, locally, and out of parts small enough to hold in your head.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">No clock anywhere</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A generation counter plus a local beat give freshness with no timestamps and nothing to synchronise across boards.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">No shared clock</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A write counter plus each reader's own local beat give freshness with no clock comparison between boards, so there is nothing to synchronise.</p></div>
   <div class="panel tight"><b style="color:var(--teal)">Fixed and checkable at boot</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">The whole shape is written down before anything moves, so a broken wire is caught on a laptop — not with a real arm swinging.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Memory known in advance</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Overwrite-only by default; no unbounded queue. If one slot needs the last few, it opts into a fixed bounded ring — an exception it asks for, not a tax everyone pays.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Memory known in advance</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Overwrite-only by default; no unbounded queue. A slot that needs the last few values opts into a fixed bounded ring — an exception it asks for, not a tax everyone pays.</p></div>
   <div class="panel tight"><b style="color:var(--teal)">Compose, don't extend</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Power comes from composing the three primitives. Safety, transport, health and recovery are thin layers over them — nothing new to learn.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Few knobs to misset</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Overwrite, a freshness window, a safe action. The big standards expose dozens of QoS settings; every knob is a way to misconfigure the robot.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Few knobs to misset</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Overwrite, a freshness window, a safe action. Each knob is a way to misconfigure the robot, so there are very few.</p></div>
 </div>
 
 <h3>Sub-principles — how the communication core thinks</h3>
 <div class="panel">
 <ul class="clean" style="list-style:none;padding-left:0">
-  <li><b style="color:var(--gold)">T1 · Change-detection, not time.</b> Freshness is "did the generation move?" — a counter, not a clock. The only timing anywhere is each monitor's own local beat; no two boards ever have to agree on a clock.</li>
-  <li><b style="color:var(--gold)">T2 · A slot holds the latest, never a backlog.</b> Reads return the newest write and never block; overwrite-only is the default, so a fast producer can't drown a slow consumer and there is no queue to flood or to starve.</li>
+  <li><b style="color:var(--gold)">T1 · Change-detection, not time.</b> Freshness is "did <code>seq</code> advance?" — a counter, not a clock. The only timing anywhere is each monitor's own local beat; no two boards ever have to agree on a clock.</li>
+  <li><b style="color:var(--gold)">T2 · A slot holds the latest, never a backlog.</b> Reads return the newest write and never block; overwrite-only is the default, so a fast producer cannot drown a slow consumer and there is no queue to flood or to starve.</li>
   <li><b style="color:var(--gold)">T3 · The shape is fixed at boot.</b> The manifest names every slot and its wiring, read once and frozen — no runtime discovery, so the whole system is checkable before anything moves.</li>
-  <li><b style="color:var(--gold)">T4 · Two answers, not three.</b> A monitor says fresh or stale; that is the only question a safety-relevant reader asks. The old "slow but alive" state cost a separate heartbeat channel and changed no decision — it's gone.</li>
+  <li><b style="color:var(--gold)">T4 · Two answers, not three.</b> A monitor says fresh or stale; that is the only question a safety-relevant reader asks. "Still flowing?" is answered by <code>seq</code>; "still real?" is answered separately by the cook. Two questions, kept apart.</li>
   <li><b style="color:var(--gold)">T5 · Power by composition, not extension.</b> Safety, transport, health and recovery are thin layers over slot/manifest/monitor. You compose the core; you do not grow it.</li>
-  <li><b style="color:var(--gold)">T6 · Buy time back only in the payload.</b> The core is clock-free. The one job that genuinely needs time — fusion that interpolates — carries a per-device monotonic stamp inside the payload of just its inputs, never as a field on every slot.</li>
+  <li><b style="color:var(--gold)">T6 · Time only as same-device differences.</b> The core decides freshness with no clock. Every value still carries the producer's own monotonic <code>t_dev</code>, used only as differences on the same device — for fusion that time-aligns samples, for latency and jitter statistics, and as the in-band clock that makes a run replayable. No two clocks are ever compared.</li>
 </ul>
 </div>
 
 <h3>Sub-invariants — what must stay true</h3>
 <div class="panel" style="border-color:rgba(255,111,107,.35)">
 <ul class="clean" style="list-style:none;padding-left:0">
-  <li><span class="tag t-bad">never</span> &nbsp;A value in a slot without a generation. <span style="color:var(--mute)"><em>A value re-presented as fresh though its generation never moved is the frozen-but-trusted field.</em></span></li>
-  <li><span class="tag t-bad">never</span> &nbsp;Freshness measured by a clock. <span style="color:var(--mute)"><em>It is generation-vs-local-beat, binary fresh/stale. No timestamps, no clock sync, no third "slow but alive" trust state.</em></span></li>
-  <li><span class="tag t-bad">never</span> &nbsp;A slot read but never written, or a reader that wants updates faster than its writer can produce. <span style="color:var(--mute)"><em>The boot check refuses it and prints the two slots and the two numbers that don't fit.</em></span></li>
-  <li><span class="tag t-bad">never</span> &nbsp;An unbounded queue or buffer. <span style="color:var(--mute)"><em>Overwrite-only, or an opt-in bounded ring that overwrites its oldest entry and never grows. A buffer you don't need is just a place for stale data to hide.</em></span></li>
-  <li><span class="tag t-bad">never</span> &nbsp;A timestamp in the core. <span style="color:var(--mute)"><em>Time lives only in the payload of the slots that fuse — bought back narrowly, never a system-wide tax.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;A value in a slot without a <code>seq</code>. <span style="color:var(--mute)"><em>A value re-presented as fresh though its <code>seq</code> never advanced is a frozen-but-trusted field.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;Freshness measured by comparing two clocks. <span style="color:var(--mute)"><em>It is <code>seq</code>-advance witnessed within the reader's own local beat, binary fresh/stale. No clock sync, no third "slow but alive" trust state.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;A slot read but never written, or a reader whose <code>fresh_for</code> window is shorter than its writer's period. <span style="color:var(--mute)"><em>The boot check refuses it and prints the two slots and the two numbers that do not fit.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;An unbounded queue or buffer. <span style="color:var(--mute)"><em>Overwrite-only, or an opt-in bounded ring that overwrites its oldest entry and never grows. A buffer you do not need is just a place for stale data to hide.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;<code>t_dev</code> read by the freshness check. <span style="color:var(--mute)"><em>Freshness uses only <code>seq</code> and the reader's local beat; <code>t_dev</code> is for same-device differences and for replay, never for trust.</em></span></li>
   <li><span class="tag t-bot">always</span> &nbsp;The manifest is read once at boot and then frozen; nothing is discovered at runtime.</li>
   <li><span class="tag t-bot">always</span> &nbsp;Exactly one writer per slot (<code>written_by</code>), enforced by the manifest — the single-writer rule, made structural.</li>
-  <li><span class="tag t-bot">always</span> &nbsp;The dead-man is a monitor wired to a plant-specific safe action, on its own chip, firing even if the master is gone.</li>
+  <li><span class="tag t-bot">always</span> &nbsp;The floor is a monitor wired to a plant-specific safe action, on the actuator's own chip, firing even if the master is gone.</li>
+  <li><span class="tag t-bot">always</span> &nbsp;A reader starts <b>stale</b>: it distrusts whatever value is sitting there until it personally witnesses a new write, so every restart is safe by construction.</li>
   <li><span class="tag t-val">check</span> &nbsp;A new slot earns its wiring: <code>written_by</code>, <code>read_by</code>, <code>fresh_for</code>, and rarely <code>depth</code> — all data, all checkable before power-up.</li>
 </ul>
 </div>
 
-<h3>9.1 · The slot — a named box with a generation</h3>
-<p>A slot is a named place that holds exactly one value plus a counter called its <b>generation</b>. Writing overwrites the old value and adds one to the generation. Reads never wait and never queue — you get whatever is in the box right now. There are no timestamps; a slot records only how many times it has changed, not when.</p>
+<h3>9.1 · The slot — a named box with a counter and a stamp</h3>
+<p>A slot is a named place that holds exactly one value plus two stamps: a counter called <code>seq</code> and the producing node's own monotonic time <code>t_dev</code> at the write. Writing overwrites the old value and adds one to <code>seq</code>. Reads never wait and never queue — you get whatever is in the box right now. The whole row (value, <code>seq</code>, <code>t_dev</code>) is written atomically, so a reader can never see a torn value-and-stamp.</p>
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">the slot — overwrite + a counter</span></div>
-<pre class="code"><span class="c"># a write — overwrite the value, bump the counter</span>
-<span class="t">Slot</span>.put(<span class="s">"/imu/pose"</span>, pose)        <span class="c"># gen 41 -> 42</span>
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">the slot — overwrite the row, bump the counter</span></div>
+<pre class="code"><span class="c"># a write — overwrite value + stamps as one row; bump seq</span>
+<span class="t">Slot</span>.put(<span class="s">"/imu/pose"</span>, pose, t_dev)   <span class="c"># seq 41 -> 42</span>
 
 <span class="c"># a read — never blocks, always the latest</span>
-{value, gen} = <span class="t">Slot</span>.get(<span class="s">"/imu/pose"</span>)</pre>
+{value, seq, t_dev} = <span class="t">Slot</span>.get(<span class="s">"/imu/pose"</span>)</pre>
 </div>
-<p>To know "is this new?" you don't need to know <em>when</em> it arrived — only whether it <em>changed</em>. A reader remembers it last saw <code>gen 41</code>; next loop the slot says <code>gen 44</code> — three writes happened, it just uses the latest. If it still says <code>41</code>, nothing came. (Frames lost on a wire simply jump the generation; comparison is <code>!=</code>, not <code>&gt;</code>, so it survives the counter wrapping.) A plain counter answers the freshness question on its own, with no clock and no clock-skew bugs.</p>
+<p>To know "is this new?" you do not need to know <em>when</em> it arrived against your own clock — only whether <code>seq</code> moved. A reader remembers it last saw <code>seq 41</code>; next loop the slot says <code>seq 44</code> — three writes happened, it just uses the latest. If it still says <code>41</code>, nothing came. (Frames lost on a wire simply jump <code>seq</code>; the test is "did it advance", which survives the counter wrapping.) A plain counter answers the freshness question on its own, with no clock comparison and no skew bugs. The <code>t_dev</code> stamp rides along untouched by that decision — it is the producer's own clock, used later only as same-device differences.</p>
 
 <h3>9.2 · The manifest — who writes, who reads, fixed at boot</h3>
 <p>The manifest names every slot and says who is allowed to write it, who reads it, and how long it may sit unchanged. It is read once at startup and then frozen — nothing is discovered while the robot runs.</p>
@@ -918,35 +1066,36 @@ stateDiagram-v2
 <pre class="code">slot <span class="s">"/imu/pose"</span>,
   written_by: :imu,                 <span class="c"># exactly one writer — the single-writer rule, structural</span>
   read_by:    [:balance, :health],
-  fresh_for:  3                     <span class="c"># expect a new generation within 3 monitor ticks</span></pre>
+  fresh_for:  3                     <span class="c"># tolerate 3 missed writes — a multiple of the writer's period</span></pre>
 </div>
-<p>Because the wiring is data, you can check it before the robot powers up: is anything writing <code>/imu/pose</code>? Is a cog reading a slot nobody fills? Does a reader want updates faster than the writer can produce? You trade the flexibility of plug-and-play for the certainty of knowing your whole system at boot — and for a single robot of known shape that is a good trade, which is exactly why <b>DDS-style runtime discovery is left out</b>: you already know which sensors are there, so say it once and check it once.</p>
+<p>Because the wiring is data, you can check it before the robot powers up: is anything writing <code>/imu/pose</code>? Is a cog reading a slot nobody fills? Is a reader's window shorter than one of the writer's periods? This boot check <em>is</em> the validate step of the one rail from §03 — declare on the cog, pick in the manifest, validate at construction — here applied to the slot graph: a pick that names a missing producer, double-writes a slot, mis-matches a type, or sets an impossible window is refused on a laptop, with the two slots and the two numbers that do not fit. You trade the flexibility of plug-and-play for the certainty of knowing your whole system at boot — and for a single robot of known shape that is the right trade, because you already know which sensors are there, so you say it once and check it once. The window is expressed as a multiple of the writer's nominal period, so "a window shorter than one write" cannot even be written down.</p>
 
 <h3>9.3 · The monitor — fresh or stale, nothing between</h3>
-<p>A monitor wakes on a steady local beat — say every 20 ms — and records each watched slot's generation. If the generation hasn't moved within its <code>fresh_for</code> window, the slot is <b>stale</b>; otherwise it's <b>fresh</b>. Two answers.</p>
+<p>A monitor wakes on a steady local beat — for <code>follower_segby</code>, every 20 ms at 50 Hz — and keeps, per watched slot, three things: whether it has ever seen the slot (<code>seen</code>), the last <code>seq</code> it saw, and the local beat at which that <code>seq</code> last moved. If <code>seq</code> has not advanced within its <code>fresh_for</code> window, the slot is <b>stale</b>; otherwise it is <b>fresh</b>. Two answers.</p>
 <div class="codewrap">
   <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">the monitor — one comparison per slot, per beat</span></div>
 <pre class="code"><span class="c"># on every local beat, per watched slot:</span>
-moved? = gen_now != gen_last        <span class="c"># a counter, compared — no clock</span>
+{_value, seq_now, _t_dev} = <span class="t">Slot</span>.get(slot)
+moved? = seen and seq_now != seq_last   <span class="c"># a counter, compared — no clock</span>
 idle   = <span class="k">if</span> moved?, <span class="k">do:</span> 0, <span class="k">else:</span> idle + 1
-state  = <span class="k">if</span> idle &gt; fresh_for, <span class="k">do:</span> :stale, <span class="k">else:</span> :fresh</pre>
+state  = <span class="k">if</span> seen and idle &lt;= fresh_for, <span class="k">do:</span> :fresh, <span class="k">else:</span> :stale</pre>
 </div>
-<p>The only decision a safety-relevant reader makes is "trust this value — yes or no?" The arm watching the camera doesn't care <em>why</em> the camera went quiet; if its window passes with no new generation, it stops reaching and holds. The old design's third state ("slow but still alive") needed a whole separate heartbeat channel to detect and changed no decision, so it's cut — one less subsystem, same safety. The monitor's beat is local, so generation counters plus a local beat give freshness with no shared clock anywhere.</p>
+<p>A freshly started reader has not yet witnessed a write, so <code>seen</code> is false and it is <b>born stale</b>: it distrusts whatever value happens to be sitting in the slot until it personally sees <code>seq</code> advance. This is what makes a restart safe — a rebooted board never trusts a leftover reading. The only decision a safety-relevant reader makes is "trust this value — yes or no?" The balancer watching the obstacle distance does not care <em>why</em> the reading went quiet; if its window passes with no new <code>seq</code>, it stops reaching for it. "Is the producer still flowing?" is this <code>seq</code> question; "is the value real?" is a separate question answered by the cook (§04). The monitor's beat is its own, so a counter plus a local beat give freshness with no shared clock anywhere.</p>
 
 <h3>9.4 · Everything else is composed from the three</h3>
-<p>The features a real robot needs aren't new machinery — each is a thin layer over slot, manifest, and monitor.</p>
+<p>The features a real robot needs are not new machinery — each is a thin layer over slot, manifest, and monitor.</p>
 <div class="panel">
 <ul class="clean">
-  <li><b>Boot check</b> — a plain function reads the manifest and refuses to start on wiring that can't work (a slot read but never written, a reader faster than its writer); it prints the two slots and the two numbers that don't fit. <span style="color:var(--mute)"><em>builds on → the manifest (it's data you can check).</em></span></li>
-  <li><b>Safety / the dead-man</b> — "if <code>/imu/pose</code> goes stale, hold and cut motor power" is the whole safety system: a monitor result wired to one plant-specific action. It runs on its own small chip watching its own copy of the slot, so it fires even if the master crashes entirely. <span style="color:var(--mute)"><em>builds on → a monitor + one safe action.</em></span></li>
-  <li><b>Transport</b> — a slot is a slot whether it's local memory or a wire to a microcontroller; the generation simply travels inside the frame (§05), so the same fresh/stale check works on-chip and across the robot. <span style="color:var(--mute)"><em>builds on → the slot (value + generation are all that crosses).</em></span></li>
-  <li><b>Health</b> — fold every monitor's fresh/stale into one word: all fresh → nominal, a non-critical slot stale → degraded, a safety-critical slot stale → safe. No separate health service to keep in sync — health is the sum of answers the monitors already produce (§06). <span style="color:var(--mute)"><em>builds on → many monitors, aggregated by criticality.</em></span></li>
-  <li><b>Recovery</b> — OTP supervisors restart crashed processes; firmware uses A/B images that roll back a bad update. Real and useful, but a different job from safety, kept deliberately apart — recovery restores software while the dead-man already held the physical world. <span style="color:var(--mute)"><em>builds on → supervision + A/B firmware, around the core, not inside it.</em></span></li>
+  <li><b>Boot check</b> — a plain function reads the manifest and refuses to start on wiring that cannot work (a slot read but never written, a reader window shorter than its writer's period); it prints the two slots and the two numbers that do not fit. It also adds up each link's traffic — <code>Σ(slot rate × frame size)</code> against the link's baud — and refuses a topology that over-subscribes the busiest wire; because every slot streams every beat, that budget is load-bearing now, not advisory. <span style="color:var(--mute)"><em>builds on → the manifest (it is data you can check).</em></span></li>
+  <li><b>Safety / the floor</b> — "if the command slot goes stale, drive to the plant-specific safe action" is the whole dead-man: a monitor result wired to one safe action. It runs on the actuator's own chip watching its own copy of the command slot, so it fires even if the master is entirely gone. <span style="color:var(--mute)"><em>builds on → a monitor + one safe action.</em></span></li>
+  <li><b>Transport</b> — a slot is a slot whether it is local memory or a wire to a microcontroller; the value, <code>seq</code> and <code>t_dev</code> travel verbatim inside the frame (§05), so the same fresh/stale check works on-chip and across the robot, and a reader cannot tell local from remote. <span style="color:var(--mute)"><em>builds on → the slot (value + stamps are all that crosses).</em></span></li>
+  <li><b>Health</b> — fold every monitor's fresh/stale into one word: all fresh → nominal, a non-critical slot stale → degraded, a safety-critical slot stale → safe. No separate health service to keep in sync — health is the fold of answers the monitors already produce (§06). <span style="color:var(--mute)"><em>builds on → many monitors, folded by criticality.</em></span></li>
+  <li><b>Recovery</b> — OTP supervisors restart crashed processes; firmware uses A/B images that roll back a bad update. Real and useful, but a different job from safety, kept deliberately apart — recovery restores software while the floor already held the physical world. <span style="color:var(--mute)"><em>builds on → supervision + A/B firmware, around the core, not inside it.</em></span></li>
 </ul>
 </div>
 
 <h3>9.5 · The bounded ring — when you need the last few</h3>
-<p>Overwrite-only is the default and it is right almost everywhere. A handful of jobs need the last <em>few</em> values, not just the newest; for those a slot opts into a bounded ring. It isn't a new primitive — it's the same slot holding N values instead of one.</p>
+<p>Overwrite-only is the default and it is right almost everywhere. A handful of jobs need the last <em>few</em> values, not just the newest; for those a slot opts into a bounded ring. It is not a new primitive — it is the same slot holding N values instead of one.</p>
 <div class="codewrap">
   <div class="codehdr"><span class="badge data">DATA</span><span class="fn">a slot that keeps the last N — opt-in, off by default</span></div>
 <pre class="code">slot <span class="s">"/imu/raw"</span>,
@@ -955,60 +1104,82 @@ state  = <span class="k">if</span> idle &gt; fresh_for, <span class="k">do:</spa
   fresh_for:  2,
   depth:      8                     <span class="c"># keep the last 8 writes — default is 1</span></pre>
 </div>
-<p>A new write overwrites the oldest entry; memory is fixed and known at boot (a depth-8 ring is eight boxes instead of one). The generation still increments on every write and a plain read still returns the newest value, so monitors and the manifest treat it exactly like an ordinary slot — only a reader that asks for the window ever sees history. One job genuinely needs it: fusion that interpolates, which has to find the two samples bracketing an instant. Reach for it there and almost nowhere else.</p>
+<p>A new write overwrites the oldest entry; memory is fixed and known at boot (a depth-8 ring is eight boxes instead of one). <code>seq</code> still advances on every write and a plain read still returns the newest value, so monitors and the manifest treat it exactly like an ordinary slot — only a reader that asks for the window ever sees history. One job genuinely needs it: fusion that interpolates, which has to find the two samples bracketing an instant. Reach for it there and almost nowhere else.</p>
 
-<h3>9.6 · Sensor fusion — two tiers, and where time comes back</h3>
-<p>Different sensors run at different speeds — an IMU at 1 kHz, a camera at 30 Hz. Mixed rates are free at the transport, because each is its own slot and there is no shared queue to flood. A fusion cog doesn't run on a wall clock — it runs when its inputs change, which is exactly what the generation already reports: cheap prediction on the fast input, expensive correction only when the slow input's generation moves.</p>
+<h3>9.6 · Sensor fusion — two tiers, and where time is used</h3>
+<p>Different sensors run at different speeds — an IMU at 1 kHz, a ranging sensor at 30 Hz. Mixed rates are free at the transport, because each is its own slot and there is no shared queue to flood. A fusion cog does not run on a wall clock — it runs when its inputs change, which is exactly what <code>seq</code> already reports: cheap prediction on the fast input, expensive correction only when the slow input's <code>seq</code> advances.</p>
 <figure>
 <div class="mermaid">
 flowchart LR
-  IMU["/imu/raw · 1 kHz"] -->|"gen bump → predict"| FUSE["fusion cog<br/>predict + correct"]
-  CAM["/camera/frame · 30 Hz"] -->|"gen bump → correct"| FUSE
+  IMU["/imu/raw · 1 kHz · value+seq+t_dev"] -->|"seq advance → predict"| FUSE["fusion cog<br/>predict + correct"]
+  RANGE["/range/front · 30 Hz · value+seq+t_dev"] -->|"seq advance → correct"| FUSE
   FUSE --> POSE["/state/pose · derived slot"]
   classDef s fill:#0d2415,stroke:#46c970,color:#dcf6e4;
   classDef d fill:#191e27,stroke:#56b6ff,color:#cfe6ff;
-  class IMU,CAM s
+  class IMU,RANGE s
   class POSE d
 </div>
-<figcaption>The predict-on-fast, correct-on-slow shape of any Kalman/EKF filter falls out of one question — did this slot's generation move? No scheduler, no polling.</figcaption>
+<figcaption>The predict-on-fast, correct-on-slow shape of any Kalman/EKF filter falls out of one question — did this slot's <code>seq</code> advance? No scheduler, no polling.</figcaption>
 </figure>
 <div class="grid2">
-  <div class="panel tight"><b style="color:var(--teal)">Tier 1 · latest-wins</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">Read the newest of each input, check each is fresh via its monitor, combine. Right whenever the robot is slow relative to its sensors — a 30 ms-old frame doesn't matter if nothing moved that far in 30 ms. Costs nothing beyond the three primitives.</p></div>
-  <div class="panel tight"><b style="color:var(--teal)">Tier 2 · time-aligned</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">For anything dynamic, "newest of each" is wrong — the two readings describe different instants. Put a capture stamp in the <em>payload</em> of just the fusion inputs (a per-device monotonic clock). This is the one place "no timestamps" is deliberately bought back.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Tier 1 · latest-wins</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">Read the newest of each input, check each is fresh via its monitor, combine. Right whenever the robot is slow relative to its sensors — a 30 ms-old reading does not matter if nothing moved that far in 30 ms. Costs nothing beyond the three primitives.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Tier 2 · time-aligned</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">For anything dynamic, "newest of each" describes different instants. The <code>t_dev</code> each value already carries is the per-device capture stamp; fusion time-aligns the samples by their same-device <code>t_dev</code> differences. This is the one place the framework uses time at all.</p></div>
 </div>
-<p>Keeping it on the master keeps alignment to two cases: a sensor running locally stamps with the master's own monotonic clock; a sensor on a microcontroller is captured on its clock, so the master keeps a lightweight running offset between the two — carried on the heartbeat — and converts the capture time onto the master timeline. That offset exists <em>only</em> for fusion; the fresh/stale gating never touches it. And because consecutive same-device stamps are directly subtractable, the same payload field also lets you watch bus latency and jitter grow — production deltas against arrival deltas — with no clock sync, if and when you want that diagnostic.</p>
+<p>Fusion lives on the master, so alignment has two cases. A sensor running locally stamps <code>t_dev</code> with the master's own monotonic clock. A sensor on a microcontroller stamps <code>t_dev</code> with its own clock, so the master keeps a lightweight running offset between the two and converts the capture time onto the master timeline. That offset exists <em>only</em> for fusion; the fresh/stale gating never touches it. And because consecutive same-device <code>t_dev</code> stamps are directly subtractable, the same field lets you watch bus latency and jitter — production deltas against arrival deltas — with no clock sync, whenever you want that diagnostic.</p>
 <div class="callout good">
 <div class="ct"><span class="t-val">degradation rides the same rails</span> and the honest limit</div>
-<p style="margin:.3em 0 0">If the camera goes stale its monitor already says so; the fusion cog keeps predicting on the IMU alone and marks its own output slot <code>/state/pose</code> degraded — or lets it go stale. Because that output is just another slot, the safety layer sees the trouble through the very same fresh/stale machinery; there's no special "fusion failed" signal to invent. <b>The honest limit:</b> the tightest fusion wants the IMU sample <em>at the camera's capture instant</em>, which means interpolating between the two that bracket it — that's the one job the bounded ring exists for. Sub-millisecond alignment across boards needs real clock sync (PTP) on top; pay that cost narrowly, on the fusion inputs only, and nowhere else.</p>
+<p style="margin:.3em 0 0">If the ranging sensor goes stale its monitor already says so; the fusion cog keeps predicting on the IMU alone and marks its own output slot <code>/state/pose</code> degraded — or lets it go stale by not writing. Because that output is just another slot, the safety layer sees the trouble through the very same fresh/stale machinery; there is no special "fusion failed" signal to invent. <b>The honest limit:</b> a single sensor cannot catch its own subtle-but-plausible failure — a reading that is wrong yet varies plausibly. That needs a second source, which is precisely the job fusion exists for; it is out of scope for one sensor's cook. Sub-millisecond alignment across boards needs real clock sync on top; pay that cost narrowly, on the fusion inputs only, and nowhere else.</p>
 </div>
 
 <div class="callout note">
-<div class="ct"><span class="t-val">all three together</span> a camera, an arm, and a guard</div>
-<p style="margin:.3em 0 0">A <b>camera</b> writes <code>/camera/frame</code> 30 times a second, each write bumping the generation. An <b>arm</b> reads the latest frame each control loop and aims the gripper — miss a frame and it just uses the newest, no backlog to drain. A <b>guard</b> on its own chip watches only the frame's generation; five ticks with no new generation cuts arm power, and it fires even if the main computer is dead. At boot the manifest confirms the camera writes the slot and both the arm and guard read it — or the robot refuses to start. Three primitives, one safe robot.</p>
+<div class="ct"><span class="t-val">all three together</span> the obstacle, the wheels, and the floor</div>
+<p style="margin:.3em 0 0">A <b>ranging sensor</b> writes <code>/range/front</code> 30 times a second, each write advancing <code>seq</code>. The <b>balancer</b> reads the latest distance each 50 Hz loop and trims the wheels to hold its set gap — miss a reading and it just uses the newest, no backlog to drain. The <b>floor</b> on the wheel board watches only the command slot's <code>seq</code>; a window of beats with no new <code>seq</code> drops to zero torque, and it fires even if the master is dead. At boot the manifest confirms the sensor writes the slot and the balancer and health read it — or the robot refuses to start. Three primitives, one safe robot.</p>
 </div>
 </section>
 
-<!-- ===================== 10 ===================== -->
 <section id="s10">
 <h2><span class="num">10</span>How the library is laid out</h2>
-<p>The repository structure <em>is</em> the strata, and the dependency arrow points only downward: a <span class="t-bot">bot</span> is data + UI; <span class="t-cog">cogs</span> are reusable capabilities; <span class="t-plat">platform</span> is everything with a clock or a socket. Each home is one or more <b>mix apps wired by <code>path:</code> deps</b>, so the arrow is <em>compiler-enforced</em>: a cog cannot depend on a bot, and the platform cannot depend on a cog — it simply won't compile. Adding a bot touches only <code>bots/</code>; adding a capability touches only <code>cogs/</code>.</p>
+<p class="lead">The repository structure <em>is</em> the strata, and the dependency arrow points only downward.</p>
+<p>A <span class="t-bot">bot</span> is composition data plus UI. A <span class="t-cog">cog</span> is a reusable capability — a pure <code>cook</code>, a pure <code>step</code>, or a <code>floor</code>, <em>plus the contract that travels with it</em> (§03). Because a cog carries its own contract, it is publishable and droppable into any bot: the bot picks values inside the contract, never restating it. The <span class="t-plat">platform</span> is everything that holds a clock or a socket. Each home is one or more <b>mix apps wired by <code>path:</code> deps</b>, so the arrow is <em>compiler-enforced</em>: a cog cannot depend on a bot, and the platform cannot depend on a cog. The build refuses the reverse edge. Per-node firmware — schedule, routing, configuration — is generated from the manifest, never hand-written.</p>
 
-<pre class="tree"><span class="d">platform/</span>                              <span class="cm"># L0–L4 — every bot gets this free, never edits it</span>
+<div class="mermaid">
+graph TD
+  bot["bots/ · composition data + UI · t-bot"]
+  cog["cogs/ · reusable cook / step / floor · t-cog"]
+  plat["platform/ · clock + socket + slot space · t-plat"]
+  bot --> cog
+  bot --> plat
+  cog --> plat
+  classDef b fill:#13301f,stroke:#3fa564,color:#cdeccd
+  classDef c fill:#221033,stroke:#9a5bd6,color:#e6d5f5
+  classDef p fill:#2b2410,stroke:#c9a227,color:#f0e4b8
+  class bot b
+  class cog c
+  class plat p
+</div>
+<figcaption>Dependencies point only downward. Adding a bot edits only <code>bots/</code>; adding a capability edits only <code>cogs/</code>; nothing in <code>platform/</code> is touched to add either.</figcaption>
+
+<pre class="tree"><span class="d">platform/</span>                              <span class="cm"># every bot gets this free, never edits it</span>
   <span class="d">master_runtime/</span>  (mix app)          <span class="cm"># the Elixir chassis; the bottom of the arrow</span>
-    lib/ values.ex cog_bus.ex cog_server.ex translate.ex blaster_link.ex
-         health_monitor.ex loop_monitor.ex framing/ topic_contract.ex
+    lib/ slot.ex slot_table.ex cog_shell.ex node_link.ex
+         health_fold.ex coordination_policy.ex   <span class="cm"># the fold + the pure decide/3 (§11.2)</span>
+         loop_monitor.ex framing/ manifest_contract.ex
     mix.exs                           <span class="cm"># depends on NOTHING in cogs/ or bots/</span>
+  <span class="d">bb_cog/</span>  (mix app)                   <span class="cm"># the BeamBots seam (§11) — what a bb user adds</span>
+    lib/ link_owner.ex                <span class="cm"># owns one bus, BESIDE the topology tree</span>
+         view_gen.ex                  <span class="cm"># GENERATES the BB.Sensor/BB.Actuator views from a contract</span>
+         message_map.ex               <span class="cm"># slot → BB.Message type, drift-tested like the codecs</span>
   firmware/                           <span class="cm"># the C edge chassis (bounded I/O first)</span>
-    substrate.c  transport.c  safety_graph.c
-    topic_contract.h                  <span class="cm"># GENERATED from topic_contract.ex — drift-tested</span>
+    substrate.c  transport.c  arm_graph.c
+    slot_contract.h                   <span class="cm"># GENERATED from manifest_contract.ex — drift-tested</span>
 
 <span class="cg">cogs/</span>                                  <span class="cm"># one mix app (or C folder) per capability</span>
-  balance/  lib/balance_pid.ex   mix.exs    <span class="cm"># path: dep on master_runtime · pure step/4</span>
-  imu/      lib/cook_pose.ex  blaster/imu_cog.c   <span class="cm"># pure cook + its C port</span>
-  range/    blaster/cook_range.c
-  follow/   lib/follow.ex        mix.exs    <span class="cm"># reference controller</span>
-  arbiter/  lib/arbiter.ex       mix.exs    <span class="cm"># optional: sole writer when many command one actuator</span>
-  motor/    smartcog/deadman.c  foc.c       <span class="cm"># comms-independent floor + control</span>
+  balance/  lib/balance_step.ex  mix.exs    <span class="cm"># path: dep on master_runtime · pure step/4</span>
+  imu/      lib/cook_pose.ex   mcu/imu_cog.c   <span class="cm"># pure cook + its C device port</span>
+  range/    mcu/cook_range.c
+  follow/   lib/follow.ex         mix.exs    <span class="cm"># reference controller</span>
+  arbiter/  lib/arbiter.ex        mix.exs    <span class="cm"># sole writer when many cogs target one actuator</span>
+  motor/    mcu/deadman.c  foc.c             <span class="cm"># comms-independent floor + control</span>
 
 <span class="bt">bots/</span>                                  <span class="cm"># a bot = composition data + UI; the only app that may name a bot</span>
   <span class="bt">follower_segby/</span>  (mix app)
@@ -1016,20 +1187,139 @@ flowchart LR
     mix.exs</pre>
 
 <div class="callout good">
-<div class="ct"><span class="t-val">the test of the whole design</span> the size of your surface</div>
-<p style="margin:.3em 0 0">To build a <em>new</em> bot from existing cogs, you write one <code>manifest.exs</code> and one <code>dashboard.ex</code>. To add a new <em>capability</em>, you write a device backend + a pure <code>cook</code> (sensor) or a pure <code>step</code> (controller) or a <code>deadman</code> (actuator) — and nothing in <code>platform/</code>. Because the boundary is compiler-enforced by the <code>path:</code>-dep graph, a cog or bot that tries to reach into <code>platform/</code> won't compile — which is the signal a seam is missing, not that the framework needs a feature.</p>
+<div class="ct"><span class="t-val">the size of your surface</span> what each kind of change costs</div>
+<p style="margin:.3em 0 0">To build a new bot from existing cogs, you write one <code>manifest.exs</code> and one <code>dashboard.ex</code>. To add a new capability, you write a device binding plus a pure <code>cook</code> (a sensor), or a pure <code>step</code> (a controller), or a <code>deadman</code> (an actuator floor) — and nothing in <code>platform/</code>. Because the boundary is enforced by the <code>path:</code>-dep graph, a cog or bot that tries to reach into <code>platform/</code> will not compile. That refusal is the signal that a seam is missing, not that the framework needs a feature.</p>
 </div>
 
-<h3>Where to go next</h3>
+<h3>A natural order to stand it up</h3>
 <ul class="clean">
-<li><b>The remaining forks are hardware/bench calls:</b> whether a CPU-independent hardware enable-drop is worth a board revision, and how deep the per-device self-heal FSM should go — the fail-passive floor stands without it, so self-heal can start shallow and deepen at the bench.</li>
-<li><b>Natural first slice:</b> stand up <code>cog_bus</code> + <code>cog_server</code> + one sensor cog + the health monitor on the master, with a fake Blaster feeding recorded frames — the whole upper stack is testable with no hardware because every interface is a value.</li>
-<li><b>Then push down:</b> port <code>cook_pose</code> from the master (where you prototyped it against logged samples) to the Blaster unchanged — the payoff of keeping it a pure, location-independent function.</li>
+<li><b>First slice, no hardware:</b> bring up the slot table, a cog shell, one sensor cog, and the health fold on the master, with a fake node link feeding recorded frames. The whole upper stack is testable without a board, because every interface is a slot.</li>
+<li><b>Then push down:</b> port <code>cook_pose</code> from the master — where it was prototyped against logged samples — to the MCU unchanged. That is the payoff of keeping it a pure, location-independent function: it runs the same on either runtime.</li>
+<li><b>Self-heal deepens at the bench:</b> the per-device validation and revert FSM can start shallow and grow, because the fail-passive floor stands without it. The floor lives on the actuator's own chip, so a board that boots but never performs is reverted whether or not its self-heal logic is complete.</li>
 </ul>
 </section>
 
+<!-- ===================== 11 ===================== -->
+<section id="s11">
+<h2><span class="num">11</span>Relationship to the BeamBots ecosystem</h2>
+<p class="lead"><a href="https://beambots.dev">BeamBots</a> (the <code>bb</code> framework) is the natural home for everything <em>above</em> the wire: a Spark DSL for the robot's topology, a supervision tree that mirrors its structure, a hierarchical PubSub, and free dashboards (<code>bb_liveview</code>, <code>bb_kino</code>) and kinematics (Nx-backed IK). It has one boundary we sit exactly outside of: <b>every BeamBots node runs Elixir on the BEAM</b> — its drivers are GenServers, its hardware hangs off the one machine running the BEAM. Our reason to exist is the case BeamBots does not cover: <b>cogs that do not run Elixir</b>, on microcontrollers reached over a bus we define ourselves. So we do not replace BeamBots; we <em>extend</em> it downward, joined at one seam — proven by prototype to fit, with a thin conformance layer we own (§11.4).</p>
+
+<div class="callout good" style="border-color:rgba(70,214,194,.4);background:rgba(70,214,194,.05)">
+<div class="ct" style="font-weight:700;color:var(--teal);font-family:'JetBrains Mono',monospace;font-size:.82rem;letter-spacing:.04em">THE ONE LINE — ELIXIR ABOVE IT, OUR PROTOCOL BELOW</div>
+<p style="margin:.3em 0 0">Define the bot in BeamBots. Surface each off-BEAM cog to it as an ordinary <code>BB.Sensor</code> or <code>BB.Actuator</code>. Below that seam runs <em>our</em> wire — COBS+CRC over UART / I²C / CAN, carrying <code>seq</code>, <code>t_dev</code>, <code>fw_id</code>, the freshness core, and the on-chip floor. BeamBots sees components; it never sees the microcontroller. The framework above the line is consumed; the package below it (<code>bb_cog</code>) is what a BeamBots user adds to reach hardware that isn't running Elixir.</p>
+</div>
+
+<figure>
+<div class="mermaid">
+flowchart TB
+  subgraph BEAM["🟡 ONE BEAM · the master · a BeamBots application"]
+    direction TB
+    subgraph TOPO["BB topology subtree · force-disarmed &amp; torn down as a unit"]
+      direction TB
+      DSL["topology DSL · BB.PubSub · bb_liveview / IK"]
+      SENS["bb_cog sensor · BB.Sensor<br/>a VIEW: reads slots → BB.publish"]
+      ACT["bb_cog actuator · BB.Actuator<br/>a VIEW: command → slot · disarm/1 → best-effort frame"]
+      POLICY["coordination policy<br/>judgment over the health fold · may initiate a stop"]
+    end
+    LINK["LinkOwner (ours) · BESIDE the subtree<br/>owns one physical bus · survives force-disarm<br/>fills inbound slots · drains commands · keeps status flowing"]
+    SENS -. reads through .- LINK
+    ACT -. writes through .- LINK
+  end
+  BEAM -->|"OUR PROTOCOL leaves Elixir here · COBS+CRC over UART / I²C / CAN · seq · t_dev · fw_id"| NODE
+  subgraph NODE["🟢 ESP32 · C / Arduino · NOT Elixir"]
+    direction TB
+    COGS["cogs · cook / step"]
+    FLOOR["the floor (dead-man)<br/>fires on seq-stale · master-independent · THE guarantee"]
+    STATUS["status slot → up the wire<br/>floor_engaged · armed · applied_seq"]
+  end
+  classDef m fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
+  classDef l fill:#231a06,stroke:#eaa84a,color:#f1ead9;
+  classDef g fill:#0d2415,stroke:#46c970,color:#dcf6e4;
+  class DSL,SENS,ACT,POLICY m; class LINK l; class COGS,FLOOR,STATUS g;
+</div>
+<figcaption>Above the line is BeamBots' world — pure Elixir, where the bot is defined and observed. Below the line is ours — the protocol, the freshness core, and the floor, on a node that is not running the BEAM. The components (<code>BB.Sensor</code>, <code>BB.Actuator</code>) are thin <em>views</em> living inside BeamBots' topology subtree (force-disarmed with the robot); the <b><code>LinkOwner</code> owns the physical bus and lives <em>beside</em> that subtree</b>, so when the topology is torn down the bus — and the status stream — keep flowing, and the robot fails legibly rather than blind.</figcaption>
+</figure>
+
+<h3>11.1 · The seam is BB.Sensor and BB.Actuator</h3>
+<p>A BeamBots driver is not a GenServer you write — you supply callbacks and the framework wraps them (<code>BB.Sensor.Server</code> / <code>BB.Actuator.Server</code>). That division is ours already: the author supplies a pure core, the framework owns the process. The mapping onto our cog is direct.</p>
+<table>
+<tr><th style="width:200px">BeamBots callback / API</th><th>What the generated <em>view</em> does with it</th></tr>
+<tr><td><code>options_schema/0</code></td><td><b>This is where our cog contract lives (§03).</b> Our <code>rate</code> range, slot wiring and tunable bounds <em>become</em> a <code>Spark.Options</code> schema; an integer rate range is a one-line <code>{:in, 1..200}</code>, a float bound a <code>{:custom, …}</code> validator. "Declare · pick · validate" and BeamBots' option validation are the same mechanism — with one proven caveat: BeamBots validates the <em>picked</em> values at <b>process boot, inside <code>init</code></b> (a bad rate is a <code>{:stop, ValidationError}</code> crash), not at compile time. Compile-time contract guarantees are a layer we add on top.</td></tr>
+<tr><td><code>init/1</code></td><td><b>Self-subscribe the command topic</b> (see below) and attach to the named slots the <code>LinkOwner</code> fills and drains. The view does <em>not</em> open the bus — the physical link is owned by the <code>LinkOwner</code> beside the topology subtree (§11.3), so the view owns no socket.</td></tr>
+<tr><td>sensor → <code>BB.publish/3</code> to <code>[:sensor | path]</code></td><td>The view pulls its inbound slot (which the <code>LinkOwner</code> filled from a decoded frame), and lifts the value into a typed <code>BB.Message</code> struct to publish onto BeamBots' PubSub. <b>Our slot name becomes the BeamBots path</b>; our wire value maps to a concrete <code>BB.Message.Sensor.*</code> type.</td></tr>
+<tr><td>actuator ← <code>handle_info({:bb, path, msg}, st)</code></td><td>A command published in BeamBots arrives here; the view decodes the <code>BB.Message</code> and <code>Slot.put</code>s the outbound command slot — the <code>LinkOwner</code> drains that slot to the wire. <b>Proven gotcha:</b> BeamBots does <em>not</em> auto-wire this — the view must call <code>BB.subscribe([:actuator | path])</code> in <code>init</code>, or the pubsub command path silently no-ops.</td></tr>
+<tr><td><code>disarm/1</code> (required for actuators)</td><td>Sends a best-effort disarm frame — see §11.2. <em>Not</em> the safe-state mechanism. Runs <b>without GenServer state</b>, so anything it needs is frozen into the registration opts.</td></tr>
+</table>
+<p>BeamBots has no built-in rate framework — sampling rate is a driver-local option, not a platform feature — so <em>we</em> own rate, exactly as the contract says. Nothing in BeamBots fights our right-rate model.</p>
+
+<h3>11.2 · Safety crosses the line carefully — the floor stays ours</h3>
+<p>BeamBots' <code>BB.Actuator</code> requires a <code>disarm/1</code> that "makes the hardware safe." Read naïvely, that would make a BEAM callback — reachable only over the wire — the thing that stops a motor, contradicting our load-bearing invariant that <em>the floor survives total master loss</em>. The prototype settled exactly how to read it, and the answer is reassuring: <b><code>BB.Safety</code> is humble.</b> Its own moduledoc says the BEAM is soft-real-time only and that you must implement hardware-level safety as the primary protection; <code>report_error/3</code> is pure notification and does <em>not</em> disarm; it never reads back whether the hardware actually went safe. So the trap we feared — BeamBots quietly asserting ownership of safety — <b>is not real.</b></p>
+<div class="grid2">
+  <div class="panel tight"><b style="color:var(--teal)">disarm/1 = a fast path, never the guarantee</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">It sends a disarm frame down the wire when the master is alive — quick and observable. It may fail to reach the node, and the authoritative safe-state is still the on-chip dead-man firing on <code>seq</code>-staleness. BeamBots safety is <b>one cause</b> feeding our "many causes, one actuation" disarm (§Point 5).</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Safety truth flows up the wire — for observers</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">The node's status slot (<code>floor_engaged</code>, <code>armed</code>, <code>applied_seq</code>) republished onto PubSub is the real truth, and it drives dashboards and our own logic. <b>Proven limit:</b> it does <em>not</em> drive <code>BB.Safety</code>'s armed bit — there is no status→safety path in BeamBots at all.</p></div>
+</div>
+<div class="callout bad" style="margin-top:4px">
+<div class="ct"><span class="t-bad">the real trap — the inverse of the one we feared</span> a feedback-free green light</div>
+<p style="margin:.3em 0 0">Because <code>BB.Safety</code>'s <code>armed?</code> is flipped <em>only</em> by <code>arm</code>/<code>disarm</code>/<code>force_disarm</code> and never by inbound status, its belief and the node's ground truth <b>diverge silently</b>: after a link-drop or an on-chip floor event, BeamBots can still read <code>armed</code> while the wheels are floored. Anything that treats <code>BB.Safety.armed?</code> as "is the hardware live?" — an operator, a UI, an interlock — will be wrong in exactly the moments that matter. The §00 principle holds across the line, now sharper: <b>never display confidence you cannot observe</b> — so a "physically live?" signal must be read from the status slot, never from <code>armed?</code>.</p>
+</div>
+<p><b>And <code>disarm/1</code> is "lie or lock," so we must choose its meaning deliberately.</b> The prototype pinned BeamBots' behaviour: <code>disarm/1</code> returning <code>:ok</code> drives the robot to <code>:disarmed</code> (so a best-effort path that returns <code>:ok</code> on a dropped frame makes BeamBots <em>confidently wrong</em>); returning <code>{:error, …}</code> <em>or raising</em> drives it to <code>:error</code> and <b>locks out re-arming</b> until <code>force_disarm/1</code>. Neither value means "the floor will handle it." So we make <code>disarm/1</code>'s return mean exactly what BeamBots thinks — <em>"the disarm intent was delivered/acknowledged"</em> — and drive every "is it physically safe?" decision from the status slot instead. One proven gotcha tightens this: <b>auto-registration with <code>BB.Safety</code> is a doc lie</b> — you must call <code>BB.Safety.register/2</code> in <code>init</code>, or <code>disarm/1</code> is never invoked, and only a warning tells you.</p>
+
+<h4 style="margin:1.6em 0 .3em">Cogs report; the master coordinates</h4>
+<p>The first instinct — wire a status→<code>BB.Safety</code> adapter so BeamBots' <code>armed?</code> tracks reality — is the <em>wrong primitive</em>, and grilling the design replaced it with a cleaner separation. A cog has no business deciding for its siblings; it cannot see them. So a cog only ever <b>reports</b> its own state truthfully — <em>"I am cog X, I floored"</em>, or even a softer <em>"I am running hot"</em> that no reflex would catch — and that report always flows to the master (when the link is open) through the surviving <code>LinkOwner</code>. The <b>master owns coordination</b>: a distinct <em>coordination policy</em> (master-side tested code, not a manifest knob and not a cog) reads the health fold plus the raw reports and <em>decides</em> what a given cog's state means for the rest of the robot — propagate a stop to a scope, broadcast a global one (the §Point 6 e-stop slot), or merely log a degradation. It may <b>initiate</b> a stop, not only relay one, because the trigger (a warning, a dangerous <em>combination</em> of degraded states) may exist where no single cog has floored.</p>
+<div class="callout good" style="border-color:rgba(70,201,112,.4);background:rgba(70,201,112,.05)">
+<div class="ct" style="font-weight:700;color:var(--green);font-family:'JetBrains Mono',monospace;font-size:.82rem;letter-spacing:.04em">THE SAFETY STACK — THREE LAYERS, EACH A FALLBACK FOR THE ONE ABOVE</div>
+<ol class="clean" style="margin:.4em 0 0;padding-left:1.3em">
+  <li><b>Coordination policy</b> (master, in the BB tree) — preemptive &amp; coordinated stops from whole-system judgment. Richest, least reliable, <em>best-effort</em>. May initiate. An ordinary crash just restarts it <b>born-stale</b>, and it re-derives from the <em>current</em> fold — restart <em>is</em> the recheck, no resume logic. The one state it does not auto-recover from is a topology teardown — and there BeamBots has already force-disarmed everything, so there is no decision left to make.</li>
+  <li><b>BeamBots force-disarm / broadcast e-stop</b> (master-driven) — the blunt global stop when the topology collapses or an operator commands it. Commands stop advancing.</li>
+  <li><b>The floor</b> (on each chip) — reflexive, autonomous, survives total master loss. <b>The guarantee.</b> Never depends on layers 1–2.</li>
+</ol>
+<p style="margin:.6em 0 0">Because the policy is strictly <em>additive</em> on top of the floor, none of this is recovery-dependent safety (which §00 forbids). The standing principle that makes it all simple: <b>safe is the default state; motion is what must be continuously earned.</b> No layer has to <em>act</em> to reach safety — each only ever stops authorising motion, and every chip floors on command-silence on its own. You never make the robot safe; you only keep earning motion — a fresh, witnessed, in-window, chip-gated command.</p>
+</div>
+
+<p><b>The policy's shape: one robot-wide pure <code>decide/3</code> plus a thin shell.</b> It is a sibling of <code>HealthMonitor</code> on its own beat — sample, decide, actuate — where all the judgment is a pure, tested function and the shell only reads slots and emits the chosen action. It is robot-wide, not per-scope, because coordination is <em>inherently</em> cross-scope (a per-scope policy could never see a cross-limb coupling); it consumes the per-scope fold and adds only the cross-scope layer.</p>
+<div class="grid2">
+  <div class="panel tight"><b style="color:var(--teal)">Input — facts and warnings, kept apart</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">The per-scope <b>fold</b> levels (already-derived hard facts) <em>plus</em> the raw <b>soft-warning</b> fields the fold deliberately does not gate on (a <code>temp_c</code> on <code>:motor_status</code>, say). A floor/stale/wedge is <em>already</em> <code>:safe</code> in the fold; the policy never re-litigates it — it only initiates and escalates.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Output — three actions, existing actuators</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)"><code>:none</code> → log · <code>{:stop_scope, s}</code> → bump that scope's <code>:estop</code> counter (§Point 5, read directly by the cog) · <code>:stop_global</code> → write the broadcast e-stop slot (the §Point 6 broadcast frame; its <code>0x0000</code> slot-id allocation is §Point 7). It writes no command slot and <b>never re-arms</b> — re-arm is always the chip-gated nonce sequence.</p></div>
+</div>
+<p>The rule is two ideas: <b>a soft warning <em>alone</em> is a log; a warning <em>plus</em> corroborating degradation, or a declared dangerous <em>coupling</em>, is a stop</b> — and a tripped coupling that spans more than one scope escalates to global. That keeps it from being trigger-happy: one warm sensor on an otherwise-nominal scope only logs; hot-<em>and</em>-degraded, or hot on two coupled limbs, stops. The <b>code/manifest split</b> holds the §00 line: <code>decide/3</code> — the escalation graph, "warning alone ≠ stop" — is tested code; the manifest adds only <code>couplings:</code> (named sets of scopes dangerous-together) and the warning thresholds. The manifest cannot express "stop on one warm sensor" — that conjunction lives in the graph, not in a knob. A boot check enforces that a status field is <em>either</em> fold-critical <em>or</em> policy-soft, never both, so one fact has one home. On <code>follower_segby</code> — one scope, no couplings, no soft-warning field — <code>decide/3</code> degenerates to "fold says <code>:safe</code> → already handled; else <code>:none</code>": a near-empty pass-through, correct because a one-actuator bot has no sibling to coordinate. <b>Complexity appears only when a bot declares a coupling.</b></p>
+
+<h3>11.3 · One node, several cogs, one bus — owned beside the tree</h3>
+<p>A single ESP32 may host an IMU cook and a motor floor at once, so several BeamBots components share one physical link. The prototype opened that link inside a component's <code>init/1</code> and proved the lifecycle holds against BeamBots' <em>real</em> supervisor — a crashed component restarts <code>:one_for_one</code>, <code>init</code> re-runs, the bus re-opens cleanly (ownership is a <code>Registry</code> key released on owner death; no double-open, no leak), and the reborn reader is <b>born-stale</b> (§Point 2). But grilling that result surfaced a sharper question the prototype's shape ducked: <em>which</em> of the N components' <code>init</code> owns the shared bus, and what happens to the bus when <em>that one</em> is force-disarmed? So the design pulls bus ownership out of the components entirely.</p>
+<p><b>The bus is owned by a dedicated <code>LinkOwner</code> process that lives <em>beside</em> BeamBots' topology subtree, not inside it</b> (the canonical OTP shape: a process owns the resource, everyone else talks through it). The components become thin <em>views</em> that read and write slots <em>through</em> the <code>LinkOwner</code>; they own no socket. The payoff is the §00 goal <em>fail into legibility</em>: when BeamBots tears the topology down (§11.4 below), the components die but the <code>LinkOwner</code> survives in the infrastructure zone — so the status stream keeps flowing and a robot that has gone to <code>:error</code> does not also go <em>blind</em>. Per-cog vs. one composite-component-per-node is an ergonomics call we lean toward per-node and finalise as we build.</p>
+
+<p><b>The boundary between a component and the <code>LinkOwner</code> is a <em>slot</em>, not a call API</b> — they share only named ETS slots, never a reference or a message. This is the only shape that honours transport-transparency (a reader cannot tell local from remote); the instant you give a component a <code>LinkOwner.read/2</code> call you have rebuilt the <code>CogBus</code> that §Point 2 deleted — a second data plane with a mailbox that <em>can</em> be told apart from a local read. So the views are almost stateless: a <code>BB.Sensor</code> is a beat loop that <code>Slot.get</code>s its inbound slot, runs its born-stale witness, and lifts a fresh value into a typed <code>BB.Message</code> to <code>BB.publish</code>; a <code>BB.Actuator</code> is a one-line handler that decodes a command and <code>Slot.put</code>s the outbound command slot. All wire work — framing, conflation, status decode, the safety de-escalation — lives in the <code>LinkOwner</code>, which polls the same slots on its own beat.</p>
+<table>
+<tr><th style="width:210px">Slot</th><th style="width:150px">Single writer</th><th>Reader / drain</th></tr>
+<tr><td>inbound sensor (<code>/imu/pose</code>)</td><td><b>LinkOwner</b> (decodes wire)</td><td>the <code>BB.Sensor</code> view → <code>BB.publish</code>; master cogs</td></tr>
+<tr><td>outbound command (<code>/motor/target</code>)</td><td><b>the command producer</b> (the controller / actuator view)</td><td><b>LinkOwner</b> — <em>read-only drain</em> to the wire</td></tr>
+<tr><td>status (<code>/motor/status</code>)</td><td><b>LinkOwner</b> (decodes wire)</td><td>dashboard; the coordination policy; the de-escalation conditional</td></tr>
+</table>
+<p>The load-bearing row is the middle one: <b>the <code>LinkOwner</code> is a read-only <em>drain</em> of the command slot, never its writer.</b> This is forced, not stylistic — a <code>LinkOwner</code> serving N cogs over one bus must never be the writer of a per-cog command slot (that makes it an N-writer), and more sharply, a <code>LinkOwner</code> that could <em>write</em> the command could bump <code>seq</code> and manufacture a false advance — exactly what would break the "surviving <code>LinkOwner</code> is safe by construction" guarantee below. As a drain it can only re-send the same <code>seq</code>, which no floor trusts. The single-writer rule and the survival guarantee pin each other. (The slot→<code>BB.Message</code>-type mapping a sensor view needs is generated manifest data, drift-tested like the codecs — never hand glue that can silently diverge from the contract.)</p>
+
+<div class="callout good" style="border-color:rgba(70,214,194,.4);background:rgba(70,214,194,.05);margin-top:4px">
+<div class="ct"><span class="t-val">why the surviving LinkOwner is safe</span> no flush needed</div>
+<p style="margin:.3em 0 0">A <code>LinkOwner</code> that outlives a force-disarm keeps a stale command or a stale arm-intent sitting in BEAM memory — and keeps draining it to the wire. That is harmless <b>by construction</b>, not by cleanup: re-sending a stale value is the <em>same</em> <code>seq</code> re-arriving, never an advance, so the chip's born-stale floor witness is never moved by it, and the reborn arm cog mints a strictly higher <code>arm_seq</code> than any survivor (§Point 2 read-back). We deliberately do <em>not</em> flush stale slots on tear-down — a flush would make safety depend on the flush <em>succeeding</em> at the worst moment, which is the recovery-dependent safety §00 forbids. Distrusting the un-witnessed is cheaper and stronger than scrubbing the stale.</p>
+</div>
+<div class="callout bad" style="margin-top:4px">
+<div class="ct"><span class="t-bad">the lifecycle gap the prototype found — and how LinkOwner closes it</span> whole-topology teardown is terminal</div>
+<p style="margin:.3em 0 0">Born-stale and clean bus re-open are correct-by-construction <em>for an ordinary <code>:one_for_one</code> restart</em>. But one level up, when BeamBots' <b>topology supervisor</b> stops (its restart budget exhausted), <code>BB.Safety</code> monitors it and <b>force-disarms the whole robot into <code>:error</code></b>, leaving infrastructure alive — a terminal, whole-robot reaction with <em>no component <code>init</code> to re-open the bus</em>. Had the bus lived in a component's <code>init</code>, it would simply vanish here. Owning it in the beside-the-tree <code>LinkOwner</code> is exactly what resolves this: the bus is not a child of the dying subtree, so it survives the force-disarm, keeps status flowing, and is released or re-armed deliberately — never left half-open by a tear-down it didn't participate in. The terminal state is rare (it means components were crash-looping past budget); recovery is operator-driven, and until then every chip sits floored by default. The robot is safe <em>because</em> nothing is commanding it, not because anything had to act.</p>
+</div>
+
+<div class="callout good" style="border-color:rgba(70,201,112,.4);background:rgba(70,201,112,.05);margin-top:4px">
+<div class="ct" style="font-weight:700;color:var(--green);font-family:'JetBrains Mono',monospace;font-size:.82rem;letter-spacing:.04em">11.4 · VALIDATED — THREE PROTOTYPES AGAINST REAL bb 0.20.3</div>
+<p style="margin:.3em 0 0">The three open questions were closed by three throwaway prototypes built against the real <code>bb</code> package (Elixir 1.18 / OTP 27), each green and committed. Every core bet held; the corrections above are what the spikes taught us.</p>
+<ul class="clean" style="margin-top:.5em">
+  <li><b>Seam — ✅ fits.</b> A cog contract maps onto <code>options_schema/0</code>; decode→<code>BB.publish</code> and BeamBots-command→encode both work. Caveats folded into §11.1: validation is boot-time not compile-time, the actuator command path needs self-subscribe, readings lift into typed <code>BB.Message</code>.</li>
+  <li><b>Safety — ✅ compatible, model corrected.</b> The "BeamBots owns safety" trap is <em>not</em> real; the inverse (feedback-free <code>armed?</code>) and the "lie-or-lock" <code>disarm/1</code> are. Folded into §11.2.</li>
+  <li><b>Supervision — ✅ both sub-gaps hold</b> against BeamBots' real supervisor: born-stale survives a restart, the bus re-opens cleanly. The topology-force-disarm lifecycle gap is folded into §11.3.</li>
+</ul>
+<p style="margin:.6em 0 0"><b>The one conclusion all three reached independently:</b> our value at this seam is a thin <b>generation / conformance layer</b>. From a cog contract, generate the <code>BB.Sensor</code> / <code>BB.Actuator</code> <em>views</em> (whose <code>options_schema</code> <em>is</em> the contract, whose <code>init</code> self-subscribes the command path and registers with <code>BB.Safety</code>, whose decode/encode lifts wire frames to/from <code>BB.Message</code> types) <em>and</em> the beside-the-tree <code>LinkOwner</code> that owns the bus and survives a force-disarm. The seam fits; the glue we own is what closes BeamBots' gaps — compile-time contract guarantees, command-path subscription, status-driven truth (cogs report, the master coordinates), and a bus lifecycle that survives both restart and force-disarm.</p>
+</div>
+</section>
+
+
 <div class="foot">
-  <p>Architecture documentation for the cog framework, illustrated through the <code>follower_segby</code> example. The Elixir and Arduino-C here is idiomatic and structurally faithful to the layered model, written to communicate the design rather than to compile as-is — helper functions (<code>clamp</code>, <code>cobs_crc_encode</code>, <code>imu_reprobe</code>, <code>loop_overrun?</code>, <code>hb_due</code>, …) are referenced but not shown. Diagrams render with Mermaid; if a diagram doesn't load, its caption states what it depicts.</p>
+  <p>Architecture documentation for the cog framework, illustrated through the <code>follower_segby</code> example. The Elixir and Arduino-C here is idiomatic and structurally faithful to the layered model, written to communicate the design rather than to compile as-is — helper functions (<code>clamp</code>, <code>cobs_crc_encode</code>, <code>imu_reprobe</code>, <code>loop_overrun?</code>, <code>arm_echoes</code>, <code>sustained_in_window</code>, …) are referenced but not shown. Diagrams render with Mermaid; if a diagram doesn't load, its caption states what it depicts.</p>
 </div>
 
 </div>
