@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The hub gateway — Architecture Documentation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=Hanken+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  :root{
+    --bg:#0b0d11; --bg2:#0e1116; --panel:#14181f; --panel2:#191e27; --ink:#e9edf3; --mute:#97a3b2;
+    --line:#262d38; --line2:#323b48;
+    --gold:#eaa84a; --teal:#46d6c2; --coral:#ff6f6b; --violet:#9b8cff; --green:#46c970; --blue:#56b6ff;
+    --code:#0f131a; --chip:#1b212b;
+    --plat:#eaa84a; --hub:#9b8cff; --bot:#46c970; --val:#46d6c2; --bad:#ff6f6b;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:
+      radial-gradient(1100px 520px at 10% -8%,rgba(70,214,194,.09),transparent 60%),
+      radial-gradient(950px 480px at 94% -4%,rgba(155,140,255,.09),transparent 60%),
+      var(--bg);
+    color:var(--ink);
+    font:16.5px/1.68 "Hanken Grotesk",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  a{color:var(--teal);text-decoration:none} a:hover{text-decoration:underline}
+  code,.mono{font-family:"JetBrains Mono",ui-monospace,Menlo,Consolas,monospace;
+    font-size:.84em;background:var(--code);padding:.12em .42em;border-radius:5px;color:#d7e1ee;border:1px solid var(--line)}
+  .wrap{max-width:1080px;margin:0 auto;padding:0 26px 130px}
+
+  header.hero{padding:74px 26px 44px;border-bottom:1px solid var(--line);position:relative;overflow:hidden}
+  header.hero .wrap{padding-bottom:0}
+  .kicker{letter-spacing:.22em;text-transform:uppercase;font-size:.7rem;color:var(--violet);font-weight:700;font-family:"JetBrains Mono",monospace}
+  h1{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:3rem;line-height:1.04;margin:.26em 0 .28em;letter-spacing:-.018em}
+  h1 em{font-style:italic;color:var(--violet)}
+  .sub{color:var(--mute);font-size:1.1rem;max-width:800px}
+  .sub b{color:var(--ink);font-weight:600}
+  .meta{margin-top:24px;display:flex;flex-wrap:wrap;gap:8px}
+  .pill{background:var(--chip);border:1px solid var(--line);border-radius:999px;padding:5px 13px;font-size:.77rem;color:var(--mute);font-family:"JetBrains Mono",monospace}
+
+  h2{font-family:"Fraunces",Georgia,serif;font-weight:600;font-size:1.9rem;margin:2.7em 0 .5em;letter-spacing:-.01em;padding-top:.5em;line-height:1.12}
+  h2 .num{color:var(--gold);font-weight:700;margin-right:.5em;font-size:1.12rem;font-family:"JetBrains Mono",monospace;vertical-align:.12em}
+  h3{font-size:1.16rem;margin:1.9em 0 .4em;color:#e3ebf4;font-weight:600;letter-spacing:-.005em}
+  p{margin:.72em 0} .lead{font-size:1.06rem} section{scroll-margin-top:20px}
+
+  .panel{background:linear-gradient(180deg,var(--panel),var(--bg2));border:1px solid var(--line);border-radius:15px;padding:22px 26px;margin:20px 0}
+  .panel.tight{padding:15px 19px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:860px){.grid2,.grid3{grid-template-columns:1fr}}
+
+  table{border-collapse:collapse;width:100%;margin:16px 0;font-size:.9rem}
+  th,td{border:1px solid var(--line);padding:9px 12px;text-align:left;vertical-align:top}
+  th{background:var(--panel2);color:#d7e1ee;font-weight:600;font-size:.79rem;letter-spacing:.02em}
+  tr:nth-child(even) td{background:rgba(255,255,255,.016)}
+
+  .tag{display:inline-block;font-size:.64rem;font-weight:700;letter-spacing:.05em;padding:2px 8px;border-radius:6px;font-family:"JetBrains Mono",monospace;text-transform:uppercase;vertical-align:.08em}
+  .t-plat{background:rgba(234,168,74,.14);color:var(--plat);border:1px solid rgba(234,168,74,.4)}
+  .t-hub{background:rgba(155,140,255,.14);color:var(--hub);border:1px solid rgba(155,140,255,.4)}
+  .t-bot{background:rgba(70,201,112,.14);color:var(--bot);border:1px solid rgba(70,201,112,.4)}
+  .t-val{background:rgba(70,214,194,.14);color:var(--val);border:1px solid rgba(70,214,194,.4)}
+  .t-bad{background:rgba(255,111,107,.14);color:var(--bad);border:1px solid rgba(255,111,107,.4)}
+
+  blockquote{margin:18px 0;padding:14px 20px;border-left:3px solid var(--violet);background:rgba(155,140,255,.06);border-radius:0 10px 10px 0;color:#e7ecf2}
+  blockquote p{margin:.3em 0}
+
+  .callout{border-radius:12px;padding:16px 20px;margin:18px 0;border:1px solid}
+  .callout.bad{border-color:rgba(255,111,107,.4);background:rgba(255,111,107,.06)}
+  .callout.good{border-color:rgba(70,201,112,.4);background:rgba(70,201,112,.06)}
+  .callout.note{border-color:rgba(86,182,255,.35);background:rgba(86,182,255,.05)}
+  .callout .ct{font-weight:700;font-size:.92rem;margin-bottom:.2em;display:flex;align-items:center;gap:8px}
+
+  .mermaid{background:var(--bg2);border:1px solid var(--line);border-radius:13px;padding:18px;margin:18px 0;text-align:center}
+  figcaption{color:var(--mute);font-size:.83rem;margin:-6px 0 20px;text-align:center;font-style:italic}
+
+  .codewrap{margin:16px 0;border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--code)}
+  .codehdr{display:flex;align-items:center;gap:10px;padding:9px 15px;background:var(--panel2);border-bottom:1px solid var(--line);font-family:"JetBrains Mono",monospace;font-size:.78rem;color:var(--mute)}
+  .codehdr .fn{color:#d7e1ee;font-weight:600}
+  .badge{font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:5px;letter-spacing:.04em}
+  .badge.erl{background:rgba(155,140,255,.16);color:var(--violet);border:1px solid rgba(155,140,255,.4)}
+  .badge.c{background:rgba(86,182,255,.16);color:var(--blue);border:1px solid rgba(86,182,255,.4)}
+  .badge.data{background:rgba(70,214,194,.16);color:var(--teal);border:1px solid rgba(70,214,194,.4)}
+  pre.code{margin:0;padding:16px 18px;overflow:auto;font-family:"JetBrains Mono",monospace;font-size:.81rem;line-height:1.62;color:#d7e1ee}
+  pre.code .c{color:#6f7d8c;font-style:italic}
+  pre.code .k{color:var(--gold)} pre.code .s{color:var(--teal)} pre.code .t{color:var(--violet)}
+  pre.code .f{color:var(--blue)} pre.code .n{color:#e6c07b}
+
+  .bytes{display:flex;flex-wrap:wrap;gap:3px;margin:14px 0;font-family:"JetBrains Mono",monospace;font-size:.72rem}
+  .bf{flex:1 1 auto;text-align:center;padding:8px 6px;border-radius:7px;border:1px solid;min-width:60px}
+  .bf b{display:block;font-size:.82rem;color:var(--ink)} .bf span{color:var(--mute);font-size:.68rem}
+  .bf.h{border-color:rgba(234,168,74,.5);background:rgba(234,168,74,.08)}
+  .bf.m{border-color:rgba(155,140,255,.5);background:rgba(155,140,255,.08)}
+  .bf.p{border-color:rgba(70,214,194,.5);background:rgba(70,214,194,.08)}
+  .bf.f{border-color:rgba(255,111,107,.5);background:rgba(255,111,107,.08)}
+
+  pre.tree{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:18px 20px;font-family:"JetBrains Mono",monospace;font-size:.81rem;line-height:1.7;overflow:auto;color:#c7d2de;margin:16px 0}
+  pre.tree .d{color:var(--gold);font-weight:600}
+  pre.tree .cg{color:var(--violet)} pre.tree .bt{color:var(--green)} pre.tree .cm{color:#6f7d8c}
+
+  .toc{columns:2;column-gap:34px;font-size:.92rem;margin:8px 0 0}
+  @media(max-width:680px){.toc{columns:1}}
+  .toc a{display:block;padding:5px 0;color:var(--mute);border-bottom:1px solid var(--line)}
+  .toc a:hover{color:var(--teal);text-decoration:none}
+  .toc a b{color:var(--gold);font-family:"JetBrains Mono",monospace;margin-right:.5em;font-size:.85em}
+
+  .legend{display:flex;flex-wrap:wrap;gap:16px;font-size:.82rem;color:var(--mute);margin:8px 0 2px}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .sw{width:12px;height:12px;border-radius:3px;display:inline-block}
+  ul.clean{margin:.6em 0;padding-left:1.2em} ul.clean li{margin:.34em 0}
+  .foot{color:var(--mute);font-size:.86rem;margin-top:40px;border-top:1px solid var(--line);padding-top:18px}
+
+  section, header .sub, header .meta{animation:rise .6s both}
+  @keyframes rise{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  section:nth-of-type(1){animation-delay:.05s} section:nth-of-type(2){animation-delay:.1s}
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="wrap">
+    <div class="kicker">Architecture documentation · v1 · Elixir + Arduino-C · BeamBots gateway</div>
+    <h1>The hub gateway, <em>one shape, composed</em></h1>
+    <p class="sub">This is the design for reaching microcontroller hardware from the <b>BeamBots</b> ecosystem through a small, recursive abstraction: the <b>hub</b>. A hub can read a sensor, drive an actuator, and route to child hubs — and because every hub is the same shape, they compose into a tree of any depth from one Raspberry&nbsp;Pi host down to a leaf on a wire. This v1 is deliberately small. It does four things well — a correct frame, a fail-passive floor, clock-free freshness, and a generated contract — and leaves the rest of the safety surface for later, marked where it is stubbed. Diagrams first, prose second.</p>
+    <div class="meta">
+      <span class="pill">primary goal: BB integration</span>
+      <span class="pill">one node type: the hub</span>
+      <span class="pill">UART host↔root · CAN backplane</span>
+      <span class="pill">Elixir host · Arduino-C hubs</span>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+
+<div class="panel tight" style="margin-top:34px">
+  <div class="toc">
+    <a href="#s0"><b>00</b> Principles &amp; what v1 covers</a>
+    <a href="#s1"><b>01</b> The hub — one recursive shape</a>
+    <a href="#s2"><b>02</b> The system at a glance</a>
+    <a href="#s3"><b>03</b> The wire — frame, COBS, CRC-16</a>
+    <a href="#s4"><b>04</b> Freshness — seq, fresh_for, born-stale</a>
+    <a href="#s5"><b>05</b> The floor — fail-passive &amp; born-disarmed</a>
+    <a href="#s6"><b>06</b> The contract — generated, no drift</a>
+    <a href="#s7"><b>07</b> Host code — Elixir / OTP</a>
+    <a href="#s8"><b>08</b> Hub firmware — Arduino-C</a>
+    <a href="#s9"><b>09</b> BeamBots integration</a>
+    <a href="#s10"><b>10</b> Layout &amp; the deferred list</a>
+  </div>
+</div>
+
+<!-- ===================== 00 ===================== -->
+<section id="s0">
+<h2><span class="num">00</span>Principles &amp; what v1 covers</h2>
+<p class="lead">Read this first. The whole design is one idea — <b>the hub</b> — repeated, plus four pieces of discipline that keep a tree of hubs trustworthy. The point of v1 is to get communication flowing into BeamBots with a small, robust core; everything not on the v1 list below is deliberately deferred, and the document says so where it is stubbed.</p>
+
+<h3>The one goal</h3>
+<blockquote><p>Reach a microcontroller from BeamBots through <b>one composable abstraction</b> — a hub that can sense, act, and route — so a robot of any shape is assembled by wiring hubs together, not by writing transport code.</p></blockquote>
+
+<h3>Principles — how we think</h3>
+<div class="panel">
+<ul class="clean" style="list-style:none;padding-left:0">
+  <li><b style="color:var(--gold)">01 · One shape, composed.</b> A hub is the only MCU node type — it senses, actuates, and routes to child hubs, in any combination. The <b>root hub</b> is the one that talks to the host (the Elixir node) over serial and to downstream hubs over CAN; every other hub hangs below it. Power comes from composing this one shape into a tree, not from many special node kinds.</li>
+  <li><b style="color:var(--gold)">02 · Simple beats complete.</b> v1 ships the smallest core that is still <em>robust</em>: a correct frame, a floor, freshness, a contract. We would rather ship four things that always work than twelve that mostly do. Deferred features are named, not hidden.</li>
+  <li><b style="color:var(--gold)">03 · The router is meaning-blind.</b> When a hub forwards a frame for a child, it moves bytes and never parses the payload. Only the producing hub and the final consumer read meaning.</li>
+  <li><b style="color:var(--gold)">04 · A counter, not a clock.</b> Freshness is "did <code>seq</code> advance?" — answered in the consumer's own beats, with no clock shared between boards. A producer's own <code>t_dev</code> rides along but is used only for same-device differences, never compared across nodes (§04).</li>
+  <li><b style="color:var(--gold)">05 · Safe is the default; motion is earned.</b> Nothing ever <em>acts</em> to become safe. An actuator hub drives to its safe action the instant its command goes silent, on its own chip — so it is safe even if its parent, or the host, is entirely gone (§05).</li>
+  <li><b style="color:var(--gold)">06 · One source of truth for the wire.</b> Frame layout, ids, and codecs are generated from one contract; a drift test fails the build if the C side and the Elixir side could disagree. Hand-edited byte math is the bug we are designing out (§06).</li>
+  <li><b style="color:var(--gold)">07 · A hub is pure core plus a thin shell.</b> What a hub computes — a <code>sample</code> (a sensor) or a <code>step</code> (a controller) — is a pure function you can test on a laptop. The framework owns the clock, the socket, and the routing.</li>
+</ul>
+</div>
+
+<h3>Invariants — what must stay true</h3>
+<div class="panel" style="border-color:rgba(255,111,107,.35)">
+<ul class="clean" style="list-style:none;padding-left:0">
+  <li><span class="tag t-bad">never</span> &nbsp;A value crosses the wire without a <code>seq</code>. <span style="color:var(--mute)"><em>A value re-presented as fresh though its <code>seq</code> never advanced is the failure the counter exists to catch.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;A forwarding hub bumps a <code>seq</code> it is only relaying. <span style="color:var(--mute)"><em>Only the producing hub advances its own <code>seq</code>; a relay re-sends the same number, which no consumer trusts as new.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;Freshness measured by comparing two boards' clocks. <span style="color:var(--mute)"><em>It is <code>seq</code>-advance within the reader's own <code>fresh_for</code> window — binary fresh or stale, no clock sync.</em></span></li>
+  <li><span class="tag t-bad">never</span> &nbsp;An actuator's safety depends on a frame <em>arriving</em>. <span style="color:var(--mute)"><em>The floor fires on command-<code>seq</code> silence; the broadcast e-stop is only a faster way to cause that silence.</em></span></li>
+  <li><span class="tag t-bot">always</span> &nbsp;Every actuator hub is born <b>disarmed</b> and every reader is born <b>stale</b>. <span style="color:var(--mute)"><em>A rebooted hub trusts nothing sitting in a buffer until it personally witnesses a fresh write.</em></span></li>
+  <li><span class="tag t-bot">always</span> &nbsp;The C constants and the Elixir definitions come from one generated contract. <span style="color:var(--mute)"><em>If a header on disk differs from the contract, the build fails — they cannot silently drift.</em></span></li>
+  <li><span class="tag t-val">check</span> &nbsp;The CRC is a real, pinned CRC-16-CCITT. <span style="color:var(--mute)"><em>A parity-vector fixture asserts the exact same bytes hash on both sides; <code>check(0x29B1)</code> on <code>"123456789"</code> or the build fails.</em></span></li>
+</ul>
+</div>
+
+<div class="callout good">
+<div class="ct"><span class="t-val">v1 scope</span> what ships now vs what is deferred</div>
+<div class="grid2" style="margin-top:.4em">
+  <div><b style="color:var(--green)">In v1 — small &amp; robust</b>
+    <ul class="clean" style="font-size:.92rem">
+      <li>The hub abstraction: sense · act · route, recursive (§01)</li>
+      <li>UART (host↔root hub) + CAN backplane below, one COBS+CRC frame on both, <b>real CRC-16-CCITT</b> + parity vectors (§03)</li>
+      <li>Leaf-owned <code>seq</code> + <code>t_dev</code> on the wire; consumer <code>fresh_for</code> + born-stale (§04)</li>
+      <li>Per-actuator <b>floor</b> on command-<code>seq</code> silence; born-disarmed; heartbeat + broadcast disarm <em>accelerator</em> (§05)</li>
+      <li>Generated codec/contract + a handful of boot checks (§06)</li>
+      <li>BeamBots <code>BB.Sensor</code>/<code>BB.Actuator</code> views over the link (§09)</li>
+    </ul>
+  </div>
+  <div><b style="color:var(--coral)">Deferred — named, not forgotten <span class="tag t-bad">SAFeD</span></b>
+    <ul class="clean" style="font-size:.92rem">
+      <li>Arm-nonce handshake (re-arm protocol beyond born-disarmed)</li>
+      <li><code>fw_id</code> / board-identity check at the decode seam</li>
+      <li>Conflation / backpressure on bursty push traffic</li>
+      <li>Per-register param validation &amp; EEPROM/SRAM split</li>
+      <li>Host-side coordination policy (cross-hub judgment)</li>
+      <li>Wire-budget &amp; full declare/pick/validate rail</li>
+      <li>Self-heal / A-B firmware / health fold across scopes</li>
+    </ul>
+  </div>
+</div>
+<p style="margin:.6em 0 0;font-size:.9rem;color:var(--mute)"><b>SAFeD</b> = <em>Safe-by-Default, elaborate later.</em> A deferred item is marked <span class="tag t-bad">SAFeD</span> in the text. The rule for a stub: it must default to the <em>safe</em> behaviour (disarmed, stale, refused) so that elaborating it later only ever <em>adds</em> permission, never removes a guarantee.</p>
+</div>
+</section>
+
+<!-- ===================== 01 ===================== -->
+<section id="s1">
+<h2><span class="num">01</span>The hub — one recursive shape</h2>
+<p class="lead">Everything in the system is a <b>hub</b>. A hub is a node that can do any combination of three jobs, and one of those jobs is "be a parent to more hubs." That single recursive definition is the whole topology model.</p>
+
+<div class="grid3">
+  <div class="panel tight"><span class="tag t-hub">sense</span><p style="margin:.4em 0 0;font-size:.9rem">Read a device on its own pins — GPIO, I²C, SPI, ADC — <code>sample</code> the raw readings into a typed value, and publish it upward with a <code>seq</code>.</p></div>
+  <div class="panel tight"><span class="tag t-hub">act</span><p style="margin:.4em 0 0;font-size:.9rem">Receive a command value, drive a local actuator (PWM, a servo, a motor), and hold a <b>floor</b> that de-energises the moment the command goes silent.</p></div>
+  <div class="panel tight"><span class="tag t-hub">route</span><p style="margin:.4em 0 0;font-size:.9rem">Forward frames between its parent link and its child links, meaning-blind. A hub with children is a branch; a hub with none is a leaf.</p></div>
+</div>
+
+<p>A hub does <em>any subset</em> of these. A bare IMU on the end of a wire is a sense-only leaf. A wheel controller is an act-only leaf. A board on the robot's spine that has an I²C sensor of its own <em>and</em> two child hubs hanging off it is sense+route. The <b>host</b> — the Raspberry&nbsp;Pi running Elixir and the BeamBots application — sits <em>above</em> the hub tree, not inside it; it is not a hub. The hub at the top of the MCU tree is the <b>root hub</b>: it speaks <b>serial (UART) upward to the host</b> and <b>CAN downward to its child hubs</b>, so it is the one board that bridges the host link to the CAN backplane. It is still an ordinary hub — it may read its own I²C sensor or drive its own actuator while it bridges — it is just the hub that happens to own the host connection.</p>
+
+<figure>
+<div class="mermaid">
+flowchart TB
+  H["🟡 host · RPi · Elixir/OTP · BeamBots<br/><i>(not a hub — sits above the tree)</i>"]
+  H -->|"UART · COBS+CRC"| R["🟣 root hub<br/>UART↔CAN bridge + own I²C IMU (sense)"]
+  R -->|"CAN · COBS+CRC"| C["🟢 hub C<br/>wheel motor (act)"]
+  R -->|"CAN · COBS+CRC"| A["🟣 hub A<br/>range sensor (sense) + route"]
+  A -->|"CAN · COBS+CRC"| D["🟢 hub D<br/>servo (act)"]
+  classDef h fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
+  classDef s fill:#1a1733,stroke:#9b8cff,color:#ece9ff;
+  classDef a fill:#0d2415,stroke:#46c970,color:#dcf6e4;
+  class H h; class R,A s; class C,D a;
+</div>
+<figcaption>The host sits above the tree and talks <b>UART</b> to one board — the <b>root hub</b>, which bridges that serial link to the <b>CAN</b> backplane below. The root hub also senses its own IMU. Every link carries the same COBS+CRC frame, so the host reaches a leaf three hops away exactly as it reaches the root — the routing hubs between are meaning-blind. Link transport is fixed by position: <b>UART host↔root, CAN everywhere below</b>. (A deeper CAN segment behind a branch hub for more multidrop is the same shape — <span class="tag t-bad">SAFeD</span>.)</figcaption>
+</figure>
+
+<div class="callout note">
+<div class="ct"><span class="t-val">why recursion is the whole abstraction</span></div>
+<p style="margin:.3em 0 0">Because a hub can be a parent, you never need a separate "gateway type," a "leaf type," and a "router type" — those are just hubs with different jobs switched on. The root hub is simply the hub that owns the host link; it is not a fourth kind. Adding a limb to the robot is adding a child hub. Moving a sensor deeper is re-parenting it. The tree can be shallow (root hub + a few CAN leaves) or deep (root hub → spine → limb → joint), and the host's view does not change: it names a <em>node</em> and a <em>port</em> on that node, and the framework finds the path. This is the single idea the rest of the document equips with a wire, a freshness rule, and a floor.</p>
+</div>
+
+<h3>What a hub author writes</h3>
+<p>A hub author writes only the pure core for the jobs that hub does — a <code>sample</code> for a sensor, a <code>step</code>/safe-action for an actuator — plus a small <b>contract</b> (§06) declaring its ports and types. The framework supplies the scheduler, the link, the framing, the routing table, the floor, and the freshness monitor. Routing needs <em>no</em> author code at all: a hub routes because the generated topology says it has children.</p>
+</section>
+
+<!-- ===================== 02 ===================== -->
+<section id="s2">
+<h2><span class="num">02</span>The system at a glance</h2>
+<p class="lead">A small example: a two-wheel base that holds a distance from an obstacle. The host runs the control law and the BeamBots app over UART to the root hub; the root hub senses its own IMU and bridges to a CAN backplane carrying a range sensor and the wheel. One tick crosses two hops.</p>
+
+<figure>
+<div class="mermaid">
+flowchart TB
+  subgraph HOST["🟡 HOST · RPi · Elixir/OTP under Nerves · not a hub"]
+    direction TB
+    REG(["node registry · latest value + seq + t_dev per (node,port)"])
+    BAL["balance law<br/>(pose,setpoint) → motor_target"] --> REG
+    REG --> BAL
+    LINK["link owner<br/>owns the UART, decodes frames, routes by node"]
+    REG --> LINK
+    LINK --> REG
+    BBV["BB.Sensor / BB.Actuator views<br/>lift values ↔ BB.Message"]
+    BBV --> REG
+    REG --> BBV
+  end
+  HOST -->|"UART · COBS+CRC · frame keyed by (node,port)"| ROOT
+  subgraph ROOT["🟣 root hub · ESP32 · sense + UART↔CAN bridge"]
+    direction TB
+    SCHED["scheduler (framework owns the loop)"]
+    SCHED --- IMU["imu sensor · I²C · sample → pose"]
+    SCHED --- RT["router: bridge UART↔CAN, meaning-blind"]
+  end
+  ROOT -->|"CAN · COBS+CRC"| HUBR["🟣 range hub · ESP32 · sense"]
+  ROOT -->|"CAN · COBS+CRC"| HUBC
+  subgraph HUBC["🟢 wheel hub · ESP32 · act"]
+    direction TB
+    FLOOR["floor (dead-man)<br/>no fresh cmd → safe action"] --> DRIVE["motor drive ~kHz"]
+    DRIVE --> STAT["status → up the wire<br/>applied seq · floored?"]
+  end
+  HUBC -.->|"status frame up (CAN→UART)"| HOST
+  classDef m fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
+  classDef s fill:#1a1733,stroke:#9b8cff,color:#ece9ff;
+  classDef a fill:#0d2415,stroke:#46c970,color:#dcf6e4;
+  class REG,BAL,LINK,BBV m; class SCHED,IMU,RT,HUBR s; class FLOOR,DRIVE,STAT a;
+</div>
+<figcaption>The host holds the robot's truth in a small per-(node,port) registry and reaches the tree over one UART to the root hub. The root hub senses its own IMU <em>and</em> bridges that serial link to the CAN backplane, where the range hub and the wheel hub live. The wheel hub drives behind a floor on its own chip and reports a status frame back up — through the root hub's bridge — so the host can see when it is floored. Both hops carry the same COBS+CRC frame; only the physical transport differs (UART above the root hub, CAN below).</figcaption>
+</figure>
+
+<div class="legend">
+  <span><span class="sw" style="background:var(--plat)"></span> host · Elixir (above the tree)</span>
+  <span><span class="sw" style="background:var(--violet)"></span> sense/route hub incl. root (Arduino-C)</span>
+  <span><span class="sw" style="background:var(--green)"></span> act hub (Arduino-C)</span>
+  <span><span class="sw" style="background:var(--teal)"></span> values keyed by (node, port)</span>
+</div>
+</section>
+
+<!-- ===================== 03 ===================== -->
+<section id="s3">
+<h2><span class="num">03</span>The wire — frame, COBS, and a <em>real</em> CRC-16</h2>
+<p class="lead">Above the wire, a value is a typed term keyed by <code>(node, port)</code>. On the wire it is a flat, fixed-layout frame, COBS-framed with a CRC. The codec is the only place that knows the byte layout, and it is <b>generated</b> (§06) so the C and Elixir sides cannot diverge.</p>
+
+<div class="bytes">
+  <div class="bf f"><b>0x00</b><span>frame delim</span></div>
+  <div class="bf f"><b>LEN</b><span>1 B</span></div>
+  <div class="bf m"><b>NODE</b><span>1 B · src/dst node</span></div>
+  <div class="bf h"><b>PORT</b><span>1 B · which port on the node</span></div>
+  <div class="bf m"><b>SEQ</b><span>2 B · producer's write counter</span></div>
+  <div class="bf p"><b>T_DEV</b><span>8 B · producer's own µs clock</span></div>
+  <div class="bf p"><b>PAYLOAD</b><span>n B · value</span></div>
+  <div class="bf f"><b>CRC16</b><span>2 B</span></div>
+  <div class="bf f"><b>0x00</b><span>frame delim</span></div>
+</div>
+<p style="font-size:.9rem;color:var(--mute);margin-top:-2px">The identity is <b>(NODE, PORT)</b>: which hub, and which of its ports (an IMU, a wheel, a child link). Routing is a table lookup on NODE through the generated topology — a branch hub forwards a frame toward the parent or the child that owns that node, never a peer-name dispatch. <b>SEQ</b> is the producing hub's own write counter, bumped by one on every real new value; a relay hub copies it verbatim. <b>T_DEV</b> is the producing hub's own 64-bit monotonic microseconds at the write — carried for same-device use only (§04), 64-bit so a hub's clock never wraps in the field. The CRC covers the whole decoded body (NODE…PAYLOAD), so it guards the routing header across every hop — the UART above the root hub and the CAN below it alike — not just the payload. The same frame rides both transports; the root hub re-frames it from one to the other without touching NODE, SEQ, T_DEV, or PAYLOAD.</p>
+
+<div class="callout bad">
+<div class="ct"><span class="t-bad">the bug this fixes</span> the old draft's CRC was not a CRC-16</div>
+<p style="margin:.3em 0 0">The prototype computed <code>:erlang.crc32(body) |> rem(65536)</code> — the low 16 bits of <em>CRC-32</em>. That is a different function from CRC-16-CCITT, not a valid truncation of one. Either every frame fails to verify, or (worse) the C side was matched to the same wrong function and a weaker, non-standard check shipped silently — and a corrupted <code>seq</code> that slips through poisons the whole freshness story. v1 replaces it with a real, <b>pinned</b> CRC-16-CCITT and a fixture that proves both sides agree byte-for-byte.</p>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/wire/crc16.ex</span><span style="margin-left:auto">CRC-16-CCITT-FALSE · pinned variant</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">Wire.CRC16</span> <span class="k">do</span>
+  <span class="c"># CRC-16/CCITT-FALSE — the ONE variant, pinned so C and Elixir can't differ:</span>
+  <span class="c">#   poly 0x1021 · init 0xFFFF · NO input/output reflection · xorout 0x0000</span>
+  <span class="c">#   check value MUST be 0x29B1 over the ASCII bytes "123456789".</span>
+  <span class="k">import</span> <span class="t">Bitwise</span>
+
+  <span class="k">def</span> crc(bin), <span class="k">do:</span> crc(bin, <span class="n">0xFFFF</span>)
+  <span class="k">def</span> crc(<span class="s">""</span>, acc), <span class="k">do:</span> acc
+  <span class="k">def</span> crc(&lt;&lt;b, rest::binary&gt;&gt;, acc) <span class="k">do</span>
+    x = bxor(acc &gt;&gt;&gt; 8, b) &amp;&amp;&amp; <span class="n">0xFF</span>          <span class="c"># top byte XOR next input byte</span>
+    x = bxor(x, x &gt;&gt;&gt; 4)
+    acc = bxor(bxor(bxor(acc &lt;&lt;&lt; 8, x &lt;&lt;&lt; 12), x &lt;&lt;&lt; 5), x) &amp;&amp;&amp; <span class="n">0xFFFF</span>
+    crc(rest, acc)
+  <span class="k">end</span>
+<span class="k">end</span>
+
+<span class="c"># proven on load by a test, not asserted by faith:</span>
+<span class="c"># Wire.CRC16.crc("123456789") == 0x29B1</span></pre>
+</div>
+
+<div class="callout good">
+<div class="ct"><span class="t-val">the parity-vector fixture</span> the single test that would have caught the bug</div>
+<p style="margin:.3em 0 0">One committed fixture is the cross-language witness: a list of <code>{payload, framed_bytes, crc}</code> rows, generated once from the contract. The Elixir suite asserts every row, and a tiny host-compiled C test (and, when convenient, an on-device test) asserts the <em>same</em> rows. If either codec drifts — a wrong offset, a different CRC init, a byte-order slip — a row fails and the build is red. The wire literally cannot drift past this fixture.</p>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge data">DATA</span><span class="fn">test/fixtures/parity_vectors.exs</span><span style="margin-left:auto">generated once · asserted by Elixir AND C</span></div>
+<pre class="code"><span class="c"># Each row: a value, its exact framed bytes (pre-COBS body), and the CRC.</span>
+<span class="c"># Regenerated only by the contract generator; hand-editing a row is the tell.</span>
+[
+  %{port: :pose,  payload: &lt;&lt;<span class="n">0x3F</span>,<span class="n">0x80</span>,<span class="n">0x00</span>,<span class="n">0x00</span>&gt;&gt;,  <span class="c"># 1.0f · node 0x02 · seq 42 · t_dev 1234</span>
+    body:  &lt;&lt;<span class="n">0x02</span>,<span class="n">0x10</span>, <span class="n">0x00</span>,<span class="n">0x2A</span>, <span class="n">0x00</span>,<span class="n">0x00</span>,<span class="n">0x00</span>,<span class="n">0x00</span>,<span class="n">0x00</span>,<span class="n">0x00</span>,<span class="n">0x04</span>,<span class="n">0xD2</span>, <span class="n">0x3F</span>,<span class="n">0x80</span>,<span class="n">0x00</span>,<span class="n">0x00</span>&gt;&gt;,
+    crc:   <span class="n">0x7E80</span>},                       <span class="c"># real CRC-16/CCITT-FALSE over body — see §06</span>
+  <span class="c"># … more rows, one per (port, representative value) …</span>
+]</pre>
+</div>
+
+<p>On the UART (host↔root hub) the body+CRC is COBS-framed, delimited by <code>0x00</code> (COBS guarantees no <code>0x00</code> inside, so the delimiter is unambiguous). The host decodes inside a <code>Circuits.UART.Framing</code> module, so a corrupt or short frame is dropped <em>before</em> any value reaches the application — the framing layer counts it and moves on.</p>
+
+<h3>The framing module — where bytes become whole frames</h3>
+<p>The serial port hands up a stream of bytes that may split a frame across reads or glue two together. The framing module is the one place that turns that stream into <em>whole, CRC-clean</em> frames: it accumulates bytes, splits on the <code>0x00</code> delimiter, COBS-decodes each piece, checks the trailing CRC-16, and passes up only the bodies that survive. A bad CRC, a truncated COBS run, or noise is <b>dropped and counted here</b> — nothing above the seam ever sees a frame, only a verified body, so the codec (§06) never has to defend against garbage.</p>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/wire/framing_cobs.ex</span><span style="margin-left:auto">the Circuits.UART.Framing behaviour</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">Wire.FramingCOBS</span> <span class="k">do</span>
+  <span class="f">@behaviour</span> <span class="t">Circuits.UART.Framing</span>
+  <span class="c"># COBS + CRC-16 framing for the host↔root-hub UART. CRC is verified HERE, so a</span>
+  <span class="c"># corrupt or short frame dies at the seam — the app only ever sees clean bodies.</span>
+  <span class="n">@delim</span> <span class="n">0x00</span>
+
+  <span class="f">@impl true</span>
+  <span class="k">def</span> init(_args), <span class="k">do:</span> {:ok, %{rx: <span class="s">""</span>}}    <span class="c"># rx = bytes seen so far but not yet a full frame</span>
+
+  <span class="c"># OUTBOUND: a full body+CRC in, a COBS-encoded delimited frame out.</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> add_framing(body, st) <span class="k">do</span>
+    frame = cobs_encode(body &lt;&gt; &lt;&lt;<span class="t">Wire.CRC16</span>.crc(body)::<span class="n">16</span>&gt;&gt;) &lt;&gt; &lt;&lt;<span class="n">@delim</span>&gt;&gt;
+    {:ok, frame, st}
+  <span class="k">end</span>
+
+  <span class="c"># INBOUND: append new bytes, peel off every complete (delimited) frame, decode</span>
+  <span class="c"># + CRC-check each. Good bodies go up; bad ones are counted and dropped.</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> remove_framing(data, st) <span class="k">do</span>
+    {frames, rest} = split(st.rx &lt;&gt; data, [])
+    bodies = <span class="k">for</span> f &lt;- frames, {:ok, body} &lt;- [verify(f)], <span class="k">do:</span> body
+    in_frame = <span class="k">if</span> rest == <span class="s">""</span>, <span class="k">do:</span> :ok, <span class="k">else:</span> :in_frame   <span class="c"># tell Circuits.UART more may follow</span>
+    {in_frame, bodies, %{st | rx: rest}}
+  <span class="k">end</span>
+
+  <span class="f">@impl true</span>
+  <span class="k">def</span> frame_timeout(st), <span class="k">do:</span> {:ok, [], %{st | rx: <span class="s">""</span>}}   <span class="c"># a stalled partial frame is discarded, not delivered</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> flush(_dir, st), <span class="k">do:</span> %{st | rx: <span class="s">""</span>}
+
+  <span class="c"># peel complete frames at each 0x00 delimiter; keep the trailing partial in rx</span>
+  <span class="k">defp</span> split(buf, acc) <span class="k">do</span>
+    <span class="k">case</span> :binary.split(buf, &lt;&lt;<span class="n">@delim</span>&gt;&gt;) <span class="k">do</span>
+      [frame, rest] -&gt; split(rest, [frame | acc])      <span class="c"># found a delimiter → one complete frame</span>
+      [partial]     -&gt; {<span class="t">Enum</span>.reverse(acc), partial}    <span class="c"># no delimiter yet → hold as partial</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="c"># one frame: COBS-decode, then split body from its 2-byte CRC and check it.</span>
+  <span class="k">defp</span> verify(<span class="s">""</span>), <span class="k">do:</span> :error                       <span class="c"># empty frame between two delimiters → ignore</span>
+  <span class="k">defp</span> verify(frame) <span class="k">do</span>
+    <span class="k">with</span> {:ok, decoded}              &lt;- cobs_decode(frame),
+         <span class="t">true</span>                       &lt;- byte_size(decoded) &gt;= 2,
+         &lt;&lt;body::binary-size(byte_size(decoded) - 2), crc::<span class="n">16</span>&gt;&gt; = decoded,
+         <span class="t">true</span>                       &lt;- crc == <span class="t">Wire.CRC16</span>.crc(body) <span class="k">do</span>
+      {:ok, body}
+    <span class="k">else</span>
+      _ -&gt; <span class="t">Link</span>.bump(:rx_drop) &amp;&amp; :error    <span class="c"># bad CRC / truncated COBS / runt: count + drop, never deliver</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span></pre>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/wire/cobs.ex</span><span style="margin-left:auto">pure · null-free by construction · verified round-trip</span></div>
+<pre class="code"><span class="c"># COBS: every 0x00 in the body is replaced by a pointer to the next 0x00, so the</span>
+<span class="c"># encoding is guaranteed null-free and 0x00 is an unambiguous frame delimiter.</span>
+<span class="c"># Overhead is ceil(n/254) bytes — bounded, the §05/03 promise. Pure, no I/O.</span>
+
+<span class="c"># ENCODE — emit each block prefixed by (len+1); a full 254-block uses code 0xFF.</span>
+<span class="k">def</span> cobs_encode(data), <span class="k">do:</span> enc(data, [], <span class="s">""</span>)
+<span class="k">defp</span> enc(<span class="s">""</span>, blocks, cur), <span class="k">do:</span> emit([cur | blocks])
+<span class="k">defp</span> enc(&lt;&lt;<span class="n">0</span>, rest::binary&gt;&gt;, blocks, cur), <span class="k">do:</span> enc(rest, [cur | blocks], <span class="s">""</span>)
+<span class="k">defp</span> enc(&lt;&lt;b, rest::binary&gt;&gt;, blocks, cur) <span class="k">when</span> byte_size(cur) == <span class="n">253</span>,
+  <span class="k">do:</span> enc(rest, [&lt;&lt;cur::binary, b&gt;&gt; | blocks], <span class="s">""</span>)        <span class="c"># 254-byte block → 0xFF, no implicit zero</span>
+<span class="k">defp</span> enc(&lt;&lt;b, rest::binary&gt;&gt;, blocks, cur), <span class="k">do:</span> enc(rest, blocks, &lt;&lt;cur::binary, b&gt;&gt;)
+
+<span class="k">defp</span> emit(blocks) <span class="k">do</span>
+  blocks |> <span class="t">Enum</span>.reverse()
+  |> <span class="t">Enum</span>.map_join(<span class="k">fn</span> blk -&gt; &lt;&lt;byte_size(blk) + <span class="n">1</span>, blk::binary&gt;&gt; <span class="k">end</span>)
+<span class="k">end</span>
+
+<span class="c"># DECODE — each code byte names a block length; insert 0x00 between blocks,</span>
+<span class="c"># except after a 0xFF (full) block. Returns :error on a truncated run.</span>
+<span class="k">def</span> cobs_decode(data), <span class="k">do:</span> dec(data, <span class="s">""</span>, <span class="k">true</span>)
+<span class="k">defp</span> dec(<span class="s">""</span>, acc, _first), <span class="k">do:</span> {:ok, acc}
+<span class="k">defp</span> dec(&lt;&lt;code, rest::binary&gt;&gt;, acc, first) <span class="k">do</span>
+  n = code - <span class="n">1</span>
+  <span class="k">case</span> rest <span class="k">do</span>
+    &lt;&lt;blk::binary-size(n), tail::binary&gt;&gt; -&gt;
+      acc = <span class="k">if</span> first, <span class="k">do:</span> acc, <span class="k">else:</span> acc &lt;&gt; &lt;&lt;<span class="n">0</span>&gt;&gt;       <span class="c"># the zero this code stood in for</span>
+      dec(tail, acc &lt;&gt; blk, code == <span class="n">0xFF</span>)
+    _ -&gt; {:error, :truncated}                          <span class="c"># code points past the data → corrupt</span>
+  <span class="k">end</span>
+<span class="k">end</span></pre>
+</div>
+
+<div class="callout good">
+<div class="ct"><span class="t-val">why the seam is the right home for the CRC</span> garbage stops here</div>
+<p style="margin:.3em 0 0">Putting COBS-decode <em>and</em> the CRC check inside the framing module means a corrupted frame never becomes a slot value — it is counted (<code>rx_drop</code>, <code>crc_fail</code>) and discarded at the lowest possible layer, exactly like <code>Wire.decode</code> drops an unknown port id (§07). This matters for the freshness story (§04): a corrupted <code>seq</code> that slipped through would be poison — it could fake an advance and re-present a frozen value as fresh — so the CRC must gate <em>before</em> anything reads <code>seq</code>. The encode/decode above is verified by a round-trip test over the edge cases (an embedded <code>0x00</code>, a zero-run, the 254-byte block boundary, a real frame): every encoding is null-free and decodes back to the exact input, so the delimiter is never ambiguous. On the root hub's C side the same COBS+CRC lives in <code>transport.c</code>, and the parity vectors (§06) are the cross-language witness that both framings agree byte-for-byte.</p>
+</div>
+
+<div class="callout note">
+<div class="ct"><span class="t-val">the one transport detail the bridge must handle</span> a frame is bigger than a classic CAN frame</div>
+<p style="margin:.3em 0 0">The logical frame above (NODE…PAYLOAD, ≥12 bytes before the CRC) does not fit in a single classic-CAN data field (8 bytes). This is the root hub's job, and v1 picks the simplest option that keeps the wire honest: <b>use CAN&nbsp;FD</b> (up to 64-byte payload), so a typical value frame rides in <em>one</em> CAN-FD frame and the CAN id carries <code>(NODE, PORT)</code> for the controller's native filtering/arbitration. CAN's own per-frame CRC guards the segment; our end-to-end CRC-16 still guards the whole body across the UART↔CAN re-framing boundary (where CAN's CRC does not reach). If a value's payload ever exceeds the FD limit, the bridge segments it — but v1 sizes every value type to fit one frame, so segmentation is <span class="tag t-bad">SAFeD</span> and the common path never needs it. The 8-byte <code>t_dev</code> is the largest field; a build check (§06) can warn when a type plus header crowds the single-frame budget.</p>
+</div>
+</section>
+
+<!-- ===================== 04 ===================== -->
+<section id="s4">
+<h2><span class="num">04</span>Freshness — <code>seq</code>, <code>fresh_for</code>, and born-stale</h2>
+<p class="lead">A transparent router has one hazard a directly-wired sensor never had: at the consumer, <em>no message</em> is ambiguous between "nothing changed" and "the hub went silent." The fix is to make trust a counter, not a clock. This is what makes the meaning-blind router safe to rely on.</p>
+
+<h3>Two stamps, two jobs — only one is in the trust path</h3>
+<div class="grid2">
+  <div class="panel tight"><b style="color:var(--teal)"><code>seq</code> — "is it still flowing?"</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A counter the <em>producing</em> hub bumps by one on every real new value. A consumer remembers the last <code>seq</code> it saw; if it advanced within its <code>fresh_for</code> window, the value is <b>fresh</b>, else <b>stale</b>. No clock comparison, survives lost frames (<code>seq</code> just jumps) and counter wrap (the test is "advanced?", not "by how much"). <b>This is the only stamp the freshness check reads.</b></p></div>
+  <div class="panel tight"><b style="color:var(--teal)"><code>t_dev</code> — same-device only</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">The producing hub's own monotonic µs at the write. <b>Never compared across nodes; never read by the freshness check.</b> It rides along for later use: aligning samples from the <em>same</em> device in fusion, measuring a single hub's jitter, and replaying a recorded run against its own in-band clock. Carrying it now costs 8 bytes and zero gate complexity, and means fusion/replay need no wire change later.</p></div>
+</div>
+
+<div class="callout note">
+<div class="ct"><span class="t-val">why both, and why the split is strict</span></div>
+<p style="margin:.3em 0 0">You asked whether to carry the timestamp too. Yes — but kept rigidly apart. The instant <code>t_dev</code> leaks into the freshness decision you have re-introduced a shared-clock problem across (potentially) three boards in the tree, which is exactly the bug-class clock-free freshness exists to avoid. So: <code>seq</code> decides trust; <code>t_dev</code> is a passenger for same-device math. One field, one job, each.</p>
+</div>
+
+<h3>The relay rule</h3>
+<p>A routing hub forwarding a child's frame <b>copies <code>seq</code> and <code>t_dev</code> verbatim</b> — it must never mint a new <code>seq</code>. Re-sending the same <code>seq</code> is a re-arrival, which no monitor counts as a new write. If a relay could bump <code>seq</code>, it could manufacture a false "fresh" for a value the producing hub never updated — the precise failure the counter prevents. (This is also why, when conflation is added later, the relay advances a value's <code>seq</code> only if the <em>value itself</em> changed — <span class="tag t-bad">SAFeD</span>.)</p>
+
+<h3>The window and born-stale</h3>
+<p>Each consumer declares a <code>fresh_for</code> window as a multiple of the producer's nominal period, so "a window shorter than one write" cannot be expressed. A freshly started or restarted consumer has witnessed nothing, so it is <b>born stale</b>: it distrusts whatever value is sitting in the registry until it personally sees <code>seq</code> advance since its own boot. This is what makes a restart safe — a rebooted board never trusts a leftover reading.</p>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/monitor.ex</span><span style="margin-left:auto">one comparison per port, per beat</span></div>
+<pre class="code"><span class="c"># On each local beat: did this port's seq advance within fresh_for beats?</span>
+<span class="c"># `witnessed` starts false → born stale → trusts nothing until it sees a write.</span>
+<span class="k">def</span> check(state, port) <span class="k">do</span>
+  {_value, seq_now, _t_dev} = <span class="t">Registry</span>.get(state.node, port)
+  moved? = state.witnessed and seq_now != state.last_seq
+  idle   = <span class="k">if</span> moved?, <span class="k">do:</span> 0, <span class="k">else:</span> state.idle + 1
+  fresh? = state.witnessed and idle &lt;= state.fresh_for      <span class="c"># a counter, no clock</span>
+  %{state | last_seq: seq_now, idle: idle, witnessed: state.witnessed or seq_now != nil,
+            status: <span class="k">if</span>(fresh?, <span class="k">do:</span> :fresh, <span class="k">else:</span> :stale)}
+<span class="k">end</span></pre>
+</div>
+
+<p>In v1 a stale critical input means the control law returns "no command" (so it stops writing <code>:motor_target</code>, whose <code>seq</code> then freezes), and downstream the actuator hub's own floor (§05) sees <em>its</em> command go silent and de-energises. Two independent checks, each firing on a producer going quiet — exactly what a meaning-blind router can support, because neither check ever needs the router to understand the payload.</p>
+
+<h3>Different sensors at different rates — it falls out of this, for free</h3>
+<p>A real robot mixes rates constantly: an IMU at 1&nbsp;kHz, a range sensor at 20&nbsp;Hz, a battery gauge at 1&nbsp;Hz, a 50&nbsp;Hz control loop reading all of them. The design needs <em>no</em> rate-matching machinery for this, because three choices already made it a non-problem.</p>
+
+<div class="grid3">
+  <div class="panel tight"><b style="color:var(--teal)">Rate is per port, not global</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Each port declares its own <code>rate</code> in its contract. The IMU port says 1&nbsp;kHz, the range port says 20&nbsp;Hz — two independent facts about two devices. There is no system tick everyone must share, so adding a fast sensor next to a slow one is just two contract entries.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Every port is its own box</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">Each <code>(node, port)</code> is its own overwrite-only registry row. A 1&nbsp;kHz producer overwriting its own row cannot touch — or drown — a 20&nbsp;Hz producer's row. There is no shared queue for a fast stream to flood, so rates never interfere.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Consumers pull on their own beat</b><p style="margin:.35em 0 0;font-size:.9rem;color:var(--mute)">A reader samples the <em>latest</em> value of each input on <em>its</em> beat, decoupled from every producer's rate. The 50&nbsp;Hz loop reads the newest pose and the newest range each tick and does not care that one updated 20× more often — it just takes what is in each box now.</p></div>
+</div>
+
+<p>So the rule is simply: <b>producers write as fast as their hardware and contract allow; consumers read the latest on their own beat; freshness is judged per input against that input's own rate.</b> The IMU writing 1&nbsp;kHz means its <code>seq</code> climbs fast and its <code>fresh_for</code> window (a multiple of a 1&nbsp;ms period) is tight; the range sensor's <code>seq</code> climbs slowly and its window (a multiple of a 50&nbsp;ms period) is wide — and the <em>same</em> monitor code (above) checks both correctly, because the window is always expressed in the producer's periods, never in wall-clock time. A 50&nbsp;Hz loop can read a 1&nbsp;kHz input and a 1&nbsp;Hz input side by side and get an honest fresh/stale answer for each.</p>
+
+<div class="callout note">
+<div class="ct"><span class="t-val">where rate <em>does</em> need attention</span> bandwidth and time-alignment</div>
+<p style="margin:.3em 0 0">Two places rate is not free. <b>(1) Wire bandwidth.</b> Many ports streaming on one link must fit the wire: the budget is <code>Σ(port rate × frame size)</code> against the link's baud, and a topology that over-subscribes the busiest wire should be refused at boot. Bursty push traffic is bounded by <b>conflation</b> — one pending value per <code>(node, port)</code>, newest wins — so a vibrating sensor that fires faster than its nominal rate still costs only its drain rate on the wire. Both the wire-budget check and conflation are <span class="tag t-bad">SAFeD</span> in v1; until then, keep declared rates conservative and the tree shallow. <b>(2) Time-aligning two different-rate streams.</b> "Newest of each" describes slightly different instants when the robot is moving fast — fusing a 1&nbsp;kHz IMU with a 20&nbsp;Hz range to estimate one pose needs the samples aligned in time. That is the one job the per-value <code>t_dev</code> (§04, same-device only) exists for: predict on the fast input each time its <code>seq</code> advances, correct on the slow input when <em>its</em> <code>seq</code> advances, and use <code>t_dev</code> differences to line them up. Fusion itself is <span class="tag t-bad">SAFeD</span>; the field it will need is already on the wire.</p>
+</div>
+</section>
+
+<!-- ===================== 05 ===================== -->
+<section id="s5">
+<h2><span class="num">05</span>The floor — fail-passive &amp; born-disarmed</h2>
+<p class="lead">This is the safety core, and it is small on purpose. A router puts a parent hub in the command path of everything below it, so the safe state cannot live on the parent: it lives on each actuator hub's <b>own chip</b>, fires on command silence, and needs no frame to arrive. The heartbeat and the broadcast e-stop are kept — but as a faster way to <em>cause</em> silence, never as the guarantee.</p>
+
+<div class="grid2">
+<div class="panel tight">
+<h3 style="margin-top:.2em">The floor — the guarantee</h3>
+<p>An actuator hub watches the <code>seq</code> of <em>its own</em> command against a compiled-in window, on its own monotonic clock. If the <code>seq</code> stops advancing for the window, it drives the plant to its safe action (zero torque, brakes, PWM-safe) and latches disarmed. Because this runs on the actuator's chip and needs no inbound frame, it fires even if the parent hub, the whole tree above it, or the host is entirely gone.</p>
+</div>
+<div class="panel tight">
+<h3 style="margin-top:.2em">Born-disarmed — motion is earned</h3>
+<p>Every actuator hub boots <code>armed = false</code> with its output already at the safe action. It only begins driving after it witnesses a fresh, in-window command <code>seq</code> advancing since its own boot. A reboot, a power glitch, a stale frame left in a buffer — none of these can energise it. Motion is something the hub continuously earns, never a default it falls into.</p>
+</div>
+</div>
+
+<div class="callout good">
+<div class="ct"><span class="t-val">the e-stop is an accelerator, not the mechanism</span></div>
+<p style="margin:.3em 0 0">v1 keeps your heartbeat and broadcast disarm — but wired so they share <em>one</em> tested code path with the floor. The host sends a periodic heartbeat; a hub's parent refreshes its command stream as long as the host is alive. A broadcast disarm (or a missed heartbeat, or a pulled wire, or a dead parent) all resolve to the <b>same</b> thing at the actuator: <em>its command <code>seq</code> stops advancing</em> → the floor fires. So there is no second "react to the e-stop frame" path that could itself fail; the e-stop just makes the silence happen <em>faster</em> than waiting for the window. The one path — "my command went silent" — covers parent-death, bus-cut, <em>and</em> deliberate stop.</p>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">hubs/motor/floor.c</span><span style="margin-left:auto">dead-man on command-seq · born disarmed</span></div>
+<pre class="code"><span class="c">/* The floor lives on THIS chip. The window is compiled in from the contract.</span>
+<span class="c">   Nothing here waits on a frame to ARRIVE — it watches a seq for SILENCE.   */</span>
+<span class="t">#ifndef</span> FLOOR_MISSES
+<span class="t">#define</span> FLOOR_MISSES 5            <span class="c">/* tolerate 5 missed commands — generated, not hand-set */</span>
+<span class="t">#endif</span>
+<span class="f">static</span> uint32_t cmd_seq, last_seq, last_advance_ms;
+<span class="f">static bool</span>     armed;             <span class="c">/* false at every boot — born disarmed */</span>
+
+<span class="f">void</span> on_command(<span class="f">const</span> Frame *c) {   <span class="c">/* a command frame for this hub's actuator port */</span>
+  target = c-&gt;payload.setpoint;
+  cmd_seq = c-&gt;seq;                  <span class="c">/* watch the seq, not the value */</span>
+}
+
+<span class="f">void</span> control_tick(<span class="f">void</span>) {            <span class="c">/* the ~kHz drive loop */</span>
+  uint32_t now = millis();
+  <span class="k">if</span> (cmd_seq != last_seq) { last_seq = cmd_seq; last_advance_ms = now; }  <span class="c">/* fresh */</span>
+
+  bool fresh = (now - last_advance_ms) &lt; FLOOR_MISSES * CMD_PERIOD_MS;
+  <span class="k">if</span> (!fresh) { armed = <span class="k">false</span>; drive(SAFE_ACTION); <span class="k">return</span>; }   <span class="c">/* silence → safe, latched */</span>
+
+  <span class="k">if</span> (!armed &amp;&amp; fresh) armed = <span class="k">true</span>;     <span class="c">/* earn motion: a fresh, in-window command */</span>
+  drive(armed ? target : SAFE_ACTION);                          <span class="c">/* default is always safe */</span>
+}</pre>
+</div>
+
+<div class="callout note">
+<div class="ct"><span class="t-val">deliberately deferred</span> what v1's floor does <em>not</em> do yet <span class="tag t-bad">SAFeD</span></div>
+<p style="margin:.3em 0 0">v1's re-arm is just "a fresh command resumes motion." A full <b>arm-nonce</b> handshake (the hub mints a per-boot nonce that a re-arm must echo, so a stale pre-reboot arm can never re-energise) is deferred — but the <em>default</em> is already safe (born disarmed), so adding the nonce later only tightens re-arming, never loosens it. Likewise an <code>fw_id</code> check that refuses arming on a mis-flashed board is deferred. These are real and worth doing; they are not needed to get communication and BB integration working, and each is a strict <em>addition</em> of a guard, consistent with the SAFeD rule in §00.</p>
+</div>
+
+<h3>The actuator reports its own truth</h3>
+<p>An actuator hub writes a small status frame upward — <code>{applied_seq, floored?}</code> at minimum — so the host never has to <em>infer</em> whether a hub is driving. "Is this hub live?" is read from its reported status (gated by the same born-stale freshness check), never from "we sent it a command." That keeps the host from showing a confident green while a wheel sits floored. (A fuller fault/health fold across many hubs is <span class="tag t-bad">SAFeD</span>; v1 reports the one bit that matters.)</p>
+</section>
+
+<!-- ===================== 06 ===================== -->
+<section id="s6">
+<h2><span class="num">06</span>The contract — generated, no drift</h2>
+<p class="lead">The router multiplies the number of codecs that must agree byte-for-byte — the Elixir host and every hub's C. The two ends that actually parse never meet a validator in the middle, so code generation is the <em>only</em> thing keeping them in sync. v1 generates the wire constants from one contract and drift-tests them; the fuller declare/pick/validate rail is deferred.</p>
+
+<h3>One contract, four outputs</h3>
+<p>A hub ships a small contract — its ports, each port's value type, its rate, its safe action, its <code>fresh_for</code> needs. A generator reads all the contracts plus the topology and emits <b>four</b> renderings of one model: the Elixir codec/registry tables, the C headers (<code>port ids</code>, <code>struct</code> layouts, <code>FLOOR_MISSES</code>, <code>CMD_PERIOD_MS</code>), the per-hub <b>schedule</b> table (each port's <code>rate</code> as a <code>{period_us, tick}</code> row, §08), and the parity-vector fixture (§03). A <b>drift test</b> fails the build if any generated file on disk differs from what the contract would emit, so the C constants physically cannot diverge from the Elixir definitions. The next subsection sketches that generator.</p>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge data">DATA</span><span class="fn">hubs/imu/contract.exs</span><span style="margin-left:auto">travels with the hub · the generator's input</span></div>
+<pre class="code"><span class="c"># A hub declares its ports and types. The generator turns this (plus the</span>
+<span class="c"># topology) into Elixir codecs AND C headers from ONE source of truth.</span>
+%{
+  hub:   :imu,
+  ports: %{
+    pose: %{dir: :out, type: <span class="t">Pose</span>, rate: 50}     <span class="c"># sense port: produces Pose at 50 Hz</span>
+  },
+  sample: {<span class="t">SamplePose</span>, :sample}                   <span class="c"># the pure sampler: window -> {:ok, value} | :invalid</span>
+}
+
+<span class="c"># an actuator hub also declares a safe_action and a command-rate floor:</span>
+%{
+  hub:   :motor,
+  ports: %{ motor_target: %{dir: :in, type: <span class="t">Torque</span>, rate: 50,
+                            fresh_for: 5, safe_action: :zero_torque} }
+}</pre>
+</div>
+
+<h3>The generator — contract → Elixir + C + parity vectors</h3>
+<p>The generator is one small, pure pipeline run by <code>mix compile</code> (a compile-time code generator and, for the C side, a file emitter). It takes <em>two</em> inputs — every hub's <code>contract.exs</code> and the robot's topology (which hub sits on which node id) — and produces <em>four</em> outputs from one in-memory model, so they can never describe different bytes or different rates. There is no hand-written codec or hand-set period anywhere in the system; if you find yourself editing byte offsets or task periods by hand, that is the bug this section exists to remove.</p>
+
+<figure>
+<div class="mermaid">
+flowchart LR
+  C1["hubs/*/contract.exs<br/>ports · types · rates"]:::in --> IR
+  C2["robots/*/topology.ex<br/>hub → node id"]:::in --> IR
+  TY["value types<br/>Pose · Torque · …<br/>field order + widths"]:::in --> IR
+  IR["wire model (IR)<br/>per port: {node, port_id, type, layout, rate, fresh_for, safe_action}"]:::ir
+  IR --> E["platform/host/wire/codec.ex<br/>encode/decode + port table · GENERATED"]:::out
+  IR --> H["firmware/wire_contract.h<br/>ids · structs · FLOOR_MISSES · CMD_PERIOD_MS · GENERATED"]:::out
+  IR --> S["hubs/*/schedule.gen.h<br/>per-port {period_us, tick} rows · GENERATED"]:::out
+  IR --> P["test/fixtures/parity_vectors.exs<br/>{port, payload, body, crc} · GENERATED"]:::out
+  classDef in fill:#191e27,stroke:#56b6ff,color:#cfe6ff;
+  classDef ir fill:#1a1733,stroke:#9b8cff,color:#ece9ff;
+  classDef out fill:#0d2415,stroke:#46c970,color:#dcf6e4;
+</div>
+<figcaption>One model, four emitters. The IR is the single place a port's layout <em>and</em> its rate are decided; the Elixir codec, the C header, the per-hub schedule, and the parity vectors are pure renderings of it. Change a type's field order or a port's rate in one place and all of them move together — or the drift test (below) goes red.</figcaption>
+</figure>
+
+<p>The load-bearing idea is the <b>layout table</b>: each value type maps to an ordered list of <code>{field, wire-type}</code>, and <em>that</em> table — not the encoder code — is the source of truth both languages render. A <code>Pose</code> is <code>[tilt: :f32, rate: :f32]</code>; a <code>Torque</code> is <code>[nm: :f32]</code>. The encoder, the C struct, and the fixture bytes are all derived from the same list, so a reordered field is a single-line change that ripples everywhere consistently.</p>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/gen/wire_gen.ex</span><span style="margin-left:auto">the one generator · pure · run at compile time</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">Gen.WireGen</span> <span class="k">do</span>
+  <span class="c"># Build ONE model from the contracts + topology, then render three artifacts</span>
+  <span class="c"># from it. Pure: contracts in, files/quoted-code out. No device, no clock.</span>
+
+  <span class="c"># The shared source of truth: every value type as an ordered field layout.</span>
+  <span class="c"># Header constants (LEN/NODE/PORT/SEQ/T_DEV/CRC widths) live here too, once.</span>
+  @layouts %{
+    <span class="t">Pose</span>:   [tilt: :f32, rate: :f32],   <span class="c"># field order IS the wire order</span>
+    <span class="t">Torque</span>: [nm: :f32],
+    <span class="t">Range</span>:  [mm: :u16]
+  }
+  @header [node: :u8, port: :u8, seq: :u16, t_dev: :u64]   <span class="c"># before payload; LEN+CRC frame it</span>
+
+  <span class="k">def</span> build_model(contracts, topology) <span class="k">do</span>
+    <span class="k">for</span> %{hub: hub, ports: ports} &lt;- contracts, {pname, p} &lt;- ports <span class="k">do</span>
+      %{node:        <span class="t">Map</span>.fetch!(topology, hub),       <span class="c"># hub → node id, from the bot</span>
+        port_id:     port_id(hub, pname),               <span class="c"># stable small int, generated</span>
+        type:        p.type,
+        layout:      <span class="t">Map</span>.fetch!(@layouts, p.type),     <span class="c"># the shared layout</span>
+        rate:        p.rate,
+        dir:         p.dir,
+        fresh_for:   p[:fresh_for],
+        safe_action: p[:safe_action]}
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="c"># THREE renderings of the same model — see the three code blocks below.</span>
+  <span class="k">def</span> emit_elixir(model),  <span class="k">do:</span> render_codec_module(model, @header, @layouts)
+  <span class="k">def</span> emit_c(model),       <span class="k">do:</span> render_header(model, @header, @layouts)   <span class="c"># writes wire_contract.h</span>
+  <span class="k">def</span> emit_vectors(model), <span class="k">do:</span> render_parity_vectors(model)            <span class="c"># writes the fixture</span>
+  <span class="k">def</span> emit_schedule(m),    <span class="k">do:</span> render_schedule(m)                    <span class="c"># writes schedule.gen.h per hub: {period_us, tick} rows from each port's rate</span>
+<span class="k">end</span></pre>
+</div>
+
+<div class="grid2">
+<div class="codewrap" style="margin-bottom:0">
+  <div class="codehdr"><span class="badge erl">ERL out</span><span class="fn">…/wire/codec.ex</span><span style="margin-left:auto">GENERATED</span></div>
+<pre class="code"><span class="c"># one encode/decode clause per port, from the layout.</span>
+<span class="c"># NOTHING here is hand-written.</span>
+<span class="k">def</span> encode(<span class="n">0x02</span>, <span class="n">0x10</span>, seq, t, %<span class="t">Pose</span>{tilt: a, rate: r}) <span class="k">do</span>
+  body = &lt;&lt;<span class="n">0x02</span>, <span class="n">0x10</span>, seq::<span class="n">16</span>, t::<span class="n">64</span>,
+           a::float-<span class="n">32</span>, r::float-<span class="n">32</span>&gt;&gt;
+  &lt;&lt;byte_size(body)+<span class="n">2</span>&gt;&gt; &lt;&gt; body &lt;&gt; &lt;&lt;<span class="t">CRC16</span>.crc(body)::<span class="n">16</span>&gt;&gt;
+<span class="k">end</span>
+
+<span class="k">def</span> decode(<span class="n">0x02</span>, <span class="n">0x10</span>, &lt;&lt;a::float-<span class="n">32</span>, r::float-<span class="n">32</span>&gt;&gt;),
+  <span class="k">do:</span> %<span class="t">Pose</span>{tilt: a, rate: r}
+
+<span class="c"># port table: routing + types, also generated</span>
+<span class="k">def</span> port(<span class="n">0x02</span>, <span class="n">0x10</span>), <span class="k">do:</span> {:pose, <span class="t">Pose</span>, <span class="n">50</span>}</pre>
+</div>
+<div class="codewrap" style="margin-bottom:0">
+  <div class="codehdr"><span class="badge c">C out</span><span class="fn">firmware/wire_contract.h</span><span style="margin-left:auto">GENERATED</span></div>
+<pre class="code"><span class="c">/* ids, struct layout, and the floor constants —</span>
+<span class="c">   identical source of truth as the Elixir side. */</span>
+<span class="t">#define</span> PORT_POSE         <span class="n">0x10</span>
+<span class="t">#define</span> PORT_MOTOR_TARGET <span class="n">0x20</span>
+
+<span class="c">/* field order MATCHES @layouts[Pose] exactly */</span>
+<span class="f">typedef struct</span> __attribute__((packed)) {
+  <span class="f">float</span> tilt;
+  <span class="f">float</span> rate;
+} Pose;
+
+<span class="c">/* the floor window, derived from one number */</span>
+<span class="t">#define</span> CMD_PERIOD_MS  <span class="n">20</span>   <span class="c">/* 50 Hz */</span>
+<span class="t">#define</span> FLOOR_MISSES   <span class="n">5</span>
+
+<span class="c">/* generated hash — the drift test compares this */</span>
+<span class="t">#define</span> WIRE_CONTRACT_SHA <span class="s">"a1c9…"</span></pre>
+</div>
+</div>
+
+<div class="callout good">
+<div class="ct"><span class="t-val">the parity vectors are computed, never typed</span> and they close the loop</div>
+<p style="margin:.3em 0 0">The third emitter walks the same model, builds a representative value per port, and runs the <em>real</em> encoder over it to produce the fixture rows. The numbers are therefore correct by construction, not by a human getting the bytes right. Worked for <code>:pose</code> with <code>tilt=1.0, rate=0.0</code>, node <code>0x02</code>, seq <code>42</code>, <code>t_dev</code> <code>1234</code>:</p>
+<div class="bytes" style="margin:.5em 0 0">
+  <div class="bf f"><b>0x12</b><span>LEN=18</span></div>
+  <div class="bf m"><b>0x02</b><span>node</span></div>
+  <div class="bf h"><b>0x10</b><span>port=pose</span></div>
+  <div class="bf m"><b>00 2A</b><span>seq=42</span></div>
+  <div class="bf p"><b>00·00·00·00·00·00·04·D2</b><span>t_dev=1234</span></div>
+  <div class="bf p"><b>3F 80 00 00</b><span>tilt=1.0f</span></div>
+  <div class="bf p"><b>00 00 00 00</b><span>rate=0.0f</span></div>
+  <div class="bf f"><b>7E 80</b><span>CRC-16/CCITT</span></div>
+</div>
+<p style="margin:.5em 0 0;font-size:.9rem;color:var(--mute)">The CRC <code>0x7E80</code> is the verified CRC-16/CCITT-FALSE over the 16 body bytes <code>NODE…rate</code> — the exact value the §03 fixture carries. Regenerating the fixture and the header is a no-op when nothing changed; a non-empty <code>git diff</code> on a generated file means a contract moved and the row/struct moved with it.</p>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">test/wire_drift_test.exs</span><span style="margin-left:auto">the build is red if C and Elixir could disagree</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">WireDriftTest</span> <span class="k">do</span>
+  <span class="k">use</span> <span class="t">ExUnit.Case</span>
+
+  <span class="c"># 1) The generated files on disk match what the generator emits NOW.</span>
+  <span class="c">#    Catches a hand-edit to codec.ex / wire_contract.h / a schedule, or a stale checkout.</span>
+  test <span class="s">"generated artifacts are not stale"</span> <span class="k">do</span>
+    model = <span class="t">Gen.WireGen</span>.build_model(<span class="t">Contracts</span>.all(), <span class="t">Topology</span>.nodes())
+    assert <span class="t">File</span>.read!(<span class="s">"firmware/wire_contract.h"</span>) == <span class="t">Gen.WireGen</span>.emit_c(model)
+    assert <span class="t">File</span>.read!(<span class="s">"test/fixtures/parity_vectors.exs"</span>) == <span class="t">Gen.WireGen</span>.emit_vectors(model)
+    <span class="k">for</span> hub &lt;- <span class="t">Contracts</span>.hubs() <span class="k">do</span>                       <span class="c"># each hub's schedule matches its ports' rates</span>
+      assert <span class="t">File</span>.read!(<span class="s">"hubs/</span>#{hub}<span class="s">/schedule.gen.h"</span>) == <span class="t">Gen.WireGen</span>.emit_schedule({model, hub})
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="c"># 2) The Elixir codec reproduces every fixture row byte-for-byte.</span>
+  test <span class="s">"elixir codec matches the parity vectors"</span> <span class="k">do</span>
+    <span class="k">for</span> %{port: p, value: v, framed: bytes} &lt;- <span class="t">ParityVectors</span>.rows() <span class="k">do</span>
+      assert <span class="t">Codec</span>.encode_port(p, v) == bytes
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="c"># 3) (CI) a tiny host-compiled C harness asserts the SAME rows — the</span>
+  <span class="c">#    cross-language witness. Same vectors in, same bytes out, or the build fails.</span>
+  <span class="c"># 4) CRC self-check: CRC16.crc("123456789") == 0x29B1.</span>
+  test <span class="s">"crc variant is pinned"</span>, <span class="k">do:</span> assert <span class="t">Wire.CRC16</span>.crc(<span class="s">"123456789"</span>) == <span class="n">0x29B1</span>
+<span class="k">end</span></pre>
+</div>
+
+<blockquote><p>The generator's contract in one line: <b>one model, four renderings, and a test that fails the build the moment they could disagree</b> — so a value's bytes <em>and</em> its rate are decided exactly once, and the C hub and the Elixir host are physically prevented from drifting apart.</p></blockquote>
+
+<h3>The boot checks v1 keeps</h3>
+<p>The full wire-budget and per-pick validation rail is <span class="tag t-bad">SAFeD</span>. v1 keeps the handful of checks that are cheap and catch a real bug on a laptop, all run before the link opens:</p>
+<ul class="clean">
+  <li><b>Topology is well-formed:</b> every <code>(node, port)</code> a reader names has exactly one producer; a port read but never written, or written twice, refuses to boot and prints the offending pair.</li>
+  <li><b>Node ids are unique</b> and the reserved low ids (host = 0, broadcast/e-stop) are not claimed by a data hub.</li>
+  <li><b><code>fresh_for</code> ≥ one writer period:</b> a window shorter than the producer's nominal period is refused — it could never be satisfied.</li>
+  <li><b>Floor window derives from one number:</b> <code>FLOOR_MISSES × CMD_PERIOD_MS</code> is generated into the firmware from the same contract the host uses, so the host's view of the timeout and the hub's compiled-in timeout cannot drift apart.</li>
+  <li><b>The parity-vector fixture passes</b> (§03) — the codec/CRC witness.</li>
+</ul>
+
+<blockquote><p>The discipline in one line: <b>the wire has one source of truth, the build proves the C and Elixir sides agree on it, and the few things that would silently corrupt a value or a command are checked on a laptop before any hardware moves.</b> Everything richer than that is deferred, not pretended.</p></blockquote>
+</section>
+
+<!-- ===================== 07 ===================== -->
+<section id="s7">
+<h2><span class="num">07</span>Host code — Elixir / OTP</h2>
+<p class="lead">The host is plain OTP under Nerves. Four pieces: a small per-(node,port) registry, the link owner that owns the UART to the root hub, a pure control law, and the BeamBots views (§09). The host is not a hub — it sits above the tree and reaches every node through that one serial link to the root hub.</p>
+
+<figure>
+<div class="mermaid">
+flowchart TB
+  APP["robot · BeamBots application"] --> SUP["robot_sup"]
+  SUP --> LINKOWN["link_owner<br/>owns UART · decodes · routes by node<br/>survives a view crash"]
+  SUP --> REG["node_registry<br/>{value, seq, t_dev} per (node,port)"]
+  SUP --> LAW["hub_runner · balance<br/>pure step/4 · born stale"]
+  SUP --> VIEWS["BB.Sensor / BB.Actuator views"]
+  classDef m fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
+  class APP,SUP,LINKOWN,REG,LAW,VIEWS m;
+</div>
+<figcaption>The link owner is placed so it survives a view or law crash — when a control process restarts, the UART stays open and telemetry keeps flowing, so a fault is legible rather than blind. (Surviving a full BeamBots topology teardown is the stronger version of this and is <span class="tag t-bad">SAFeD</span>; v1 gets the placement right at the supervisor level.)</figcaption>
+</figure>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/node_registry.ex</span><span style="margin-left:auto">the host's small truth</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">NodeRegistry</span> <span class="k">do</span>
+  <span class="c"># One row per (node, port): {value, seq, t_dev}. get is one lookup; put is</span>
+  <span class="c"># one atomic write of the whole row so a reader never sees a torn stamp.</span>
+  <span class="c"># Inbound frames land here via the link owner; local laws read/write here.</span>
+  <span class="k">def</span> get(node, port), <span class="k">do:</span> :ets.lookup_element(:nodes, {node, port}, 2)
+
+  <span class="k">def</span> put(node, port, value, seq, t_dev) <span class="k">do</span>
+    :ets.insert(:nodes, {{node, port}, {value, seq, t_dev}})   <span class="c"># seq comes FROM the producer</span>
+    :ok
+  <span class="k">end</span>
+<span class="k">end</span></pre>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/link_owner.ex</span><span style="margin-left:auto">owns the UART · the one decode + route seam</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">LinkOwner</span> <span class="k">do</span>
+  <span class="k">use</span> <span class="t">GenServer</span>
+  <span class="c"># Owns the serial port with the COBS framing module. Inbound: decode a frame,</span>
+  <span class="c"># verify CRC (done in the framing layer), write it into the registry by</span>
+  <span class="c"># (node,port). Outbound: encode a command and write it down the wire. Routing</span>
+  <span class="c"># to a deeper hub is just addressing the frame to that node; the branch hubs</span>
+  <span class="c"># forward it. This process is meaning-aware ONLY at the host's own ports.</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> init(%{port: port, baud: baud}) <span class="k">do</span>
+    {:ok, uart} = <span class="t">Circuits.UART</span>.start_link()
+    :ok = <span class="t">Circuits.UART</span>.open(uart, port, speed: baud, active: <span class="k">true</span>,
+            framing: {<span class="t">Wire.FramingCOBS</span>, []})   <span class="c"># the seam: bytes → verified bodies (§03)</span>
+    {:ok, %{uart: uart}}
+  <span class="k">end</span>
+
+  <span class="c"># `frame` here is ALREADY a COBS-decoded, CRC-verified body — the framing</span>
+  <span class="c"># module dropped anything corrupt. So Wire.decode only has to parse, not defend.</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> handle_info({:circuits_uart, _port, frame}, st) <span class="k">do</span>
+    <span class="k">case</span> <span class="t">Wire</span>.decode(frame) <span class="k">do</span>            <span class="c"># {node, port, seq, t_dev, value} | :error (unknown id)</span>
+      {:ok, n, p, seq, t, value} -&gt;
+        <span class="t">NodeRegistry</span>.put(n, p, value, seq, t)     <span class="c"># seq/t_dev carried verbatim from the hub</span>
+        {:noreply, st}
+      :error -&gt;
+        {:noreply, bump(st, :decode_fail)}        <span class="c"># bad/short frame: counted, dropped, never guessed</span>
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span></pre>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">hubs/balance/balance.ex</span><span style="margin-left:auto">YOUR core logic — pure</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">Balance</span> <span class="k">do</span>
+  <span class="c"># PURE. No process, no clock, no socket. Told which inputs are STALE and</span>
+  <span class="c"># decides how to degrade — the shell never invents a safe value for it.</span>
+  <span class="k">def</span> init(_p), <span class="k">do:</span> %{i: 0.0}
+
+  <span class="k">def</span> step(law, _in, stale, _p) <span class="k">when</span> :pose <span class="k">in</span> stale,
+    <span class="k">do:</span> {:no_command, law}        <span class="c"># no fresh angle ⇒ stop writing; the wheel's floor takes over</span>
+
+  <span class="k">def</span> step(law, inputs, _stale, p) <span class="k">do</span>
+    %<span class="t">Pose</span>{tilt: a, rate: r} = inputs.pose
+    i = clamp(law.i + (p.setpoint - a) * p.ki, p.i_max)
+    u = p.kp * (p.setpoint - a) + i + p.kd * -r
+    {:emit, clamp(u, 1.0), %{law | i: i}}
+  <span class="k">end</span>
+<span class="k">end</span></pre>
+</div>
+</section>
+
+<!-- ===================== 08 ===================== -->
+<section id="s8">
+<h2><span class="num">08</span>Hub firmware — the per-port scheduler</h2>
+<p class="lead">Each port runs at its own rate (§04), so the firmware needs a way to drive many cadences from one loop without a hand-rolled timer per device. The answer is a tiny <b>table-driven cooperative scheduler</b>: each port becomes a <code>{period, tick}</code> row generated from the contract, and one loop fires each row when its period has elapsed. The author writes only a <code>sample</code> or a safe action; the scheduler, the framing, and the routing are the framework's.</p>
+
+<h3>The scheduler — one table, many rates</h3>
+<p>Every job on a hub is a <b>period</b> plus a <b>tick function</b>. The IMU's pose port at 50&nbsp;Hz is a row with <code>period_us = 20&nbsp;000</code>; a range port at 20&nbsp;Hz is <code>50&nbsp;000</code>; the actuator floor runs every loop (period 0). The loop checks each row's elapsed time and calls the ones that are due — cooperative, non-preemptive, no per-device timer, no RTOS task. Because the rows are <b>generated from this hub's contract</b>, a hub only contains the tasks its ports declare: a sense-only leaf has no <code>control_tick</code>, a pure actuator has no sample task. The same source that sizes the wire (§06) sizes the schedule, so a port's declared <code>rate</code> and its firmware period can never disagree.</p>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">hubs/firmware/scheduler.c</span><span style="margin-left:auto">period + tick, one loop drives them all</span></div>
+<pre class="code"><span class="c">/* Each port is a period and a tick. The table is GENERATED from this hub's</span>
+<span class="c">   contract — only the ports this hub actually has appear here. One loop fires</span>
+<span class="c">   each task when due; nothing preempts, so every tick must be bounded.       */</span>
+<span class="f">typedef struct</span> { uint32_t period_us, last_us; <span class="f">void</span> (*tick)(uint32_t now); } Task;
+
+<span class="c">/* --- generated: hubs/&lt;this hub&gt;/schedule.gen.h --- */</span>
+<span class="f">static</span> Task tasks[] = {
+  {  20000, 0, pose_sample_tick   },   <span class="c">/* SENSE pose @ 50 Hz  (rate from contract) */</span>
+  {  50000, 0, range_sample_tick  },   <span class="c">/* SENSE range @ 20 Hz                      */</span>
+  {  20000, 0, status_write_tick  },   <span class="c">/* report status @ 50 Hz                    */</span>
+  {      0, 0, control_tick       },   <span class="c">/* ACT: floor + drive — every loop (kHz)    */</span>
+};
+
+<span class="f">void</span> loop() {
+  uint32_t now = micros();
+  feed_watchdog();                              <span class="c">/* hardware backstop, independent of any tick */</span>
+
+  <span class="k">for</span> (size_t i = 0; i &lt; N_TASKS; i++) {         <span class="c">/* fire every task that is due */</span>
+    <span class="k">if</span> ((uint32_t)(now - tasks[i].last_us) &gt;= tasks[i].period_us) {
+      tasks[i].last_us = now;                    <span class="c">/* schedule next; tick gets `now` so it needs no clock of its own */</span>
+      tasks[i].tick(now);
+    }
+  }
+
+  link_pump_up();    <span class="c">/* drain the link toward the host (UART on the root hub; CAN on a deeper hub) */</span>
+  link_pump_down();  <span class="c">/* ROUTE: move frames between up- and down-links, meaning-blind — seq/t_dev verbatim */</span>
+}</pre>
+</div>
+
+<div class="callout note">
+<div class="ct"><span class="t-val">three properties the table buys, for free</span></div>
+<div class="grid3" style="margin-top:.4em">
+  <div><b style="color:var(--teal)">Mixed rates, no interference</b><p style="margin:.3em 0 0;font-size:.88rem;color:var(--mute)">A 50&nbsp;Hz and a 20&nbsp;Hz port are just two rows with different periods. Adding a sensor is adding a row; its cadence is independent of every other.</p></div>
+  <div><b style="color:var(--teal)">The floor is never starved</b><p style="margin:.3em 0 0;font-size:.88rem;color:var(--mute)"><code>control_tick</code> has period 0, so it runs every loop pass regardless of how many sensors are due — the dead-man's cadence is not at the mercy of telemetry.</p></div>
+  <div><b style="color:var(--teal)">Generated, so it can't drift</b><p style="margin:.3em 0 0;font-size:.88rem;color:var(--mute)">The periods come from the same contract as the wire codec and the host's rate picks (§06), so "50&nbsp;Hz" means one number in three places, checked by the drift test.</p></div>
+</div>
+</div>
+
+<div class="callout bad">
+<div class="ct"><span class="t-bad">the one rule that makes cooperative scheduling safe</span> every tick is bounded</div>
+<p style="margin:.3em 0 0">Cooperative means one slow tick delays every other — a blocking I²C read would push the floor's next pass late. So every tick must be <b>bounded by construction</b>: device reads use a timeout (<code>Wire.setTimeOut</code>), a tick never spins or waits, and a tick that cannot complete simply returns and writes nothing (its <code>seq</code> stalls, the reader goes stale — the failure is legible, not a hang). A hardware watchdog, fed at the top of the loop and never from inside a tick, is the backstop: if any tick wedges the loop past the watchdog window, the chip resets and the actuator comes up <b>born-disarmed</b> (§05). This is why the floor's safety does not actually depend on the scheduler being timely — a late or dead scheduler resolves to command-silence, which is exactly what the floor already handles.</p>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">hubs/firmware/router.c</span><span style="margin-left:auto">meaning-blind forwarding</span></div>
+<pre class="code"><span class="c">/* A branch hub forwards a frame toward the side that owns the dest node.</span>
+<span class="c">   It does NOT decode the payload and does NOT touch seq or t_dev. On the root</span>
+<span class="c">   hub, UP is UART (to the host) and DOWN is CAN; on a deeper hub both are CAN. */</span>
+<span class="f">void</span> route_frame(<span class="f">const</span> Frame *f) {
+  <span class="k">if</span> (f-&gt;node == MY_NODE) { deliver_local(f); <span class="k">return</span>; }   <span class="c">/* a port on this hub */</span>
+  <span class="f">int</span> link = route_table[f-&gt;node];     <span class="c">/* generated: which link (up / down-N) reaches this node */</span>
+  forward(link, f);                     <span class="c">/* re-frame for THAT transport + re-CRC the SAME body; seq unchanged */</span>
+}</pre>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">hubs/imu/imu_sensor.c</span><span style="margin-left:auto">a tick: bounded read + pure sample</span></div>
+<pre class="code"><span class="c">/* The scheduler calls this AT its period, so the tick owns no timer of its own —</span>
+<span class="c">   it just does one bounded read, one pure sample, and one write. The producing</span>
+<span class="c">   hub owns the seq; it advances only on a real new value.                      */</span>
+<span class="f">void</span> pose_sample_tick(uint32_t now) {
+  <span class="f">float</span> ax, az, gy;
+  <span class="k">if</span> (!imu_read(&amp;ax, &amp;az, &amp;gy)) <span class="k">return</span>;       <span class="c">/* bounded by Wire.setTimeOut → no write → seq stalls → reader goes stale */</span>
+  Sample c = sample_pose(ax, az, gy);      <span class="c">/* PURE: → {:ok, value} | :invalid */</span>
+  <span class="k">if</span> (c.invalid) <span class="k">return</span>;
+  Frame f = { .node = MY_NODE, .port = PORT_POSE,
+              .seq = pose_seq++, .t_dev = now, .payload = c.value };   <span class="c">/* `now` = this hub's own µs */</span>
+  link_send_up(&amp;f);                        <span class="c">/* toward the host; the bridge re-frames UART/CAN as needed */</span>
+}</pre>
+</div>
+
+<p>The split is the whole point: the <b>scheduler</b> owns <em>when</em> (one table, generated from rates), the <b>tick</b> owns <em>one bounded step</em>, and the <b>pure <code>sample</code></b> owns <em>the math</em> — three concerns, three homes, none of them a timer the author has to write. A faster or slower port is a different number in the contract; the tick and the <code>sample</code> never change.</p>
+</section>
+
+<!-- ===================== 09 ===================== -->
+<section id="s9">
+<h2><span class="num">09</span>BeamBots integration</h2>
+<p class="lead">This is the point of v1: surface each hub's sensor and actuator ports to <a href="https://beambots.dev">BeamBots</a> as ordinary <code>BB.Sensor</code> / <code>BB.Actuator</code> components, so a robot is defined in the BeamBots topology DSL and our wire is invisible above the seam.</p>
+
+<div class="callout good">
+<div class="ct" style="font-weight:700;color:var(--teal);font-family:'JetBrains Mono',monospace;font-size:.82rem;letter-spacing:.04em">THE ONE LINE — BEAMBOTS ABOVE, OUR HUBS BELOW</div>
+<p style="margin:.3em 0 0">Define the bot in BeamBots. Each hub port becomes a thin <code>BB.Sensor</code> or <code>BB.Actuator</code> <em>view</em>. Below that seam runs our wire — the same COBS+CRC frame over UART to the root hub and CAN to everything below it, carrying <code>seq</code> and <code>t_dev</code>, with the floor on each actuator hub's chip. BeamBots sees components; it never sees the root hub, the CAN backplane, or the tree below it.</p>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">robots/follower/topology.ex</span><span style="margin-left:auto">the bot, defined in BeamBots</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">Follower</span> <span class="k">do</span>
+  <span class="k">use</span> <span class="t">BB</span>
+
+  topology <span class="k">do</span>
+    <span class="c"># the link owner owns the root UART; nodes are addressed by id</span>
+    hub_link :spine, port: <span class="s">"/dev/ttyAMA0"</span>, baud: 1_000_000
+
+    <span class="c"># a sensor port on hub A surfaces as a BB.Sensor view</span>
+    sensor :chassis_imu, {<span class="t">HubView.Sensor</span>,
+      node: 0x02, port: :pose, path: <span class="s">"robot/sensors/imu"</span>, fresh_for: 3}
+
+    <span class="c"># an actuator port on the wheel hub surfaces as a BB.Actuator view.</span>
+    <span class="c"># status_port names the hub's reported-truth slot — the source of "is it live?"</span>
+    joint :left_wheel <span class="k">do</span>
+      actuator :wheel, {<span class="t">HubView.Actuator</span>,
+        node: 0x05, port: :motor_target, status_port: :motor_status,
+        safe_action: :zero_torque}
+    <span class="k">end</span>
+  <span class="k">end</span>
+<span class="k">end</span></pre>
+</div>
+
+<table>
+<tr><th style="width:200px">BeamBots callback / API</th><th>What the hub view does with it</th></tr>
+<tr><td><code>options_schema/0</code></td><td>The hub contract's types and rate become a <code>Spark.Options</code> schema. Validation fires at the view's <code>init</code> (a bad pick is a <code>{:stop, …}</code> crash before the port is used) — boot-time, not compile-time. Compile-time guarantees are <span class="tag t-bad">SAFeD</span>.</td></tr>
+<tr><td><code>init/1</code></td><td>Attach to the <code>(node, port)</code> the link owner fills/drains, set up the born-stale monitor, and <b>self-subscribe the command topic</b> for an actuator (BeamBots does not auto-wire this — forget it and the command path silently no-ops). The view owns no socket; the link owner owns the bus.</td></tr>
+<tr><td>sensor → <code>BB.publish/3</code></td><td>On its beat, read the inbound port, run the born-stale freshness check, and lift a fresh value into a typed <code>BB.Message</code> on BeamBots' PubSub at the declared path.</td></tr>
+<tr><td>actuator ← <code>handle_info({:bb, …})</code></td><td>A BeamBots command arrives; decode it and write the outbound command port. The link owner drains that port to the wire; the hub's floor does the rest.</td></tr>
+<tr><td><code>disarm/1</code></td><td>Sends a best-effort disarm down the wire — a fast accelerator, <em>not</em> the safe-state mechanism. Its return means "the disarm intent was delivered," and every "is it physically safe?" question is read from the hub's status port, never from this call. (The "lie-or-lock" subtlety of <code>disarm/1</code> and the feedback-free <code>armed?</code> trap are handled the same way the old design documents — folded in as we build; <span class="tag t-bad">SAFeD</span> beyond the best-effort+status-truth rule.)</td></tr>
+</table>
+
+<h3>The sensor view — read a slot, witness a write, publish</h3>
+<p>A <code>HubView.Sensor</code> is a beat loop and almost nothing else. The link owner has already decoded inbound frames into the <code>(node, port)</code> registry row; the view's whole job is to pull that row on its own beat, ask the born-stale monitor "did <code>seq</code> advance?", and lift a <em>fresh</em> value into a typed <code>BB.Message</code> on BeamBots' PubSub. It holds no socket, names no transport, and cannot tell whether the value came from the root hub's own I²C or a leaf three CAN hops down.</p>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/bb_hub/hub_view/sensor.ex</span><span style="margin-left:auto">slot → BB.Message · born-stale</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">HubView.Sensor</span> <span class="k">do</span>
+  <span class="k">use</span> <span class="t">BB.Sensor</span>                       <span class="c"># BeamBots wraps us; we supply callbacks, not a GenServer</span>
+  <span class="c"># A thin VIEW over a slot the link owner fills. No socket, no transport name,</span>
+  <span class="c"># no frame — just slot + monitor + publish. Born stale: nothing is published</span>
+  <span class="c"># until this view personally witnesses seq advance since ITS boot.</span>
+
+  <span class="f">@impl true</span>
+  <span class="k">def</span> options_schema, <span class="k">do:</span> <span class="t">HubView.Schema</span>.for_port(:sensor)   <span class="c"># derived from the hub contract (§06)</span>
+
+  <span class="f">@impl true</span>
+  <span class="k">def</span> init(opts) <span class="k">do</span>
+    node = opts[:node]; port = opts[:port]
+    :timer.send_interval(beat_ms(opts), :beat)            <span class="c"># the view's OWN beat; rate is its pick</span>
+    {:ok, %{node: node, port: port, path: opts[:path],
+            mon: <span class="t">Monitor</span>.new(node, port, opts[:fresh_for]),  <span class="c"># witnessed: false → born stale</span>
+            msg: opts[:message] || <span class="t">BB.Message.Sensor.Pose</span>}}   <span class="c"># slot type → BB.Message type</span>
+  <span class="k">end</span>
+
+  <span class="c"># Each beat: sample the slot, update the freshness monitor, publish only if fresh.</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> handle_info(:beat, st) <span class="k">do</span>
+    mon = <span class="t">Monitor</span>.check(st.mon, st.port)              <span class="c"># did seq advance within fresh_for? (§04)</span>
+    <span class="k">if</span> mon.status == :fresh <span class="k">do</span>
+      {value, _seq, _t_dev} = <span class="t">NodeRegistry</span>.get(st.node, st.port)
+      <span class="t">BB</span>.publish(st.path, lift(st.msg, value))         <span class="c"># typed BB.Message onto BB.PubSub</span>
+    <span class="k">end</span>                                                  <span class="c"># stale → publish NOTHING; downstream sees no fresh reading</span>
+    {:noreply, %{st | mon: mon}}
+  <span class="k">end</span>
+
+  <span class="c"># pure: a slot value (a plain struct) becomes a concrete BB.Message.Sensor.* term</span>
+  <span class="k">defp</span> lift(<span class="t">BB.Message.Sensor.Pose</span>, %<span class="t">Pose</span>{tilt: a, rate: r}),
+    <span class="k">do:</span> %<span class="t">BB.Message.Sensor.Pose</span>{tilt: a, rate: r}
+<span class="k">end</span></pre>
+</div>
+
+<h3>The actuator view — decode a command, write its one slot</h3>
+<p>A <code>HubView.Actuator</code> is the mirror image, and it is the <b>single writer</b> of its outbound command port — the link owner only ever <em>drains</em> that port to the wire, never writes it (so the link owner can never manufacture a <code>seq</code> advance, §04). The view subscribes to its command topic in <code>init</code> — BeamBots does not auto-wire this, and a forgotten subscribe is a silent no-op — and on each command it decodes the <code>BB.Message</code> and <code>Slot.put</code>s the command port. The hub's own floor (§05) does the safety work; the view never drives hardware directly.</p>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/bb_hub/hub_view/actuator.ex</span><span style="margin-left:auto">BB.Message → slot · sole writer · disarm = intent</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">HubView.Actuator</span> <span class="k">do</span>
+  <span class="k">use</span> <span class="t">BB.Actuator</span>
+  <span class="c"># The SOLE writer of its command port; the link owner is a read-only drain.</span>
+  <span class="c"># Owns no socket. The floor on the hub's chip is the safe-state mechanism —</span>
+  <span class="c"># this view only relays intent and reports truth read back from the status port.</span>
+
+  <span class="f">@impl true</span>
+  <span class="k">def</span> options_schema, <span class="k">do:</span> <span class="t">HubView.Schema</span>.for_port(:actuator)
+
+  <span class="f">@impl true</span>
+  <span class="k">def</span> init(opts) <span class="k">do</span>
+    <span class="t">BB</span>.subscribe([:actuator | opts[:path]])               <span class="c"># REQUIRED — else the command path silently no-ops</span>
+    <span class="t">BB.Safety</span>.register(self(), opts[:path])               <span class="c"># REQUIRED — else disarm/1 is never called</span>
+    {:ok, %{node: opts[:node], cmd_port: opts[:port],
+            status_port: opts[:status_port],                <span class="c"># the hub's reported truth (floored?, applied_seq)</span>
+            msg: opts[:message] || <span class="t">BB.Message.Actuator.Torque</span>}}
+  <span class="k">end</span>
+
+  <span class="c"># A command published in BeamBots → write our ONE command slot. The link owner</span>
+  <span class="c"># drains it to the wire; the floor decides whether the hub acts on it.</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> handle_info({:bb, _path, %<span class="t">BB.Message.Actuator.Torque</span>{nm: u}}, st) <span class="k">do</span>
+    <span class="t">NodeRegistry</span>.put(st.node, st.cmd_port, %<span class="t">Torque</span>{nm: u})   <span class="c"># single-writer; put bumps the command seq</span>
+    {:noreply, st}
+  <span class="k">end</span>
+
+  <span class="c"># "Is it physically safe/live?" is read from the hub's STATUS slot, never from a</span>
+  <span class="c"># belief bit. A stale status (born-stale) reads as floored/unknown, never armed.</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> live?(st) <span class="k">do</span>
+    <span class="k">case</span> <span class="t">NodeRegistry</span>.get(st.node, st.status_port) <span class="k">do</span>
+      {%<span class="t">Status</span>{floored?: <span class="k">false</span>}, _seq, _t} -&gt; :driving
+      _ -&gt; :floored_or_unknown
+    <span class="k">end</span>
+  <span class="k">end</span>
+
+  <span class="c"># disarm/1 is BEST-EFFORT and STATELESS (it may run with no GenServer state).</span>
+  <span class="c"># Return means "the disarm intent was delivered," NOT "the hardware is safe" —</span>
+  <span class="c"># that guarantee is the on-chip floor's. Anything it needs is in the opts.</span>
+  <span class="f">@impl true</span>
+  <span class="k">def</span> disarm(opts) <span class="k">do</span>
+    <span class="t">LinkOwner</span>.send_disarm(opts[:node], opts[:cmd_port])    <span class="c"># a fast accelerator; the floor still backstops</span>
+    :ok                                                    <span class="c"># := intent delivered (see §05 / the disarm table above)</span>
+  <span class="k">end</span>
+<span class="k">end</span></pre>
+</div>
+
+<div class="callout note">
+<div class="ct"><span class="t-val">what these two modules deliberately are <em>not</em></span></div>
+<p style="margin:.3em 0 0">Neither view opens a port, frames a byte, or names UART vs CAN — all of that is the link owner's, so the views are pure lift + a freshness gate and would run unchanged if a port moved from the root hub's I²C to a CAN leaf. Neither view makes anything safe: the sensor stops <em>publishing</em> when stale, the actuator only relays intent and reads truth back, and the hub's own floor is the safe-state mechanism. And the actuator is the <b>only</b> writer of its command slot — the rule that lets the link owner be a harmless read-only drain (§04). The two <code>REQUIRED</code> calls in <code>init</code> (<code>BB.subscribe</code> and <code>BB.Safety.register</code>) are BeamBots gotchas the prototype found: skip either and the failure is silent, so a boot check should assert every actuator view made both calls.</p>
+</div>
+
+<p>The views are deliberately thin and will eventually be <em>generated</em> from the contract (so <code>options_schema</code> <em>is</em> the contract, <code>init</code> self-subscribes and registers automatically, and <code>lift/2</code> follows the slot→<code>BB.Message</code> map) — that generation is <span class="tag t-bad">SAFeD</span>. v1 hand-writes these two small modules to get the BeamBots round-trip working, holding to the rules above: pure-lift, born-stale, single-writer, no socket.</p>
+</section>
+
+<!-- ===================== 10 ===================== -->
+<section id="s10">
+<h2><span class="num">10</span>Layout &amp; the deferred list</h2>
+<p class="lead">The repository mirrors the three strata, the dependency arrow points only downward, and the wire contract is generated — never hand-written.</p>
+
+<pre class="tree"><span class="d">platform/</span>                            <span class="cm"># every robot gets this free, never edits it</span>
+  host/          (mix app)            <span class="cm"># node_registry · link_owner · monitor · hub_runner</span>
+    lib/ node_registry.ex link_owner.ex monitor.ex hub_runner.ex
+         wire/crc16.ex wire/cobs.ex wire/framing_cobs.ex wire/codec.ex
+  bb_hub/        (mix app)            <span class="cm"># the BeamBots seam (§09)</span>
+    lib/ hub_view/sensor.ex hub_view/actuator.ex
+         hub_view/schema.ex           <span class="cm"># contract → Spark.Options schema (later: generated)</span>
+  firmware/                           <span class="cm"># the C hub chassis (shared by every hub)</span>
+    scheduler.c loop.c router.c transport.c floor.c
+    wire_contract.h                   <span class="cm"># GENERATED from contracts — drift-tested</span>
+  gen/                                <span class="cm"># the one generator: contracts + topology → Elixir + C + schedule + parity vectors</span>
+
+<span class="cg">hubs/</span>                                <span class="cm"># one folder per capability — a pure sample or step + a contract</span>
+  imu/    lib/sample_pose.ex  mcu/imu_sensor.c contract.exs schedule.gen.h  <span class="cm"># schedule GENERATED</span>
+  range/  mcu/sample_range.c              contract.exs schedule.gen.h
+  motor/  mcu/floor.c foc.c              contract.exs schedule.gen.h  <span class="cm"># floor + safe action</span>
+  balance/lib/balance.ex                 contract.exs   <span class="cm"># pure step/4 on the host</span>
+
+<span class="bt">robots/</span>                              <span class="cm"># a robot = BeamBots topology + UI</span>
+  follower/  lib/topology.ex  dashboard.ex</pre>
+
+<div class="callout note">
+<div class="ct"><span class="t-bad">SAFeD</span> the deferred list, in priority order</div>
+<p style="margin:.3em 0 0">Each item below is a strict <em>addition</em> of a guard or a capability — none changes a v1 default away from safe. Build order is roughly top to bottom, but v1 ships and integrates with BeamBots <em>before</em> any of these:</p>
+<ol class="clean" style="margin:.4em 0 0">
+  <li><b>Arm-nonce handshake</b> — a per-boot nonce a re-arm must echo, so a stale pre-reboot arm cannot re-energise. Tightens the born-disarmed floor.</li>
+  <li><b><code>fw_id</code> / board-identity</b> — 2 bytes per hub, checked at the host decode seam; a mis-flashed or swapped board is refused arming.</li>
+  <li><b>Conflation / backpressure</b> — one pending value per <code>(node, port)</code>, newest wins, <code>seq</code> advances only on a real change; bounds bursty push traffic and reconnect backlogs.</li>
+  <li><b>Per-register params + EEPROM/SRAM split</b> — runtime tuning of gains, clamped against declared <code>[min,max]</code> host-side and at the hub.</li>
+  <li><b>Wire-budget &amp; full declare/pick/validate</b> — refuse a topology that over-subscribes a link; one rail for every pick.</li>
+  <li><b>Host coordination policy</b> — cross-hub judgment (a dangerous combination no single hub floored on) that may initiate a stop; pure <code>decide/3</code> + thin shell.</li>
+  <li><b>Health fold across scopes</b>, <b>self-heal</b>, <b>A/B firmware</b>, and a branch hub <b>bridging to a second, deeper CAN segment</b> (a sub-backplane below a limb) — the root hub's UART↔CAN bridge generalised one level down.</li>
+</ol>
+</div>
+
+<blockquote><p>The whole of v1 in one sentence: <b>one recursive hub that senses, acts, and routes; a correct CRC-checked frame carrying a producer-owned <code>seq</code>; a floor on each actuator's own chip that is safe by default and earns motion; and a generated contract that keeps the C and Elixir wire from ever drifting</b> — enough to bring a tree of microcontrollers into BeamBots, and a safe foundation to elaborate.</p></blockquote>
+</section>
+
+<div class="foot">
+  <p>Architecture documentation for the hub gateway, v1. The Elixir and Arduino-C here is idiomatic and structurally faithful to the layered model, written to communicate the design rather than to compile as-is — helper functions (<code>clamp</code>, <code>sample_pose</code>, <code>forward</code>, <code>bump</code>, …) are referenced but not shown. Items marked <span class="tag t-bad">SAFeD</span> are deliberately deferred and default to the safe behaviour. The deeper, fuller treatment of these concerns lives in the prior reference design, <a href="design.html">design.html</a>. Diagrams render with Mermaid; if a diagram doesn't load, its caption states what it depicts.</p>
+</div>
+
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad:true, theme:'dark', securityLevel:'loose',
+    themeVariables:{
+      fontFamily:'JetBrains Mono, monospace', fontSize:'13px',
+      primaryColor:'#191e27', primaryTextColor:'#e9edf3', primaryBorderColor:'#323b48',
+      lineColor:'#5a6675', tertiaryColor:'#14181f',
+      noteBkgColor:'#1c1607', noteTextColor:'#f1ead9', noteBorderColor:'#eaa84a'
+    },
+    flowchart:{curve:'basis', padding:14},
+    sequence:{ mirrorActors:false, actorMargin:46, boxMargin:8 }
+  });
+</script>
+</body>
+</html>
