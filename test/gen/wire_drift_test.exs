@@ -2,63 +2,93 @@ defmodule BBMcuhub.Gen.WireDriftTest do
   @moduledoc """
   The build is red if the committed artifacts could disagree with the contract,
   or if the Elixir codec disagrees with the committed parity bytes (§06).
-  """
-  use ExUnit.Case, async: true
 
+  Artifacts are robot-scoped (§09): each robot owns `firmware/gen/<slug>/` and
+  `test/fixtures/<slug>/`, so the drift check runs PER ROBOT — the Follower and
+  segby_v1 each regenerated + compared against their own dir.
+  """
+  # Not async: the decode round-trip builds the global PortIndex per robot
+  # (:persistent_term), so two robots' decode tests must not race on it.
+  use ExUnit.Case, async: false
+
+  alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Gen.WireGen
   alias BBMcuhub.Wire.{Codec, CRC16}
 
-  @robot BBMcuhub.Robots.Follower
-
-  setup_all do
-    %{ir: WireGen.ir(@robot)}
-  end
+  # Every robot whose artifacts are committed (§09). Adding a robot here makes the
+  # drift test guard its generated dir too.
+  @robots [BBMcuhub.Robots.Follower, BBMcuhub.Robots.SegbyV1]
 
   describe "generated artifacts are not stale (a hand-edit or stale checkout fails here)" do
-    test "wire_contract.h matches the emitter now", %{ir: ir} do
-      assert File.read!("firmware/include/wire_contract.h") == WireGen.emit_c_header(ir)
-    end
+    for robot <- @robots do
+      @robot robot
 
-    test "the parity-vector fixture matches the emitter now", %{ir: ir} do
-      assert File.read!("test/fixtures/parity_vectors.exs") == WireGen.emit_parity(ir)
-    end
+      test "#{inspect(robot)}: wire_contract.h matches the emitter now" do
+        ir = WireGen.ir(@robot)
+        slug = WireGen.slug(@robot)
+        assert File.read!(WireGen.gen_dir(slug, "wire_contract.h")) == WireGen.emit_c_header(ir)
+      end
 
-    test "each hub's schedule matches its ports' rates", %{ir: ir} do
-      for hub <- ir |> Enum.map(& &1.hub) |> Enum.uniq() do
-        assert File.read!("hubs/#{hub}/mcu/schedule.gen.h") == WireGen.emit_schedule(ir, hub)
+      test "#{inspect(robot)}: the parity-vector fixture matches the emitter now" do
+        ir = WireGen.ir(@robot)
+        slug = WireGen.slug(@robot)
+        assert File.read!(WireGen.fixtures_path(slug)) == WireGen.emit_parity(ir)
+      end
+
+      test "#{inspect(robot)}: the C parity-vector header matches the emitter now" do
+        ir = WireGen.ir(@robot)
+        slug = WireGen.slug(@robot)
+        assert File.read!(WireGen.gen_dir(slug, "parity_vectors.h")) == WireGen.emit_parity_c(ir)
+      end
+
+      test "#{inspect(robot)}: each hub's schedule matches its ports' rates" do
+        ir = WireGen.ir(@robot)
+
+        for hub <- ir |> Enum.map(& &1.hub) |> Enum.uniq() do
+          assert File.read!("hubs/#{hub}/mcu/schedule.gen.h") == WireGen.emit_schedule(ir, hub)
+        end
       end
     end
   end
 
   describe "the Elixir codec reproduces every parity row byte-for-byte" do
-    test "encode matches the committed body and CRC" do
-      for row <- parity_rows() do
-        body =
-          Codec.encode_body(
-            row.node,
-            row.port_id,
-            row.seq,
-            row.t_dev,
-            row.type,
-            row.value,
-            row.stamped
-          )
+    for robot <- @robots do
+      @robot robot
 
-        assert body == row.body, "body drift for #{row.hub}/#{row.port}"
-        assert CRC16.crc(body) == row.crc, "crc drift for #{row.hub}/#{row.port}"
+      test "#{inspect(robot)}: encode matches the committed body and CRC" do
+        for row <- parity_rows(@robot) do
+          body =
+            Codec.encode_body(
+              row.node,
+              row.port_id,
+              row.seq,
+              row.t_dev,
+              row.type,
+              row.value,
+              row.stamped
+            )
+
+          assert body == row.body, "body drift for #{row.hub}/#{row.port}"
+          assert CRC16.crc(body) == row.crc, "crc drift for #{row.hub}/#{row.port}"
+        end
       end
-    end
 
-    test "decode round-trips every parity body back to its value" do
-      for row <- parity_rows() do
-        assert {:ok, decoded} = Codec.decode_body(row.body)
-        assert decoded.node == row.node
-        assert decoded.port_id == row.port_id
-        assert decoded.seq == row.seq
-        # t_dev rides only on a stamped port (§04); unstamped decodes to nil
-        assert decoded.t_dev == if(row.stamped, do: row.t_dev, else: nil)
-        assert decoded.type == row.type
-        assert_value_equal(decoded.value, row.value)
+      test "#{inspect(robot)}: decode round-trips every parity body back to its value" do
+        # The codec decodes via the global PortIndex, which is per-robot; build it
+        # for THIS robot so its (node, port_id) pairs resolve to the right type.
+        PortIndex.build(@robot)
+        on_exit(fn -> PortIndex.build(BBMcuhub.Robots.Follower) end)
+
+        for row <- parity_rows(@robot) do
+          assert {:ok, decoded} = Codec.decode_body(row.body)
+          assert decoded.node == row.node
+          assert decoded.port_id == row.port_id
+          assert decoded.seq == row.seq
+          # t_dev rides only on a stamped port (§04); unstamped decodes to nil
+          assert decoded.t_dev == if(row.stamped, do: row.t_dev, else: nil)
+          assert decoded.type == row.type
+          assert_value_equal(decoded.value, row.value)
+        end
       end
     end
   end
@@ -67,8 +97,8 @@ defmodule BBMcuhub.Gen.WireDriftTest do
     assert CRC16.crc("123456789") == 0x29B1
   end
 
-  defp parity_rows do
-    {rows, _} = Code.eval_file("test/fixtures/parity_vectors.exs")
+  defp parity_rows(robot) do
+    {rows, _} = Code.eval_file(WireGen.fixtures_path(WireGen.slug(robot)))
     rows
   end
 

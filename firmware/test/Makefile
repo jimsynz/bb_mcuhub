@@ -8,7 +8,11 @@
 CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -Werror -O2
 ROOT    := ../..
-INC     := -I$(ROOT)/firmware/include -I$(ROOT)/firmware/test
+# The parity harness asserts the Follower's generated artifacts (its robot-scoped
+# gen dir, §09); the include path adds firmware/gen/follower so wire_contract.h +
+# parity_vectors.h resolve there (no stale firmware/include/wire_contract.h).
+GEN     := $(ROOT)/firmware/gen/follower
+INC     := -I$(ROOT)/firmware/include -I$(GEN) -I$(ROOT)/firmware/test
 PARITY_SRC := $(ROOT)/firmware/src/crc16.c \
               $(ROOT)/firmware/src/cobs.c \
               $(ROOT)/firmware/src/frame.c \
@@ -25,7 +29,7 @@ UART_BACKPLANE_SRC := $(ROOT)/firmware/src/transport.c $(ROOT)/firmware/src/crc1
 .PHONY: all run clean
 all: run
 
-parity_harness: $(PARITY_SRC) $(ROOT)/firmware/test/parity_vectors.h $(ROOT)/firmware/include/wire_contract.h
+parity_harness: $(PARITY_SRC) $(GEN)/parity_vectors.h $(GEN)/wire_contract.h
 	$(CC) $(CFLAGS) $(INC) $(PARITY_SRC) -o parity_harness
 
 floor_harness: $(FLOOR_SRC) $(ROOT)/firmware/include/floor.h

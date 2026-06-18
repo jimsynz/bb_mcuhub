@@ -10,16 +10,23 @@ defmodule BBMcuhub.Gen.WireGen do
   to fall stale). That leaves three emitters whose output crosses a boundary the
   in-language guarantee can't reach, so they are emitted to disk and drift-tested:
 
-    * `emit_c_header/1`   → `firmware/include/wire_contract.h` — port ids, packed
-      structs, the floor window constants, and a contract hash.
+    * `emit_c_header/1`   → `firmware/gen/<slug>/wire_contract.h` — port ids,
+      packed structs, the floor window constants, and a contract hash.
     * `emit_schedule/2`   → `hubs/<hub>/mcu/schedule.gen.h` — per-port
       `{period_us, tick}` rows from each port's `rate` (§08).
-    * `emit_parity/1`     → `test/fixtures/parity_vectors.exs` — `{port, value,
-      body, crc}` rows computed by running the *real* encoder, the cross-language
-      witness (§03). Numbers are correct by construction, never typed.
+    * `emit_parity/1`     → `test/fixtures/<slug>/parity_vectors.exs` — `{port,
+      value, body, crc}` rows computed by running the *real* encoder, the
+      cross-language witness (§03). Numbers are correct by construction.
+
+  Artifacts are **robot-scoped** (§09): each robot owns a `firmware/gen/<slug>/`
+  dir and a `test/fixtures/<slug>/` dir, so two robots (e.g. the Follower and
+  segby_v1) can coexist without one clobbering the other's `wire_contract.h`.
+  `<slug>` is the robot module's last segment, underscored (`Follower` →
+  `follower`, `SegbyV1` → `segby_v1`). The per-hub schedules stay at
+  `hubs/<hub>/mcu/schedule.gen.h` — hub names don't collide across robots.
 
   `write_all!/0` regenerates everything (the `mix wire.gen` alias). The drift test
-  asserts each file on disk equals what these emitters produce *now*.
+  asserts each file on disk equals what these emitters produce *now*, per robot.
   """
 
   alias BBMcuhub.Contract
@@ -41,10 +48,11 @@ defmodule BBMcuhub.Gen.WireGen do
   @spec write_all!(module()) :: [Path.t()]
   def write_all!(robot \\ @default_robot) do
     ir = ir(robot)
+    slug = slug(robot)
 
-    header = {"firmware/include/wire_contract.h", emit_c_header(ir)}
-    parity = {"test/fixtures/parity_vectors.exs", emit_parity(ir)}
-    parity_c = {"firmware/test/parity_vectors.h", emit_parity_c(ir)}
+    header = {gen_dir(slug, "wire_contract.h"), emit_c_header(ir)}
+    parity = {fixtures_path(slug), emit_parity(ir)}
+    parity_c = {gen_dir(slug, "parity_vectors.h"), emit_parity_c(ir)}
 
     schedules =
       for hub <- hubs(ir) do
@@ -57,6 +65,26 @@ defmodule BBMcuhub.Gen.WireGen do
       path
     end
   end
+
+  @doc """
+  The robot's short slug — its module's last segment, underscored. Drives the
+  per-robot artifact dirs (`Follower` → `follower`, `SegbyV1` → `segby_v1`).
+  """
+  @spec slug(module()) :: String.t()
+  def slug(robot) do
+    robot
+    |> Module.split()
+    |> List.last()
+    |> Macro.underscore()
+  end
+
+  @doc "The robot-scoped generated-C dir, joined with `file` (§09)."
+  @spec gen_dir(String.t(), String.t()) :: Path.t()
+  def gen_dir(slug, file), do: Path.join(["firmware", "gen", slug, file])
+
+  @doc "The robot-scoped parity-vector fixture path (§09)."
+  @spec fixtures_path(String.t()) :: Path.t()
+  def fixtures_path(slug), do: Path.join(["test", "fixtures", slug, "parity_vectors.exs"])
 
   @doc "The IR for a robot — the single model the emitters render."
   @spec ir(module()) :: [Contract.ir_row()]
