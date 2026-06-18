@@ -1,140 +1,147 @@
-# Context — the cog framework
+# Context — the hub gateway
 
-A glossary of the load-bearing terms in the cog framework and its BeamBots (`bb`)
-integration. Definitions only — no implementation details. See `docs/design.html` for the
-architecture, `docs/reviews/` for decisions and prototype findings.
+A glossary of the load-bearing terms in the hub gateway: the design for reaching
+microcontroller hardware from the BeamBots (`bb`) ecosystem through one recursive
+abstraction. Definitions only — no implementation details. See `docs/hub-design.html`
+for the full architecture.
+
+> This supersedes the earlier "cog framework" vocabulary (cog · manifest · Master ·
+> CogBus). Where you see those terms elsewhere, read: cog → **hub**, manifest →
+> **BeamBots topology + contract**, Master → **host**.
 
 ## Terms
 
-### Cog
-The reusable software unit an author writes: a pure core (a `cook`, a `step`, or a `floor`)
-plus a **contract**. A cog is not a process and not a node; it is placed onto a node and
-surfaced to BeamBots as one or more components. See **Contract**, **Node**.
+### Hub
+The one MCU node type, and the whole topology model. A hub does any subset of three
+jobs — **sense** (read a device, `sample` a typed value, publish it up with a `seq`),
+**act** (drive a local actuator behind a floor), and **route** (forward frames for
+child hubs, meaning-blind). Because a hub can be a parent, a tree of any depth is built
+by composing this one shape — there is no separate gateway, leaf, or router type. A hub
+with children is a branch; a hub with none is a leaf. See **Root hub**, **Contract**.
+
+### Root hub
+The hub that owns the host link: it speaks **UART** upward to the host and **CAN**
+downward to its child hubs, bridging the serial link to the CAN backplane. It is still
+an ordinary hub (it may sense or act while it bridges) — not a fourth node kind, just
+the one hub that happens to hold the host connection.
+
+### Host
+The board above the tree (a Raspberry Pi running Elixir/OTP under Nerves and the
+BeamBots application). It is **not a hub** — it sits above the hub tree, reaches every
+node through one UART to the root hub, and holds the robot's truth in a small
+per-`(node, port)` registry. Logical id 0.
 
 ### Contract
-The data a cog ships describing itself: what slots it `consumes`/`produces` (typed), its
-`rate` as a *range* (a limit, not a fixed number), its pure core, its `safe_action`,
-`arm_gate`, `on_stale`, and `tunable` bounds. The bot manifest **picks** values inside a
-contract; construction **validates** every pick. The contract is a cog's public face.
+The small data a hub ships describing itself: its ports, each port's value `type` and
+`rate` (a single nominal number), its `safe_action`, and its `fresh_for` needs, plus
+the pure core (`sample` for a sensor, `step`/safe-action for an actuator). A generator
+reads every hub's contract plus the topology and emits **four** renderings of one model
+— the Elixir codec, the C headers, the per-hub schedule, and the parity vectors — so
+the C and Elixir sides cannot drift. A hub's contract is its public face.
 
-### Slot
-A named place holding exactly one value plus two stamps: `seq` (a per-write counter, +1
-every write) and `t_dev` (the producer's own 64-bit monotonic time at the write). Reads
-never block and return the latest. Exactly one writer per slot. Freshness is "did `seq`
-advance within the reader's window, on the reader's own clock" — never a cross-board clock
-comparison.
+### NODE / PORT (the wire identity)
+A value's identity on the wire is `(NODE, PORT)`. **NODE** is a flat, whole-tree-unique
+address — never a path; routing is a flat table lookup, `route_table[node] → local link`.
+**PORT** names a sense/act endpoint on that node and nothing else — a child link is
+**not** a port (a downstream hub is reached by addressing its own NODE). On CAN the two
+pack into a generated 29-bit extended id `[NODE:8][PORT:8][rsv:13]`, so the controller
+filters in hardware and id-range doubles as arbitration priority. `NODE 0x00` is the
+reserved broadcast/e-stop address — the lowest id, so it wins bus arbitration.
 
-### Node
-A physical board hosting one or more cogs. May run the BEAM (the **Master**) or not (an
-ESP32 running C, reached over a bus we define). Distinct from a cog.
+### Slot (the registry row)
+A named place keyed by `(node, port)` holding exactly one value plus two stamps: `seq`
+(a per-write counter the producing hub bumps +1 on every real new value) and `t_dev`
+(the producer's own 64-bit monotonic microseconds at the write). Overwrite-only; reads
+never block and return the latest. **Exactly one writer per slot.**
 
-### Master
-The single node running the BEAM. Hosts the slot space and the BeamBots application. It is
-irreducibly distinguished: the one node with no parent link.
+### seq · t_dev (the two stamps)
+`seq` is the **only** stamp in the trust path: a consumer judges freshness by "did `seq`
+advance within my `fresh_for` window, on my own beats?" — never a cross-board clock
+comparison. `t_dev` is a passenger for **same-device** math only (aligning a single
+device's samples, jitter, replay); it is never compared across nodes and never read by
+the freshness check. The split is strict: `seq` decides trust, `t_dev` is carried but
+inert to it.
+
+### Advance (the freshness/floor test)
+"`seq` advanced" is the plain inequality `seq != last_seq` — any change is a new write.
+This is **sound only because every path is in-order**: point-to-point UART/CAN preserve
+order and the relay is a strict FIFO byte pump (see **Relay**). No magnitude test means
+counter wrap is a non-issue. If a future relay may reorder, this test must become a
+windowed forward compare.
+
+### Relay (the router discipline)
+A branch hub forwarding a child's frame copies `seq` and `t_dev` **verbatim** (a relay
+never mints a `seq`) **and** forwards in **arrival order** — a strict FIFO byte pump
+that never reorders, holds, batches, or dedupes. This in-order guarantee is the
+precondition that makes the **advance** test sound. Conflation (deferred) may drop
+superseded frames but must preserve per-`(node, port)` order.
+
+### fresh_for · born-stale
+Each consumer declares a `fresh_for` window as a multiple of the producer's nominal
+period (so "a window shorter than one write" cannot be expressed). A freshly started or
+restarted consumer is **born stale**: it distrusts whatever value sits in a slot until
+it *personally* witnesses `seq` advance since its own boot. This is what makes a restart
+safe — a rebooted board never trusts a leftover reading.
 
 ### The floor (dead-man)
-The authoritative safe-state mechanism. Lives on an actuator's **own chip**, drives the
-plant to its `safe_action` when a command's `seq` stops advancing (goes stale). Fires even
-if the Master is entirely gone. It is the guarantee; everything BEAM-side is best-effort or
-observability on top of it.
+The authoritative safe-state mechanism, on each actuator hub's **own chip**. It watches
+the `seq` of *its own* command against a compiled-in window on its own clock; if the
+`seq` stops advancing, it drives the plant to its `safe_action` and latches disarmed.
+It needs no inbound frame, so it fires even if the parent, the tree above, or the host
+is entirely gone. It is the guarantee; everything host-side is best-effort on top of it.
 
-### LinkOwner
-The OTP process that owns one physical bus (UART / I²C / CAN) to a non-BEAM node. It is
-**our** supervised process, living *beside* BeamBots' topology supervision tree, not inside
-it (so it survives a BeamBots topology force-disarm). It fills inbound slots from decoded
-frames and drains outbound commands to the wire. The BeamBots components for a node are thin
-**views** onto the slots the LinkOwner mediates — they do not own the bus. One LinkOwner per
-physical bus; the N cogs on a node share it.
+### Born-disarmed
+Every actuator hub boots `armed = false` with its output already at the safe action. It
+begins driving only after it witnesses a fresh, in-window command `seq` advancing since
+its own boot. A reboot, power glitch, or stale buffered frame cannot energise it —
+**motion is continuously earned, never a default**.
 
-### Component (BeamBots view)
-A `BB.Sensor` or `BB.Actuator` that surfaces a cog to the BeamBots world. It is a *view*: it
-reads/writes slots through the **LinkOwner**, lifts values to/from typed `BB.Message`
-structs, and carries the cog **contract** in its `options_schema`. It does **not** own the
-physical bus. Lives inside BeamBots' topology subtree (so it is force-disarmed with the
-robot); the bus it reads through does not.
-
-The boundary between a Component and the **LinkOwner** is a **slot, not a call API** — they
-share only named ETS slots, never a reference or a message. This falls out of
-transport-transparency (a reader cannot tell local from remote); a call API would rebuild the
-deleted CogBus. So a `BB.Sensor` view is a thin beat loop (pull slot → born-stale witness →
-lift to `BB.Message` → `BB.publish`); a `BB.Actuator` view is a thin handler (decode command
-→ `Slot.put` the outbound command slot). All wire work — framing, conflation, status decode,
-de-escalation — lives in the LinkOwner. **Outbound command slot: the Component (command
-producer) is the single writer; the LinkOwner is a read-only drain to the wire** — forced,
-because a LinkOwner that could *write* the command slot could bump `seq` and fake an advance,
-breaking the "surviving LinkOwner is safe by construction" guarantee. The slot→`BB.Message`
-type mapping is generated manifest data (drift-tested like the codecs), not hand glue.
+### The e-stop (accelerator, not mechanism)
+The heartbeat and broadcast disarm share **one** tested code path with the floor: a
+broadcast disarm, a missed heartbeat, a pulled wire, or a dead parent all resolve to the
+same thing at the actuator — *its command `seq` stops advancing* → the floor fires. The
+e-stop only makes the silence happen faster (and, as `NODE 0x00`, wins CAN arbitration);
+it is never a second "react to the stop frame" path that could itself fail.
 
 ### Status slot
-A slot the actuator node produces (`floor_engaged`, `armed`, `applied_seq`, …) flowing *up*
-the wire. It is the authoritative source of "is the hardware physically safe/live?" — never
-`BB.Safety.armed?`, which is a feedback-free BEAM-side belief. Because the **LinkOwner**
-survives a topology force-disarm, the status stream keeps flowing even after the robot goes
-to `:error` — the robot fails *legibly*, not blindly.
+A slot an actuator hub produces (`{applied_seq, floored?}` at minimum) flowing *up* the
+wire. It is the authoritative source of "is this hub actually driving?" — read (gated by
+the same born-stale check) instead of inferred from "we sent it a command," so the host
+never shows a confident green while a wheel sits floored.
 
-### Safety de-escalation (the status→BB.Safety reconciliation)
-The **LinkOwner** — which already decodes every **status slot** frame — calls
-`BB.Safety.disarm/2` (idempotent, best-effort, fire-and-forget) whenever a node reports
-floored or its status goes stale. It is **one-directional**: it may only ever drive BeamBots
-*toward* disarmed, **never** call `arm/1`. Re-arm stays chip-gated (the nonce-echoing Point-5
-sequence). This is not a separate process — it is one conditional inside the thing that
-already holds the status. Safe-by-construction: if it lags or fails, BeamBots stays
-stale-but-conservative and the **floor** on the chip is untouched — physical safety never
-waits on it. It only ever repairs a *display* lie (BeamBots' `armed?`), never authorizes
-torque. Because our `disarm/1` is best-effort and returns `:ok`, this always lands BeamBots
-in `:disarmed` (not the `:error` lock).
+### The frame
+The on-wire shape: a `0x00`-delimited, COBS-framed body — `NODE · PORT · SEQ(2B) ·
+T_DEV(8B) · PAYLOAD` — guarded by a **real, pinned CRC-16/CCITT-FALSE** (check value
+`0x29B1` over `"123456789"`). The same frame rides both transports; the root hub
+re-frames UART↔CAN without touching NODE/SEQ/T_DEV/PAYLOAD. CRC is verified at the
+framing seam, so a corrupt frame is counted and dropped before any value (or any `seq`)
+is read.
 
-### Coordination policy
-Master-side **code** (tested, not a manifest knob and not a cog) that reads the **health
-fold** and the raw floor reports and *decides* how to coordinate a stop across cogs. Distinct
-from the fold: the fold states *facts* (per-scope `:nominal|:degraded|:safe`); the policy
-applies *judgment* over those facts. It may **initiate** a stop (not only propagate one) —
-e.g. a cog reporting "running hot" is a warning no reflex would catch, yet the policy may
-choose to broadcast a preemptive stop. A cog only ever *reports* its own state ("I am cog X,
-I floored / I am hot"); it never *requests* a sibling stop — it lacks the whole-system view.
-The master owns coordination; the cog owns honest self-report.
+### Parity vectors
+A generated, committed fixture of `{port, payload, framed_bytes, crc}` rows asserted by
+*both* the Elixir suite and a host-compiled C harness — the cross-language witness that
+both codecs agree byte-for-byte. The wire cannot drift past it; hand-editing a row is the
+tell.
 
-The policy is **best-effort, not safety-critical** — it is strictly additive on top of the
-**floor**. It lives inside BeamBots' topology subtree. An ordinary crash → supervised restart
-→ it comes back **born-stale** and re-derives from the *current* fold (restart *is* the
-recheck — no resume logic). The only state it does not auto-recover from is a topology
-teardown (restart budget exhausted), and in that state BeamBots has already force-disarmed
-everything, so there is no coordination decision left to make. Recovery is operator/external;
-absent it, the floored-default simply persists.
+### LinkOwner
+The OTP process (under Nerves, beside the BeamBots tree) that owns the host UART to the
+root hub. It decodes inbound frames into `(node, port)` slots and drains outbound
+commands to the wire. It is placed to survive a view or law crash, so telemetry keeps
+flowing through a fault. **It is a read-only drain of command slots** — never their
+writer — so it can never manufacture a `seq` advance.
 
-**Shape (resolved):** one **robot-wide** instance — a pure `decide(fold, reports, couplings)`
-function (the tested safety graph) plus a thin GenServer shell beside `HealthMonitor` on its
-own beat. **Input:** the per-scope **fold** levels (hard facts) *plus* the raw soft-warning
-fields the fold deliberately does not gate on (e.g. a `temp_c` field). **Output / actuation:**
-`:none` (log) · `{:stop_scope, s}` (bump that scope's per-scope `:estop`) · `:stop_global`
-(write the broadcast e-stop slot `0x0000`). It writes no command slot and never re-arms.
-**Rule:** a soft warning *alone* is a log; a warning *plus* corroborating degradation, or a
-declared dangerous **coupling**, is a stop; a coupling spanning >1 scope escalates to global.
-It does **not** re-act to a scope the fold already calls `:safe` (the fold already floors
-that) — the policy only *initiates* (warnings) and *escalates* (cross-scope couplings).
-**Code vs manifest:** `decide/3` is tested code; the manifest adds only `couplings:` (named
-sets of scopes dangerous-together) and soft-warning thresholds. A status field is **either**
-fold-critical **or** policy-soft, never both (boot check). For a single-actuator bot
-(`follower_segby`, no couplings) it degenerates to a near-empty pass-through that only logs.
+### Component (the BeamBots view)
+A thin `BB.Sensor` / `BB.Actuator` that surfaces a hub's port to BeamBots. A *view*: it
+reads/writes slots through the LinkOwner, lifts to/from typed `BB.Message`, and carries
+the hub contract in its `options_schema`. It owns no socket and names no transport, so it
+runs unchanged whether the port is on the root hub's own I²C or a CAN leaf three hops
+down. A sensor view publishes only when born-stale freshness passes; an **actuator view
+is the single writer of its command slot**.
 
-### The safety stack (three layers, each a fallback for the one above)
-1. **Coordination policy** (master, in BB tree) — preemptive & coordinated stops from
-   whole-system judgment. Richest, least reliable, best-effort. May initiate.
-2. **BeamBots force-disarm / broadcast e-stop** (master-driven) — blunt global stop when the
-   topology collapses or an operator commands it. Drops commands → seq stops advancing.
-3. **The floor** (on each chip) — reflexive, autonomous, survives total master loss. The
-   guarantee. Never depends on layers 1–2.
-
-The standing principle: **safe is the default state, motion is what must be continuously
-earned.** No layer has to *act* to reach safety — each only ever *stops authorizing motion*,
-and the chips floor on command-silence on their own. You never make the robot safe; you only
-keep earning motion (a fresh, witnessed, in-window, chip-gated command).
-
-### Born-stale (the witness rule)
-A reader (a freshness/floor witness) distrusts whatever value sits in a slot until it
-*personally* witnesses `seq` advance past the last value it recorded, on its own clock. This
-is what makes **LinkOwner** surviving (B2) safe with no extra rule: stale command/arm state
-surviving in BEAM memory and being re-streamed is the *same* `seq` re-arriving, never an
-advance, so no consumer is moved by it. Safety is by *construction* (distrust the
-un-witnessed), never by an active flush — flushing would make safety depend on recovery
-succeeding, which §00 forbids.
+### SAFeD (Safe-by-Default, elaborate later)
+The rule for deferred work: a stub must default to the *safe* behaviour (disarmed, stale,
+refused) so elaborating it later only ever *adds* permission, never removes a guarantee.
+Deferred items are named in the text, not hidden. Notable v1 holes left explicit: node
+identity is **trust-on-first-use** (a mis-flashed/duplicate board is undetected until the
+deferred `fw_id` check), and right-rate enforcement (wire-budget + conflation) is deferred
+— v1 permits right-rate but does not yet enforce it.

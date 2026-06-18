@@ -158,6 +158,19 @@
 <h3>The one goal</h3>
 <blockquote><p>Reach a microcontroller from BeamBots through <b>one composable abstraction</b> — a hub that can sense, act, and route — so a robot of any shape is assembled by wiring hubs together, not by writing transport code.</p></blockquote>
 
+<h3>Goals — what we optimise for</h3>
+<p>Stated as outcomes, not features — north-star targets the whole design pulls toward. Every decision below traces to one of these. (What v1 ships <em>now</em> versus what is deferred is the separate scope question answered later in this section; these goals describe the destination, not the v1 checklist.)</p>
+<div class="grid3">
+  <div class="panel tight"><b style="color:var(--teal)">Compose, don't build</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">A new robot is assembled from existing hubs through the BeamBots topology and each hub's contract. You write core logic — a <code>sample</code> or a <code>step</code> — and the framework owns the plumbing.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Declare, don't wire by hand</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">You declare which hubs you want and how they connect. The framework owns the non-declarative work — moving commands and readings, checking the link follows through, deciding if a signal is fresh, surfacing an error.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Fail into legibility</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">A fault names itself — what broke, and where — and never collapses into ambiguous silence.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Safe in the gap</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">The robot reaches a safe state on any fault, independently of the part that failed, never depending on recovery succeeding.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Reason locally</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">You can understand and change one hub without holding the whole system in your head.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Test without hardware</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">Core logic is pure and replayable: develop on a laptop, reproduce a run from a log of values.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Right-rate, not max-rate</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">Move only the information that is needed, when it is needed. Never flood a wire or a CPU.</p></div>
+  <div class="panel tight"><b style="color:var(--teal)">Evolve without rewrites</b><p style="margin:.4em 0 0;font-size:.9rem;color:var(--mute)">Add a hub, move it to another node, or swap a control law by editing data, not by rippling code.</p></div>
+</div>
+
 <h3>Principles — how we think</h3>
 <div class="panel">
 <ul class="clean" style="list-style:none;padding-left:0">
@@ -311,14 +324,14 @@ flowchart TB
   <div class="bf f"><b>0x00</b><span>frame delim</span></div>
   <div class="bf f"><b>LEN</b><span>1 B</span></div>
   <div class="bf m"><b>NODE</b><span>1 B · src/dst node</span></div>
-  <div class="bf h"><b>PORT</b><span>1 B · which port on the node</span></div>
+  <div class="bf h"><b>PORT</b><span>1 B · which endpoint on the node</span></div>
   <div class="bf m"><b>SEQ</b><span>2 B · producer's write counter</span></div>
   <div class="bf p"><b>T_DEV</b><span>8 B · producer's own µs clock</span></div>
   <div class="bf p"><b>PAYLOAD</b><span>n B · value</span></div>
   <div class="bf f"><b>CRC16</b><span>2 B</span></div>
   <div class="bf f"><b>0x00</b><span>frame delim</span></div>
 </div>
-<p style="font-size:.9rem;color:var(--mute);margin-top:-2px">The identity is <b>(NODE, PORT)</b>: which hub, and which of its ports (an IMU, a wheel, a child link). Routing is a table lookup on NODE through the generated topology — a branch hub forwards a frame toward the parent or the child that owns that node, never a peer-name dispatch. <b>SEQ</b> is the producing hub's own write counter, bumped by one on every real new value; a relay hub copies it verbatim. <b>T_DEV</b> is the producing hub's own 64-bit monotonic microseconds at the write — carried for same-device use only (§04), 64-bit so a hub's clock never wraps in the field. The CRC covers the whole decoded body (NODE…PAYLOAD), so it guards the routing header across every hop — the UART above the root hub and the CAN below it alike — not just the payload. The same frame rides both transports; the root hub re-frames it from one to the other without touching NODE, SEQ, T_DEV, or PAYLOAD.</p>
+<p style="font-size:.9rem;color:var(--mute);margin-top:-2px">The identity is <b>(NODE, PORT)</b>: which hub, and which <em>endpoint</em> on it (an IMU, a wheel). <b>NODE is a flat, whole-tree-unique address — never a path</b>, and a child link is <em>not</em> a port: ports name sense/act endpoints only, and a downstream hub is reached by addressing its own NODE, which the parent's route table maps to the down-link. Routing is therefore a flat table lookup on NODE through the generated topology — <code>route_table[node] → local link</code> — a branch hub forwards a frame toward the link that reaches that node, never a peer-name dispatch and never a port on the parent. <b>SEQ</b> is the producing hub's own write counter, bumped by one on every real new value; a relay hub copies it verbatim. <b>T_DEV</b> is the producing hub's own 64-bit monotonic microseconds at the write — carried for same-device use only (§04), 64-bit so a hub's clock never wraps in the field. The CRC covers the whole decoded body (NODE…PAYLOAD), so it guards the routing header across every hop — the UART above the root hub and the CAN below it alike — not just the payload. The same frame rides both transports; the root hub re-frames it from one to the other without touching NODE, SEQ, T_DEV, or PAYLOAD.</p>
 
 <div class="callout bad">
 <div class="ct"><span class="t-bad">the bug this fixes</span> the old draft's CRC was not a CRC-16</div>
@@ -466,7 +479,18 @@ flowchart TB
 
 <div class="callout note">
 <div class="ct"><span class="t-val">the one transport detail the bridge must handle</span> a frame is bigger than a classic CAN frame</div>
-<p style="margin:.3em 0 0">The logical frame above (NODE…PAYLOAD, ≥12 bytes before the CRC) does not fit in a single classic-CAN data field (8 bytes). This is the root hub's job, and v1 picks the simplest option that keeps the wire honest: <b>use CAN&nbsp;FD</b> (up to 64-byte payload), so a typical value frame rides in <em>one</em> CAN-FD frame and the CAN id carries <code>(NODE, PORT)</code> for the controller's native filtering/arbitration. CAN's own per-frame CRC guards the segment; our end-to-end CRC-16 still guards the whole body across the UART↔CAN re-framing boundary (where CAN's CRC does not reach). If a value's payload ever exceeds the FD limit, the bridge segments it — but v1 sizes every value type to fit one frame, so segmentation is <span class="tag t-bad">SAFeD</span> and the common path never needs it. The 8-byte <code>t_dev</code> is the largest field; a build check (§06) can warn when a type plus header crowds the single-frame budget.</p>
+<p style="margin:.3em 0 0">The logical frame above (NODE…PAYLOAD, ≥12 bytes before the CRC) does not fit in a single classic-CAN data field (8 bytes). This is the root hub's job, and v1 picks the simplest option that keeps the wire honest: <b>use CAN&nbsp;FD with extended (29-bit) ids</b> (up to 64-byte payload), so a typical value frame rides in <em>one</em> CAN-FD frame. The 29-bit id is <b>generated from the contract as <code>[NODE:8][PORT:8][rsv:13]</code></b>, so the controller filters on <code>(NODE, PORT)</code> in hardware (a node-wide or a port-wide mask both fall out of the layout) and the id range doubles as arbitration priority. CAN's own per-frame CRC guards the segment; our end-to-end CRC-16 still guards the whole body across the UART↔CAN re-framing boundary (where CAN's CRC does not reach). If a value's payload ever exceeds the FD limit, the bridge segments it — but v1 sizes every value type to fit one frame, so segmentation is <span class="tag t-bad">SAFeD</span> and the common path never needs it. The 8-byte <code>t_dev</code> is the largest field; a build check (§06) can warn when a type plus header crowds the single-frame budget.</p>
+<div class="bytes" style="margin:.7em 0 0">
+  <div class="bf m" style="flex:2 1 auto"><b>NODE · 8b</b><span>which hub · 0x00 reserved = broadcast/e-stop</span></div>
+  <div class="bf h" style="flex:2 1 auto"><b>PORT · 8b</b><span>which endpoint on that hub</span></div>
+  <div class="bf f" style="flex:3 1 auto"><b>reserved · 13b</b><span>spare · deeper-CAN-segment id / priority band (SAFeD)</span></div>
+</div>
+<p style="margin:.55em 0 0;font-size:.86rem;color:var(--mute)">8 bits of NODE = 254 addressable hubs (0x00 reserved for broadcast; the host is logical id 0, above the tree); 8 bits of PORT = 255 endpoints per hub — both well beyond any single-tree v1 bot, and the 13 reserved bits hold the deferred deeper-CAN-segment id without reopening the scheme. Because the id is generated, "this class of frame outranks that one" is decided by id-range allocation in the contract — declarative, not a hand-written scheduler.</p>
+</div>
+
+<div class="callout good">
+<div class="ct"><span class="t-val">the e-stop wins the bus, physically</span> lower id wins arbitration</div>
+<p style="margin:.3em 0 0">CAN arbitration is won by the lowest id, and the broadcast disarm is <code>NODE 0x00</code> — the lowest id on the bus. So the e-stop does not merely <em>get sent</em> promptly; it <b>beats every contending data frame onto the wire at the same instant</b>. This sharpens §05's "accelerator, not mechanism": the stop that causes command-silence reaches the actuators as fast as the physical layer allows, while the floor still backstops if the bus is cut entirely. The accelerator's speed is now a property of the id space, not of hope — and the end-to-end CRC-16 still guards the body across the re-framing boundary exactly as above, since the id shape changes only how a frame is addressed, never what its body carries.</p>
 </div>
 </section>
 
@@ -486,8 +510,9 @@ flowchart TB
 <p style="margin:.3em 0 0">You asked whether to carry the timestamp too. Yes — but kept rigidly apart. The instant <code>t_dev</code> leaks into the freshness decision you have re-introduced a shared-clock problem across (potentially) three boards in the tree, which is exactly the bug-class clock-free freshness exists to avoid. So: <code>seq</code> decides trust; <code>t_dev</code> is a passenger for same-device math. One field, one job, each.</p>
 </div>
 
-<h3>The relay rule</h3>
-<p>A routing hub forwarding a child's frame <b>copies <code>seq</code> and <code>t_dev</code> verbatim</b> — it must never mint a new <code>seq</code>. Re-sending the same <code>seq</code> is a re-arrival, which no monitor counts as a new write. If a relay could bump <code>seq</code>, it could manufacture a false "fresh" for a value the producing hub never updated — the precise failure the counter prevents. (This is also why, when conflation is added later, the relay advances a value's <code>seq</code> only if the <em>value itself</em> changed — <span class="tag t-bad">SAFeD</span>.)</p>
+<h3>The relay rule — verbatim <em>and</em> in order</h3>
+<p>A routing hub forwarding a child's frame <b>copies <code>seq</code> and <code>t_dev</code> verbatim</b> — it must never mint a new <code>seq</code>. Re-sending the same <code>seq</code> is a re-arrival, which no monitor counts as a new write. If a relay could bump <code>seq</code>, it could manufacture a false "fresh" for a value the producing hub never updated — the precise failure the counter prevents.</p>
+<p>v1's relay carries a second, equally load-bearing discipline: it is a <b>strict FIFO byte pump</b>. It forwards frames in <em>arrival order</em>, re-framing for the destination transport and re-CRCing the same body, and it <b>never reorders, holds, batches, or dedupes</b>. This matters because the freshness test below — and the floor in §05 — defines "<code>seq</code> advanced" as a plain inequality (<code>seq != last_seq</code>), which is sound <em>only</em> while every path to a consumer is in-order. Point-to-point UART and CAN are in-order by nature; the relay is the one component that could break that, so v1 forbids it from doing so. (When conflation is added later it <em>may</em> drop superseded frames per <code>(node, port)</code>, advancing <code>seq</code> only if the <em>value itself</em> changed — but it <b>must preserve per-<code>(node,port)</code> order</b>, or the inequality test must simultaneously become a windowed forward compare; both are <span class="tag t-bad">SAFeD</span>.)</p>
 
 <h3>The window and born-stale</h3>
 <p>Each consumer declares a <code>fresh_for</code> window as a multiple of the producer's nominal period, so "a window shorter than one write" cannot be expressed. A freshly started or restarted consumer has witnessed nothing, so it is <b>born stale</b>: it distrusts whatever value is sitting in the registry until it personally sees <code>seq</code> advance since its own boot. This is what makes a restart safe — a rebooted board never trusts a leftover reading.</p>
@@ -498,7 +523,7 @@ flowchart TB
 <span class="c"># `witnessed` starts false → born stale → trusts nothing until it sees a write.</span>
 <span class="k">def</span> check(state, port) <span class="k">do</span>
   {_value, seq_now, _t_dev} = <span class="t">Registry</span>.get(state.node, port)
-  moved? = state.witnessed and seq_now != state.last_seq
+  moved? = state.witnessed and seq_now != state.last_seq   <span class="c"># inequality: sound under in-order links (§04 relay)</span>
   idle   = <span class="k">if</span> moved?, <span class="k">do:</span> 0, <span class="k">else:</span> state.idle + 1
   fresh? = state.witnessed and idle &lt;= state.fresh_for      <span class="c"># a counter, no clock</span>
   %{state | last_seq: seq_now, idle: idle, witnessed: state.witnessed or seq_now != nil,
@@ -563,6 +588,11 @@ flowchart TB
 
 <span class="f">void</span> control_tick(<span class="f">void</span>) {            <span class="c">/* the ~kHz drive loop */</span>
   uint32_t now = millis();
+  <span class="c">/* "Advanced?" is a plain inequality: ANY change in seq is a new command.</span>
+  <span class="c">   SOUND ONLY because every path to this chip is in-order — point-to-point</span>
+  <span class="c">   UART/CAN preserve order and the relay is a strict FIFO byte pump (§04), so</span>
+  <span class="c">   'seq differs' == 'seq is newer'. No magnitude test ⇒ the wire's u16 seq read</span>
+  <span class="c">   into u32 is harmless and counter wrap is a non-issue (we never ask by how much). */</span>
   <span class="k">if</span> (cmd_seq != last_seq) { last_seq = cmd_seq; last_advance_ms = now; }  <span class="c">/* fresh */</span>
 
   bool fresh = (now - last_advance_ms) &lt; FLOOR_MISSES * CMD_PERIOD_MS;
@@ -760,11 +790,16 @@ flowchart LR
 <p>The full wire-budget and per-pick validation rail is <span class="tag t-bad">SAFeD</span>. v1 keeps the handful of checks that are cheap and catch a real bug on a laptop, all run before the link opens:</p>
 <ul class="clean">
   <li><b>Topology is well-formed:</b> every <code>(node, port)</code> a reader names has exactly one producer; a port read but never written, or written twice, refuses to boot and prints the offending pair.</li>
-  <li><b>Node ids are unique</b> and the reserved low ids (host = 0, broadcast/e-stop) are not claimed by a data hub.</li>
+  <li><b>Node ids are unique</b> and the reserved low ids (host = 0, broadcast/e-stop = <code>NODE 0x00</code>) are not claimed by a data hub. <em>This is a static check on the declared topology — it does not verify, on the live bus, that the board answering as a given <code>NODE</code> is the one you flashed (see the trust-on-first-use note below).</em></li>
   <li><b><code>fresh_for</code> ≥ one writer period:</b> a window shorter than the producer's nominal period is refused — it could never be satisfied.</li>
   <li><b>Floor window derives from one number:</b> <code>FLOOR_MISSES × CMD_PERIOD_MS</code> is generated into the firmware from the same contract the host uses, so the host's view of the timeout and the hub's compiled-in timeout cannot drift apart.</li>
   <li><b>The parity-vector fixture passes</b> (§03) — the codec/CRC witness.</li>
 </ul>
+
+<div class="callout note">
+<div class="ct"><span class="t-val">node identity is trust-on-first-use in v1</span> the one blind spot, named not hidden <span class="tag t-bad">SAFeD</span></div>
+<p style="margin:.3em 0 0">The boot check above verifies the <em>static</em> topology — that the declared <code>(node, port)</code> map is well-formed and ids are unique on paper. Nothing on the live bus checks that the board answering as <code>NODE 0x05</code> is the board you flashed as <code>0x05</code>. With <code>fw_id</code> / board-identity deferred (§10, item 2), v1 <b>trusts the <code>NODE</code> a frame claims</b>: a mis-flashed, swapped, or duplicate board silently writes another hub's slot and is <b>undetected</b> until the <code>fw_id</code> check (2 bytes at the host decode seam, refusing arming on a mismatch) lands. This is consistent with the SAFeD rule — a confused board still cannot <em>arm</em> without a fresh in-window command its own floor witnessed (§05) — but it <em>can</em> corrupt a sensor slot a consumer reads, so it is a real gap. It is stated here rather than left implicit, because an unwritten assumption reads later as a guarantee that was never made.</p>
+</div>
 
 <blockquote><p>The discipline in one line: <b>the wire has one source of truth, the build proves the C and Elixir sides agree on it, and the few things that would silently corrupt a value or a command are checked on a laptop before any hardware moves.</b> Everything richer than that is deferred, not pretended.</p></blockquote>
 </section>
@@ -890,7 +925,9 @@ flowchart TB
   }
 
   link_pump_up();    <span class="c">/* drain the link toward the host (UART on the root hub; CAN on a deeper hub) */</span>
-  link_pump_down();  <span class="c">/* ROUTE: move frames between up- and down-links, meaning-blind — seq/t_dev verbatim */</span>
+  link_pump_down();  <span class="c">/* ROUTE (§04): strict FIFO byte pump — move frames between links in ARRIVAL</span>
+                     <span class="c">   order, meaning-blind, seq/t_dev verbatim. No reorder/hold/dedup: this in-order</span>
+                     <span class="c">   guarantee is what makes the floor's seq!=last_seq test sound (§05). */</span>
 }</pre>
 </div>
 
@@ -910,13 +947,14 @@ flowchart TB
 
 <div class="codewrap">
   <div class="codehdr"><span class="badge c">C</span><span class="fn">hubs/firmware/router.c</span><span style="margin-left:auto">meaning-blind forwarding</span></div>
-<pre class="code"><span class="c">/* A branch hub forwards a frame toward the side that owns the dest node.</span>
-<span class="c">   It does NOT decode the payload and does NOT touch seq or t_dev. On the root</span>
-<span class="c">   hub, UP is UART (to the host) and DOWN is CAN; on a deeper hub both are CAN. */</span>
+<pre class="code"><span class="c">/* Flat addressing (§03): NODE is a whole-tree-unique id, never a path. A branch</span>
+<span class="c">   hub forwards a frame toward the local link that reaches the dest node — a child</span>
+<span class="c">   link is NOT a port. It does NOT decode the payload and does NOT touch seq/t_dev.</span>
+<span class="c">   On the root hub, UP is UART (to the host) and DOWN is CAN; deeper, both are CAN. */</span>
 <span class="f">void</span> route_frame(<span class="f">const</span> Frame *f) {
-  <span class="k">if</span> (f-&gt;node == MY_NODE) { deliver_local(f); <span class="k">return</span>; }   <span class="c">/* a port on this hub */</span>
-  <span class="f">int</span> link = route_table[f-&gt;node];     <span class="c">/* generated: which link (up / down-N) reaches this node */</span>
-  forward(link, f);                     <span class="c">/* re-frame for THAT transport + re-CRC the SAME body; seq unchanged */</span>
+  <span class="k">if</span> (f-&gt;node == MY_NODE) { deliver_local(f); <span class="k">return</span>; }   <span class="c">/* an endpoint port on THIS hub */</span>
+  <span class="f">int</span> link = route_table[f-&gt;node];     <span class="c">/* generated: which local link reaches this NODE */</span>
+  forward(link, f);                     <span class="c">/* FIFO, in order: re-frame for THAT transport + re-CRC the SAME body; seq unchanged */</span>
 }</pre>
 </div>
 
@@ -1113,7 +1151,7 @@ flowchart TB
 <p style="margin:.3em 0 0">Each item below is a strict <em>addition</em> of a guard or a capability — none changes a v1 default away from safe. Build order is roughly top to bottom, but v1 ships and integrates with BeamBots <em>before</em> any of these:</p>
 <ol class="clean" style="margin:.4em 0 0">
   <li><b>Arm-nonce handshake</b> — a per-boot nonce a re-arm must echo, so a stale pre-reboot arm cannot re-energise. Tightens the born-disarmed floor.</li>
-  <li><b><code>fw_id</code> / board-identity</b> — 2 bytes per hub, checked at the host decode seam; a mis-flashed or swapped board is refused arming.</li>
+  <li><b><code>fw_id</code> / board-identity</b> — 2 bytes per hub, checked at the host decode seam; a mis-flashed or swapped board is refused arming. Closes v1's <b>trust-on-first-use</b> gap (§06): until it lands, the <code>NODE</code> a frame claims is believed without verifying the physical board.</li>
   <li><b>Conflation / backpressure</b> — one pending value per <code>(node, port)</code>, newest wins, <code>seq</code> advances only on a real change; bounds bursty push traffic and reconnect backlogs.</li>
   <li><b>Per-register params + EEPROM/SRAM split</b> — runtime tuning of gains, clamped against declared <code>[min,max]</code> host-side and at the hub.</li>
   <li><b>Wire-budget &amp; full declare/pick/validate</b> — refuse a topology that over-subscribes a link; one rail for every pick.</li>
@@ -1126,7 +1164,7 @@ flowchart TB
 </section>
 
 <div class="foot">
-  <p>Architecture documentation for the hub gateway, v1. The Elixir and Arduino-C here is idiomatic and structurally faithful to the layered model, written to communicate the design rather than to compile as-is — helper functions (<code>clamp</code>, <code>sample_pose</code>, <code>forward</code>, <code>bump</code>, …) are referenced but not shown. Items marked <span class="tag t-bad">SAFeD</span> are deliberately deferred and default to the safe behaviour. The deeper, fuller treatment of these concerns lives in the prior reference design, <a href="design.html">design.html</a>. Diagrams render with Mermaid; if a diagram doesn't load, its caption states what it depicts.</p>
+  <p>Architecture documentation for the hub gateway, v1. The Elixir and Arduino-C here is idiomatic and structurally faithful to the layered model, written to communicate the design rather than to compile as-is — helper functions (<code>clamp</code>, <code>sample_pose</code>, <code>forward</code>, <code>bump</code>, …) are referenced but not shown. Items marked <span class="tag t-bad">SAFeD</span> are deliberately deferred and default to the safe behaviour. This document is the single source of truth for the design; it supersedes the earlier "cog framework" draft. Diagrams render with Mermaid; if a diagram doesn't load, its caption states what it depicts.</p>
 </div>
 
 </div>
