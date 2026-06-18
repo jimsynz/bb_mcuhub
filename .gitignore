@@ -17,7 +17,20 @@ erl_crash.dump
 *.ez
 
 # Ignore package tarball (built via "mix hex.build").
-thunderdome-*.tar
+bb_mcuhub-*.tar
 
 # Temporary files, for example, from tests.
 /tmp/
+
+# C harness binaries (host-compiled)
+/firmware/test/parity_harness
+/firmware/test/floor_harness
+/firmware/test/router_harness
+*.o
+
+# PlatformIO
+.pio/
+
+# pio venv
+/.pio-venv/
+.pio-core

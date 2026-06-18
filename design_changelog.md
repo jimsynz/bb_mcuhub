@@ -1,0 +1,136 @@
+# Design changelog
+
+Decision history and rationale for the hub-gateway design. The design doc
+(`docs/hub-design.html`) is kept **stateless** — it always describes the current
+intended design with no history or "we changed X" framing. This file is where the
+*why* and the *when* live: each entry says what changed in the design and the
+reason it changed.
+
+Format: newest first. Dates are absolute.
+
+---
+
+## 2026-06-18 — Corrections from building the v1 walking skeleton
+
+Building `bb_mcuhub` (the Elixir host stack, host-compiled + ESP32 firmware, and
+the BeamBots views, with a cross-language parity witness) surfaced five places
+where the design as written was wrong, underspecified, or made a claim reality
+contradicted. All five were folded **in-place** into `docs/hub-design.html` so the
+doc still reads as a single stateless source of truth. The changes:
+
+### 1. CAN-FD is a hardware requirement; frame size is a real v1 constraint (§03, §06)
+- **Was:** "use CAN FD … v1 sizes every value type to fit one frame, so
+  segmentation is SAFeD and the common path never needs it."
+- **Now:** CAN FD is stated as a hardware dependency on the MCU + transceiver.
+  Frame size is a real constraint: a value type that overruns the chosen
+  controller's single-frame size is **segmented by the bridge** (moved out of
+  SAFeD into v1), and a bridge **never truncates** — it refuses and counts an
+  oversized frame (`tx_oversize`). A per-frame **size check** was added to the §06
+  boot checks, kept explicitly distinct from the (still-SAFeD) link-bandwidth
+  wire-budget.
+- **Why:** ESP32's built-in TWAI is **classic CAN (8-byte data field), not CAN
+  FD**. The very first port broke the "fits one frame" promise: reusing the
+  canonical `BB.Message.Sensor.Imu` (quaternion + two vectors) is a 40-byte
+  payload → 54-byte wire body. That fits CAN FD's 64 but is ~7× over classic
+  CAN's 8. Silent truncation would poison decode and the freshness counter (§04),
+  so refuse-and-count is the only safe v1 behaviour on a classic-CAN board.
+
+### 2. `t_dev` is opt-in per port (§04, §03)
+- **Was:** `t_dev` (8 bytes) is carried on every frame; "costs 8 bytes and zero
+  gate complexity."
+- **Now:** `t_dev` is a **per-port** contract flag. Sensors that feed
+  fusion/replay carry it; command and status ports omit it and stay small.
+- **Why:** With a 12-byte header (8 of them `t_dev`), the header is 75%
+  timestamp; a 16-byte effort command was half a `t_dev` the design itself says
+  commands never use. Making it per-port more than halves command/status frames
+  and eases the single-frame budget (item 1). The freshness rule is unaffected —
+  `seq` was always the only trust stamp.
+
+### 3. The Elixir codec is data-driven, not generated — "three artifacts" (§06)
+- **Was:** the generator emits "four renderings of one model," one of them the
+  Elixir codec (`codec.ex`, GENERATED).
+- **Now:** the host Elixir codec is **data-driven** (reads the layout/header
+  tables at runtime); the generator emits **three** artifacts — the C header, the
+  per-hub schedule, and the parity vectors — and drift-tests them.
+- **Why:** a codec that interprets the single source of truth cannot drift from it
+  *within* Elixir, so there is no generated `.ex` to fall stale. The drift surface
+  collapses to exactly the cross-language boundary the in-language guarantee can't
+  reach, which the parity vectors witness directly. Same guarantee, smaller
+  surface.
+
+### 4. §09 rewritten against the real `bb` 0.20.3 API
+- **Was:** an invented `HubView.Sensor`/`HubView.Actuator` API: a `path:` option,
+  `BB.publish/3` by path, manual `BB.subscribe` + `BB.Safety.register` in `init`
+  described as "REQUIRED — silent no-op if forgotten," `live?/1` reading the raw
+  status slot.
+- **Now:** matches the real package — `use BB.Sensor` / `use BB.Actuator`
+  **callback modules** (not GenServers) with `options_schema:`; `:bb`
+  (`%{robot:, path:}`) and `:motor_profile` **auto-injected**; **no built-in poll
+  loop** (the view drives its own beat); `BB.publish(robot, [:sensor | path],
+  msg)`; the actuator **server auto-subscribes** the command topic and
+  auto-registers `disarm/1`, so the "forgotten subscribe" gotcha is gone;
+  messages are concrete `BB.Message.Sensor.Imu` / `BB.Message.Actuator.Command.
+  Effort` with Nx-tensor-backed `Quaternion`/`Vec3`.
+- **Why:** the doc's §09 was illustrative pseudo-code written before the real
+  dependency was pinned. Coding against `bb` 0.20.3 showed the real shape, which
+  is in several ways simpler (no manual subscribe to forget) and in one way
+  different that matters (callback module, not GenServer).
+
+### 5. Born-stale resolved strict, with its cost stated (§04, §05)
+- **Was:** "born stale … until it personally sees `seq` advance since its own
+  boot" — left implicit how a consumer tells a pre-boot leftover value from the
+  producer's first post-boot value, which look identical on first observation.
+- **Now:** the **strict** rule is explicit: the first observed `seq` is only a
+  baseline; trust begins on the first *change* from it. A leftover value is never
+  trusted, at the cost of up to one extra producer period of first-trust latency.
+  The monitor code block (§04) and the firmware floor (§05) both reflect this.
+- **Why:** it is the literal reading of "advance since its own boot" and the safe
+  one. A boot-epoch / generation marker that distinguishes the two cases (and so
+  trusts a genuine first value immediately) is noted as a later SAFeD elaboration,
+  since it only ever removes latency, never adds trust.
+
+### Implementation bugs fixed alongside (code, not design)
+These were defects in the reference implementation relative to the (correct)
+design, fixed in the same pass:
+- **`Actuator.live/1` was not freshness-gated** — a stale "not floored" status
+  read as `:driving` (the "confident green while floored" failure §05 warns
+  against). Now gated by a born-stale status monitor on the view's own beat.
+- **Classic-CAN silent truncation** — the TWAI TX path truncated bodies >8 B to 8.
+  Now refuses and counts them (item 1).
+- **Added a 2-hop router test** — verifies the relay invariant (forward by NODE,
+  `seq`/`t_dev`/payload verbatim, meaning-blind), which had no end-to-end test.
+
+### Per-port `t_dev` (item 2) — now implemented
+The code was brought in line with the design: `t_dev` is a per-port contract flag
+(`t_dev: true`), and the header is one of two shapes. The change rippled through
+the Elixir contract/codec/`PortIndex`, the generator (a `wire_port_stamped`
+lookup + `PORT_*_STAMPED` defines + `WIRE_HEADER_BASE_SIZE`/`_STAMPED_SIZE`), the
+C `frame.c`/`frame.h` (`Frame.stamped`, `frame_decode_body(..., stamped, ...)`),
+the parity vectors, and the firmware. Result: the IMU pose stays stamped (52-byte
+body); the effort command dropped 16 B → **8 B** (and now fits classic CAN) and
+status 15 B → **7 B**. The decoder learns a frame's shape from the per-`(node,
+port)` index (host) / `wire_port_stamped` (firmware) after peeking the base
+header, so an unstamped frame is never misread. The cross-language parity witness
+confirms the new byte layouts agree C↔Elixir.
+
+### Known gaps recorded (not yet built, beyond the design's own SAFeD list)
+- **Frame-size check / segmentation (item 1):** the design moves these into v1;
+  the code currently refuses-and-counts oversized classic-CAN frames (the safe
+  half) but does not yet segment or run the boot-time size check.
+- No on-hardware run yet; `imu_read`/`drive` are synthetic stand-ins.
+- Inbound CAN multi-frame **reassembly** is unbuilt (waits on the segmentation
+  work, item 1); undersized stray frames are safely rejected by the codec's
+  header-size check.
+- Boot-time **topology validation** (§06: one producer per `(node,port)`, unique
+  ids, `fresh_for` ≥ one period, frame-size check) is specified but not yet
+  implemented as a runtime boot check.
+- The host command **drain is a 5 ms poll**, not event-driven — fine for v1 rates;
+  revisit with conflation (SAFeD).
+
+---
+
+## (earlier) — initial design
+
+`docs/hub-design.html` v1 authored; supersedes the earlier "cog framework" draft.
+See `CONTEXT.md` for the glossary. Recent git history: design refinement,
+hub-gateway v1 design added, hub gateway hardened / cog framework superseded.
