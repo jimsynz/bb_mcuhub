@@ -35,9 +35,10 @@ per-`(node, port)` registry. Logical id 0.
 The small data a hub ships describing itself: its ports, each port's value `type` and
 `rate` (a single nominal number), its `safe_action`, and its `fresh_for` needs, plus
 the pure core (`sample` for a sensor, `step`/safe-action for an actuator). A generator
-reads every hub's contract plus the topology and emits **four** renderings of one model
-— the Elixir codec, the C headers, the per-hub schedule, and the parity vectors — so
-the C and Elixir sides cannot drift. A hub's contract is its public face.
+reads every hub's contract plus the topology and emits **three** artifacts of one model
+— the C headers, the per-hub schedule, and the parity vectors (the Elixir codec is
+data-driven, reading the model at runtime, so it cannot drift within Elixir) — so the C
+and Elixir sides cannot drift. A hub's contract is its public face.
 
 ### NODE / PORT (the wire identity)
 A value's identity on the wire is `(NODE, PORT)`. **NODE** is a flat, whole-tree-unique
@@ -110,12 +111,33 @@ the same born-stale check) instead of inferred from "we sent it a command," so t
 never shows a confident green while a wheel sits floored.
 
 ### The frame
-The on-wire shape: a `0x00`-delimited, COBS-framed body — `NODE · PORT · SEQ(2B) ·
-T_DEV(8B) · PAYLOAD` — guarded by a **real, pinned CRC-16/CCITT-FALSE** (check value
-`0x29B1` over `"123456789"`). The same frame rides both transports; the root hub
-re-frames UART↔CAN without touching NODE/SEQ/T_DEV/PAYLOAD. CRC is verified at the
-framing seam, so a corrupt frame is counted and dropped before any value (or any `seq`)
-is read.
+The on-wire shape: a body — `NODE · PORT · SEQ(2B) · [T_DEV(8B)] · PAYLOAD` — guarded by
+a **real, pinned CRC-16/CCITT-FALSE** (check value `0x29B1` over `"123456789"`). `T_DEV`
+is **per-port** (present only on stamped ports; see **seq · t_dev**). On UART the body is
+`0x00`-delimited and COBS-framed; on CAN it is segmented (see **Segment**). The same body
+rides both transports; the root hub re-frames UART↔CAN without touching
+NODE/SEQ/T_DEV/PAYLOAD. The CRC covers the whole body and is **always present and verified
+on both transports** — on CAN it travels as the body's 2-byte trailer, so a re-framing
+bit-flip a hop's hardware CRC cannot reach is still caught. A corrupt frame is counted and
+dropped at the seam before any value (or any `seq`) is read.
+
+### Segment (CAN fragmentation)
+A body wider than a CAN data field (8 B on the ESP32's classic-CAN TWAI; 64 B on CAN FD)
+is **segmented by the bridge** into ordered fragments, one per CAN frame, and reassembled
+**before** the CRC check (the CRC is over the whole reassembled body, never per-fragment).
+Fragment metadata rides the **13 reserved id bits**, never the data field, so the CAN body
+bytes are byte-identical to the UART body and the **parity vectors** hold across both
+transports. The layout is `[FIRST:1][LAST:1][SEQLO:5][FRAG_IDX:6]`: a 6-bit index (≤ 64
+fragments → a hard **512-byte body ceiling**, asserted by the §06 boot size-check), FIRST
+on index 0, LAST on the final fragment, and the body `seq`'s low 5 bits binding every
+fragment to its body. Reassembly is **fail-closed and strictly sequential**: a buffer is
+seeded only by a FIRST fragment; any gap, reorder, `SEQLO` mismatch, or CRC failure
+**drops the whole body** (counted, never delivered partial) — a lost body is a
+stale-making non-event the **advance** test already tolerates, but a partial body must
+never reach a **slot**. A bridge **never truncates**; it refuses-and-counts only the
+should-never-happen case of a body over the 512-byte ceiling (`tx_oversize`). No
+reassembly timeout in v1 — a stalled partial is reclaimed structurally by the next FIRST
+for that `(node, port)` (a timeout is a conflation-era refinement, SAFeD).
 
 ### Parity vectors
 A generated, committed fixture of `{port, payload, framed_bytes, crc}` rows asserted by

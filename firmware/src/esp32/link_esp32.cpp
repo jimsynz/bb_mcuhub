@@ -17,6 +17,7 @@
 extern "C" {
 #include "frame.h"
 #include "transport.h"
+#include "segment.h"
 #include "link.h"
 }
 
@@ -33,18 +34,29 @@ extern "C" {
 #define CAN_RX_PIN 17
 #endif
 
-/* The generated 29-bit id: [NODE:8][PORT:8][rsv:13] (§03). */
-static inline uint32_t can_id_of(const Frame *f) {
-  return ((uint32_t)f->node << 21) | ((uint32_t)f->port << 13);
-}
-
 /* Callback the runtime sets: a verified body arrived from some link. */
 static void (*g_on_body)(const uint8_t *body, size_t len) = nullptr;
 
-/* Legible failure counters (§03): a frame too large for classic CAN is refused,
- * not truncated. Exposed for telemetry / a future status port. */
+/* The CAN backplane is segmented (§03): a wide body splits across CAN frames on
+ * TX and is reassembled, CRC-checked, in order on RX. The fragment metadata rides
+ * the 13 reserved id bits; the data field stays 100% body bytes. */
+static SegReasm g_can_rx;
+
+/* Legible failure counters (§03), exposed for telemetry / a future status port:
+ *  - tx_oversize: a body over the 512-byte ceiling — refused, never truncated
+ *    (a should-never-happen belt to the §06 boot size-check), or a TWAI TX that
+ *    failed mid-body so the body is abandoned (the RX side drops the partial).
+ *  - rx_*: the CAN seam's analog of the UART seam's rx_drop. */
 static uint32_t g_tx_oversize_drop = 0;
 uint32_t link_tx_oversize_drops(void) { return g_tx_oversize_drop; }
+uint32_t link_rx_frag_orphan(void) { return g_can_rx.rx_frag_orphan; }
+uint32_t link_rx_frag_drop(void) { return g_can_rx.rx_frag_drop; }
+uint32_t link_rx_crc_fail(void) { return g_can_rx.rx_crc_fail; }
+
+/* Reassembler → runtime: a complete, CRC-clean CAN body (CRC already stripped). */
+static void can_body_cb(const uint8_t *body, size_t len, void *) {
+  if (g_on_body) g_on_body(body, len);
+}
 
 #if defined(ROOT_HUB)
 static TransportDecoder g_uart_rx; /* the UART seam — only the root hub has one */
@@ -57,6 +69,7 @@ static void uart_body_cb(const uint8_t *body, size_t len, void *) {
 void link_set_on_body(void (*cb)(const uint8_t *body, size_t len)) { g_on_body = cb; }
 
 void link_begin(void) {
+  seg_reasm_init(&g_can_rx); /* the CAN backplane reassembler (every role has CAN) */
 #if defined(ROOT_HUB)
   transport_decoder_init(&g_uart_rx);
 
@@ -93,26 +106,32 @@ void link_send_up(const Frame *f) {
   size_t w = transport_encode(body, body_len, wire, sizeof(wire));
   Serial.write(wire, w);
 #else
-  /* The design (§03) carries the whole body in ONE CAN-FD frame (≤64 B). ESP32's
-   * built-in TWAI peripheral is CLASSIC CAN (8-byte data field) only, so a body
-   * larger than 8 bytes CANNOT ride one frame here. v1 does NOT segment (SAFeD),
-   * so we REFUSE and COUNT an oversized frame rather than silently truncating it
-   * — a dropped frame is legible; a truncated one is silent corruption that would
-   * poison decode/freshness (§04). A CAN-FD transceiver + segmentation lifts this;
-   * until then a >8B port (e.g. the full IMU) must ride the UART hop or be split.
-   *
-   * NOTE: inbound reassembly of multi-frame bodies is likewise unbuilt — the CAN
-   * RX path below only handles a body that fit one frame. */
-  if (body_len > 8) {
-    g_tx_oversize_drop++; /* legible: a frame too big for classic CAN was refused */
+  /* The CAN backplane is segmented (§03): split body || CRC into ordered frames,
+   * fragment metadata in the 13 reserved id bits. ESP32's built-in TWAI is classic
+   * CAN (8-byte data field), so even a small body fragments (an 8-byte body → 10
+   * with CRC → 2 frames); a CAN-FD board would carry up to 512 B with fewer frames.
+   * The whole body crosses byte-identical — never truncated. */
+  CanFrame frags[SEG_MAX_FRAGS];
+  size_t n_frags = 0;
+  if (!seg_split(f->node, f->port, f->seq, body, body_len, frags, SEG_MAX_FRAGS, &n_frags)) {
+    g_tx_oversize_drop++; /* over the 512-byte ceiling — the §06 size-check should forbid this */
     return;
   }
-  twai_message_t m = {};
-  m.identifier = can_id_of(f);
-  m.extd = 1;
-  m.data_length_code = (uint8_t)body_len;
-  for (size_t i = 0; i < body_len; i++) m.data[i] = body[i];
-  twai_transmit(&m, pdMS_TO_TICKS(1));
+  /* Emit all fragments of this body back-to-back, in index order, before
+   * returning — strict per-(node,port) FIFO (§04). If a transmit fails mid-body,
+   * abandon it: the receiver's FIRST-seeded reassembler drops the now-incomplete
+   * body cleanly, exactly as a bus loss would (count it as oversize/abandoned). */
+  for (size_t i = 0; i < n_frags; i++) {
+    twai_message_t m = {};
+    m.identifier = frags[i].id;
+    m.extd = 1;
+    m.data_length_code = frags[i].len;
+    for (size_t j = 0; j < frags[i].len; j++) m.data[j] = frags[i].data[j];
+    if (twai_transmit(&m, pdMS_TO_TICKS(1)) != ESP_OK) {
+      g_tx_oversize_drop++; /* abandoned mid-body — receiver drops the partial */
+      return;
+    }
+  }
 #endif
 }
 
@@ -124,9 +143,16 @@ void link_pump(void) {
     transport_decoder_feed(&g_uart_rx, &b, 1, uart_body_cb, nullptr);
   }
 #endif
+  /* CAN: feed each frame into the reassembler. It calls g_on_body only with a
+   * complete, CRC-clean, in-order body (CRC stripped) — a gap/reorder/orphan/CRC
+   * failure is dropped and counted, never delivered partial (§03/§04). */
   twai_message_t m;
   while (twai_receive(&m, 0) == ESP_OK) {
-    if (g_on_body) g_on_body(m.data, m.data_length_code);
+    CanFrame cf;
+    cf.id = m.identifier;
+    cf.len = m.data_length_code > SEG_CAN_DATA ? SEG_CAN_DATA : m.data_length_code;
+    for (size_t i = 0; i < cf.len; i++) cf.data[i] = m.data[i];
+    seg_reasm_feed(&g_can_rx, &cf, can_body_cb, nullptr);
   }
 }
 

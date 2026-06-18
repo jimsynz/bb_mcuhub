@@ -3,9 +3,11 @@ defmodule BBMcuhub.Gen.CParityTest do
   Runs the host-compiled C parity + floor harnesses as part of `mix test`, so the
   cross-language witness (§03/§06) is checked on every test run, not just in CI.
 
-  Skips gracefully if no host C compiler is available. The harness asserts the C
-  codec produces the SAME bytes/CRC as the generated parity vectors and that the C
-  floor is born-disarmed / fail-passive.
+  Skips gracefully if no host C compiler is available. The harnesses assert the C
+  codec produces the SAME bytes/CRC as the generated parity vectors, that the C
+  floor is born-disarmed / fail-passive, that the router relays meaning-blind in
+  order, and that CAN segmentation round-trips a wide body and is fail-closed on
+  loss/reorder/corruption (§03).
   """
   use ExUnit.Case, async: false
 
@@ -36,5 +38,6 @@ defmodule BBMcuhub.Gen.CParityTest do
     assert output =~ "ALL C PARITY CHECKS PASSED"
     assert output =~ "ALL C FLOOR CHECKS PASSED"
     assert output =~ "ALL C ROUTER CHECKS PASSED"
+    assert output =~ "ALL C SEGMENT CHECKS PASSED"
   end
 end

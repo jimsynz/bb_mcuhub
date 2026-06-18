@@ -16,6 +16,8 @@ PARITY_SRC := $(ROOT)/firmware/src/crc16.c \
               test_parity.c
 FLOOR_SRC  := $(ROOT)/firmware/src/floor.c test_floor.c
 ROUTER_SRC := $(ROOT)/firmware/src/router.c test_router.c
+SEGMENT_SRC := $(ROOT)/firmware/src/segment.c $(ROOT)/firmware/src/crc16.c \
+               $(ROOT)/firmware/src/frame.c test_segment.c
 
 .PHONY: all run clean
 all: run
@@ -29,12 +31,17 @@ floor_harness: $(FLOOR_SRC) $(ROOT)/firmware/include/floor.h
 router_harness: $(ROUTER_SRC) $(ROOT)/firmware/include/router.h
 	$(CC) $(CFLAGS) $(INC) $(ROUTER_SRC) -o router_harness
 
-run: parity_harness floor_harness router_harness
+segment_harness: $(SEGMENT_SRC) $(ROOT)/firmware/include/segment.h
+	$(CC) $(CFLAGS) $(INC) $(SEGMENT_SRC) -o segment_harness
+
+run: parity_harness floor_harness router_harness segment_harness
 	./parity_harness
 	@echo
 	./floor_harness
 	@echo
 	./router_harness
+	@echo
+	./segment_harness
 
 clean:
-	rm -f parity_harness floor_harness router_harness
+	rm -f parity_harness floor_harness router_harness segment_harness

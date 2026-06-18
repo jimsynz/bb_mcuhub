@@ -26,6 +26,7 @@ bb_mcuhub-*.tar
 /firmware/test/parity_harness
 /firmware/test/floor_harness
 /firmware/test/router_harness
+/firmware/test/segment_harness
 *.o
 
 # PlatformIO

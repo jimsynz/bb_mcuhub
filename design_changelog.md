@@ -10,6 +10,73 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-18 — CAN segmentation/reassembly: on-wire encoding pinned (§03, §06)
+
+`docs/hub-design.html` §03 had already moved frame **segmentation into v1** (out of
+SAFeD) but deliberately left the on-wire encoding open ("the bridge segments
+it"). Before implementing, the encoding was pinned in a grilling session and the
+doc was sharpened **in-place** to describe the now-fixed design. The decisions:
+
+### 1. The end-to-end CRC-16 is present and checked on the CAN path — always
+- **Was (code):** single-frame CAN RX handed the raw CAN data field straight up
+  as a "verified body," trusting only CAN's own per-frame hardware CRC. (The doc
+  always *claimed* the CRC guards the body across the re-framing boundary; the
+  code did not honour it on CAN.)
+- **Now:** our CRC-16 rides the body across CAN as its 2-byte trailer and is
+  checked at **every** CAN receive, single- and multi-frame alike — the same
+  "nothing unverified above the seam" invariant the UART seam already has.
+- **Why:** CAN's per-frame CRC guards one bus segment but **cannot survive the
+  re-framing** at a branch hub (decode → rebuild in RAM → re-transmit). A bit-flip
+  in the hub between RX and TX is exactly what an end-to-end CRC catches and the
+  hardware CRC cannot. A corrupted `seq` slipping through would poison freshness
+  (§04), so the gate must hold on CAN too.
+
+### 2. Fragment metadata rides the 13 reserved id bits, not the data field
+- **Layout pinned:** `[NODE:8][PORT:8][FIRST:1][LAST:1][SEQLO:5][FRAG_IDX:6]`.
+  6-bit index → **≤ 64 fragments → 512-byte body ceiling**; FIRST on index 0; LAST
+  on the final fragment; the body `seq`'s low 5 bits bind every fragment to its
+  body. A single-frame body sets FIRST+LAST, index 0.
+- **Why id bits, not a data sub-header:** keeping the data field 100% body bytes
+  makes the CAN body **byte-identical to the UART body** for the same logical
+  value, so the parity vectors (§06) — the cross-language drift witness — hold
+  across both transports unchanged. A data-field sub-header would have forked the
+  vectors per transport. The reserved bits were already earmarked for exactly this
+  ("deeper-CAN-segment id / priority band"). Fragment bits sit *below* NODE/PORT,
+  so they never disturb the `(NODE,PORT)` hardware filter and never outrank
+  arbitration — `NODE 0x00` (e-stop) still wins the bus.
+
+### 3. Reassembly is fail-closed, FIRST-seeded, strictly sequential, no timeout
+- One in-flight buffer per `(node,port)`. A buffer is **seeded only by a FIRST
+  fragment**; a non-first fragment with no open buffer is dropped+counted
+  (`rx_frag_orphan`) — a stray/garbage fragment can never seed a body.
+- Each subsequent fragment must have `FRAG_IDX == expected_next` **and** matching
+  `SEQLO`; any gap/reorder/alias **abandons the whole partial** (`rx_frag_drop`)
+  and only a FIRST may re-seed. Completion is the LAST fragment → CRC over the
+  reassembled body → deliver only on pass (else `rx_crc_fail`).
+- **No reassembly timeout in v1** — a stalled partial is reclaimed structurally by
+  the next FIRST for that key (a timeout is a conflation-era refinement, SAFeD).
+- **Why:** losing one fragment loses the **whole body** (no ARQ, no partial). A
+  lost body is a stale-making non-event the freshness/born-stale machinery (§04)
+  already tolerates; a *partial* body reaching a slot would be silent corruption.
+  Fail-closed is the only safe choice, and the structural reclaim avoids a timer.
+
+### 4. `tx_oversize` re-aimed at the 512-byte ceiling
+- **Was:** `tx_oversize` counted any classic-CAN body > 8 B (the refuse-don't-
+  truncate stopgap). The 54-byte IMU was on the reject path.
+- **Now:** segmentation **is** the > 8 B path; `tx_oversize` is re-aimed at the
+  should-never-happen body > 512 B (over 64 fragments) — a belt to the §06 boot
+  size-check, not a normal-frame reject. New CAN-seam counters: `rx_frag_orphan`,
+  `rx_frag_drop`, `rx_crc_fail`.
+
+### Doc reconciliation (in-place, stateless)
+§03's "the one transport detail" callout, its byte diagram (reserved → segment),
+and the §06 boot-check bullet were rewritten to describe the pinned encoding as
+the current design. `CONTEXT.md` gained a **Segment** term and had **The frame**
+and **Contract** sharpened (per-port `t_dev`; three artifacts; CRC always on CAN).
+ADR-0001 records the wire-format trade-offs (hard to reverse).
+
+---
+
 ## 2026-06-18 — Corrections from building the v1 walking skeleton
 
 Building `bb_mcuhub` (the Elixir host stack, host-compiled + ESP32 firmware, and
@@ -116,11 +183,13 @@ confirms the new byte layouts agree C↔Elixir.
 ### Known gaps recorded (not yet built, beyond the design's own SAFeD list)
 - **Frame-size check / segmentation (item 1):** the design moves these into v1;
   the code currently refuses-and-counts oversized classic-CAN frames (the safe
-  half) but does not yet segment or run the boot-time size check.
+  half) but does not yet segment or run the boot-time size check. *(Segmentation +
+  reassembly now built — see the 2026-06-18 segmentation entry above. The boot-time
+  size check rides with the topology-validation gap below, still open.)*
 - No on-hardware run yet; `imu_read`/`drive` are synthetic stand-ins.
 - Inbound CAN multi-frame **reassembly** is unbuilt (waits on the segmentation
   work, item 1); undersized stray frames are safely rejected by the codec's
-  header-size check.
+  header-size check. *(Now built — see the 2026-06-18 segmentation entry above.)*
 - Boot-time **topology validation** (§06: one producer per `(node,port)`, unique
   ids, `fresh_for` ≥ one period, frame-size check) is specified but not yet
   implemented as a runtime boot check.
