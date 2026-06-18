@@ -30,7 +30,15 @@ defmodule BBMcuhub.MixProject do
   defp elixirc_paths(_), do: base_paths()
 
   defp base_paths do
-    ["lib", "hubs/imu/lib", "hubs/motor/lib", "robots/follower/lib"]
+    [
+      "lib",
+      "hubs/imu/lib",
+      "hubs/motor/lib",
+      "hubs/blaster/lib",
+      "hubs/wheels/lib",
+      "robots/follower/lib",
+      "robots/segby_v1/lib"
+    ]
   end
 
   defp deps do

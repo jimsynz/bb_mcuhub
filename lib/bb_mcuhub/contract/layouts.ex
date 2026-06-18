@@ -21,6 +21,10 @@ defmodule BBMcuhub.Contract.Layouts do
       torque/force in motor-space.
     * `:status` is the actuator's reported truth (§05): `applied_seq` + a
       `floored?` flag, the source of "is this hub actually driving?".
+    * `:range` is a forward distance — a single `:f32` metres, the HC-SR04
+      rangefinder's reading (segby_v1, §09).
+    * `:led` is a WS2812 status command — `{r, g, b}` as three `:u8`s, the
+      decorative status strip's command payload (segby_v1, §09).
 
   Wire types and their byte widths (big-endian, the network/AVR-friendly order):
 
@@ -56,6 +60,16 @@ defmodule BBMcuhub.Contract.Layouts do
       # the actuator's reported truth (§05)
       applied_seq: :u16,
       floored: :bool
+    ],
+    range: [
+      # HC-SR04 forward distance — metres (§09)
+      distance_m: :f32
+    ],
+    led: [
+      # WS2812 status command — an RGB triple (§09)
+      r: :u8,
+      g: :u8,
+      b: :u8
     ]
   }
 
