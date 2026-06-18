@@ -1,0 +1,356 @@
+defmodule BBMcuhub.Segby.Balance do
+  @moduledoc """
+  The segby_v1 host balance controller (§09, Phase) — a `BB.Controller` that
+  closes the self-balancing loop on the host.
+
+  This is the host's control pipeline ported from the old cog framework
+  (`pid_balance` + `imu_estimator` + `teleop_input`), adapted to the BeamBots
+  seam: it is a **consumer** of the chassis IMU pose and a **producer** of
+  per-wheel effort commands. It NEVER writes a hub command slot — that is the
+  actuator view's job (§04 single-writer). It publishes typed
+  `BB.Message.Actuator.Command.Effort` messages to each wheel's actuator topic;
+  the actuator views turn those into slot writes, and the on-chip floor (§05)
+  remains the safe-state guarantee.
+
+  ## Pipeline (per pose tick)
+
+      pose (BB.Message.Sensor.Imu) → pitch_from_imu/1 → PID step/3 → torque
+        → teleop mix/4 (forward + turn) → {left, right} → set_effort to both wheels
+
+  ## Pitch extraction (quaternion, not a complementary filter)
+
+  In this world the pose arrives as a `BB.Message.Sensor.Imu` whose orientation
+  quaternion is already a fused, engineering-unit estimate (the wire mirrors the
+  BB struct and `BBMcuhub.BBHub.Lift` normalises it on the way in). So there is
+  no raw int16 to decode and no drift to fight: we read pitch DIRECTLY from the
+  orientation quaternion rather than re-running the old accel/gyro complementary
+  filter. Pitch (rotation about the body Y axis, positive = nose up) is
+
+      pitch = asin(clamp(2*(w*y - z*x), -1, 1))
+
+  the standard aerospace (ZYX) pitch term — the cleaner, drift-free choice given
+  a reliable quaternion. The complementary filter is therefore not ported; only
+  its accel-fallback form (`pitch_from_accel/3`) is kept as a pure helper for
+  reference/tests.
+
+  ## Gains (segby_v1 manifest)
+
+  `kp 0.5, ki 0.05, kd 0.1, target_pitch 0.0, integral_clamp 1.0, output_clamp
+  1.0`. Teleop mix: `max_forward 0.5, max_turn 0.3`.
+
+  ## Enable / disable
+
+  Starts **DISABLED** (publishes zero torque every pose tick so the wheels rest
+  and teleop drives directly out of the box). Balance is enabled live by sending
+  the controller `{:balance_enable, bool}` — use `enable/1` / `disable/1`, which
+  resolve the running controller and cast the toggle. Toggling resets the
+  integrator so re-enabling never dumps accumulated windup.
+
+  ## Teleop
+
+  Teleop intent (`%{forward, turn}`, both in `[-1.0, 1.0]`) arrives on a PubSub
+  topic (`:teleop_topic`, default `[:teleop, :segby]`); bb_tui wires it in a
+  later phase. Until then the latest intent defaults to zero, so the mix is a
+  no-op and balance torque reaches both wheels unchanged.
+
+  ## Pure functional cores (tested directly)
+
+    * `step/3` — the PID step (ported verbatim from the reference).
+    * `pitch_from_imu/1` — quaternion → pitch (radians).
+    * `mix/4` — teleop forward/turn mixing onto a `{left, right}` torque.
+  """
+
+  use BB.Controller,
+    options_schema: [
+      pose_topic: [
+        type: {:list, :atom},
+        default: [:sensor, :base_link, :chassis_imu],
+        doc: "the chassis-IMU pose topic this controller subscribes to"
+      ],
+      left_actuator_path: [
+        type: {:list, :atom},
+        required: true,
+        doc: "the left wheel actuator path (effort commands publish to [:actuator | path])"
+      ],
+      right_actuator_path: [
+        type: {:list, :atom},
+        required: true,
+        doc: "the right wheel actuator path"
+      ],
+      teleop_topic: [
+        type: {:list, :atom},
+        default: [:teleop, :segby],
+        doc: "PubSub topic carrying %{forward, turn} teleop intent"
+      ],
+      kp: [type: :float, default: 0.5, doc: "proportional gain"],
+      ki: [type: :float, default: 0.05, doc: "integral gain"],
+      kd: [type: :float, default: 0.1, doc: "derivative gain"],
+      target_pitch: [type: :float, default: 0.0, doc: "upright set-point, radians"],
+      integral_clamp: [type: :float, default: 1.0, doc: "symmetric windup clamp"],
+      output_clamp: [type: :float, default: 1.0, doc: "symmetric torque clamp"],
+      max_forward: [type: :float, default: 0.5, doc: "teleop forward bias at |forward|=1"],
+      max_turn: [type: :float, default: 0.3, doc: "teleop turn differential at |turn|=1"],
+      enabled: [type: :boolean, default: false, doc: "start enabled? (default DISABLED)"]
+    ]
+
+  alias BB.Math.Quaternion
+
+  # The PID functional core — its own struct so `step/3` stays pure and testable.
+  defmodule Pid do
+    @moduledoc "Pure PID state for `BBMcuhub.Segby.Balance.step/3`."
+    defstruct kp: 0.0,
+              ki: 0.0,
+              kd: 0.0,
+              integral: 0.0,
+              prev_error: 0.0,
+              integral_clamp: 1.0,
+              output_clamp: 1.0
+
+    @type t :: %__MODULE__{
+            kp: float(),
+            ki: float(),
+            kd: float(),
+            integral: float(),
+            prev_error: float(),
+            integral_clamp: float(),
+            output_clamp: float()
+          }
+  end
+
+  # ----------------------------------------------------------------------------
+  # Pure functional cores
+  # ----------------------------------------------------------------------------
+
+  @doc """
+  Pure PID step (ported verbatim from the cog reference). Given a `%Pid{}`
+  state, the current `error` (target - measured), and `dt_s` since the last
+  update, return `{output, new_pid}`.
+
+  When `dt_s` is `0.0` the derivative term is zero and the integral is not
+  advanced (avoids div-by-zero on the first sample). Output is clamped
+  symmetrically; integral is clamped to bound windup.
+  """
+  @spec step(Pid.t(), float(), float()) :: {float(), Pid.t()}
+  def step(%Pid{} = s, error, dt_s)
+      when is_float(error) and is_float(dt_s) do
+    integral =
+      if dt_s > 0.0 do
+        s.integral + error * dt_s
+      else
+        s.integral
+      end
+
+    integral = clamp(integral, -s.integral_clamp, s.integral_clamp)
+
+    derivative =
+      if dt_s > 0.0 do
+        (error - s.prev_error) / dt_s
+      else
+        0.0
+      end
+
+    raw = s.kp * error + s.ki * integral + s.kd * derivative
+    output = clamp(raw, -s.output_clamp, s.output_clamp)
+
+    {output, %{s | integral: integral, prev_error: error}}
+  end
+
+  @doc """
+  Extract pitch (radians, body-Y rotation, positive = nose up) from an
+  `BB.Message.Sensor.Imu`'s orientation quaternion.
+
+  Uses the standard aerospace (ZYX) pitch term `asin(2*(w*y - z*x))` with the
+  argument clamped to `[-1, 1]` for numerical safety near gimbal lock. The
+  orientation is already a fused, normalised estimate, so no filtering is
+  needed.
+  """
+  @spec pitch_from_imu(BB.Message.Sensor.Imu.t()) :: float()
+  def pitch_from_imu(%BB.Message.Sensor.Imu{orientation: %Quaternion{} = q}) do
+    w = Quaternion.w(q)
+    x = Quaternion.x(q)
+    y = Quaternion.y(q)
+    z = Quaternion.z(q)
+
+    sin_pitch = clamp(2.0 * (w * y - z * x), -1.0, 1.0)
+    :math.asin(sin_pitch)
+  end
+
+  @doc """
+  Pure accel-only pitch fallback (kept from the reference's complementary
+  filter, unused by the live loop). `pitch = atan2(-ax, sqrt(ay² + az²))`.
+  """
+  @spec pitch_from_accel(float(), float(), float()) :: float()
+  def pitch_from_accel(ax, ay, az) do
+    :math.atan2(-ax, :math.sqrt(ay * ay + az * az))
+  end
+
+  @doc """
+  Pure teleop mix (ported from the cog reference). Given a base `%{left, right}`
+  torque and a teleop intent `%{forward, turn}` (both clamped to `[-1, 1]`),
+  apply forward bias to BOTH wheels and a turn differential between them:
+
+      left  = left  + forward*max_forward - turn*max_turn
+      right = right + forward*max_forward + turn*max_turn
+
+  With zero teleop the base `{left, right}` is preserved.
+  """
+  @spec mix(map(), map(), number(), number()) :: map()
+  def mix(%{left: left, right: right} = base, %{forward: fwd, turn: turn}, max_forward, max_turn) do
+    fwd = clamp(fwd * 1.0, -1.0, 1.0)
+    turn = clamp(turn * 1.0, -1.0, 1.0)
+    fwd_bias = fwd * max_forward
+    turn_bias = turn * max_turn
+
+    %{base | left: left + fwd_bias - turn_bias, right: right + fwd_bias + turn_bias}
+  end
+
+  defp clamp(v, lo, _hi) when v < lo, do: lo
+  defp clamp(v, _lo, hi) when v > hi, do: hi
+  defp clamp(v, _lo, _hi), do: v
+
+  # ----------------------------------------------------------------------------
+  # Live enable/disable helpers
+  # ----------------------------------------------------------------------------
+
+  @doc "Enable balance live on the named controller of `robot` (default `:balance`)."
+  @spec enable(module(), atom()) :: :ok
+  def enable(robot, name \\ :balance), do: toggle(robot, name, true)
+
+  @doc "Disable balance live (publishes zero torque; resets the integrator)."
+  @spec disable(module(), atom()) :: :ok
+  def disable(robot, name \\ :balance), do: toggle(robot, name, false)
+
+  defp toggle(robot, name, on?) do
+    BB.Process.cast(robot, name, {:balance_enable, on?})
+  end
+
+  # ----------------------------------------------------------------------------
+  # BB.Controller callbacks
+  # ----------------------------------------------------------------------------
+
+  @impl BB.Controller
+  def init(opts) do
+    bb = Keyword.fetch!(opts, :bb)
+
+    pid = %Pid{
+      kp: opts[:kp] * 1.0,
+      ki: opts[:ki] * 1.0,
+      kd: opts[:kd] * 1.0,
+      integral_clamp: opts[:integral_clamp] * 1.0,
+      output_clamp: opts[:output_clamp] * 1.0
+    }
+
+    state = %{
+      bb: bb,
+      pose_topic: opts[:pose_topic],
+      teleop_topic: opts[:teleop_topic],
+      left_path: opts[:left_actuator_path],
+      right_path: opts[:right_actuator_path],
+      pid: pid,
+      target_pitch: opts[:target_pitch] * 1.0,
+      max_forward: opts[:max_forward] * 1.0,
+      max_turn: opts[:max_turn] * 1.0,
+      enabled: opts[:enabled],
+      last_teleop: %{forward: 0.0, turn: 0.0},
+      last_mono: nil
+    }
+
+    BB.subscribe(bb.robot, state.pose_topic, message_types: [BB.Message.Sensor.Imu])
+    BB.subscribe(bb.robot, state.teleop_topic)
+
+    {:ok, state}
+  end
+
+  # A pose tick while DISABLED: command zero torque to both wheels (so the wheels
+  # rest and teleop drives directly), and do NOT advance the PID (no windup off).
+  @impl BB.Controller
+  def handle_info(
+        {:bb, topic, %BB.Message{payload: %BB.Message.Sensor.Imu{}} = msg},
+        %{pose_topic: topic, enabled: false} = state
+      ) do
+    command(state, %{left: 0.0, right: 0.0})
+    {:noreply, %{state | last_mono: msg.monotonic_time}}
+  end
+
+  # A pose tick while ENABLED: pitch → PID → torque, mix teleop, command both wheels.
+  def handle_info(
+        {:bb, topic, %BB.Message{payload: %BB.Message.Sensor.Imu{} = imu} = msg},
+        %{pose_topic: topic} = state
+      ) do
+    dt_s =
+      case state.last_mono do
+        nil -> 0.0
+        prev when msg.monotonic_time > prev -> (msg.monotonic_time - prev) / 1.0e9
+        _ -> 0.0
+      end
+
+    pitch = pitch_from_imu(imu)
+    error = state.target_pitch - pitch
+    {torque, new_pid} = step(state.pid, error, dt_s)
+
+    mixed = mix(%{left: torque, right: torque}, state.last_teleop, state.max_forward, state.max_turn)
+    command(state, mixed)
+
+    {:noreply, %{state | pid: new_pid, last_mono: msg.monotonic_time}}
+  end
+
+  # Teleop intent — keep the latest, mixed into the next pose tick.
+  def handle_info(
+        {:bb, topic, %BB.Message{} = _msg},
+        %{teleop_topic: topic} = state
+      ) do
+    {:noreply, state}
+  end
+
+  # Teleop intent delivered as a bare map (the in-process/test path).
+  def handle_info({:teleop, %{forward: _, turn: _} = pad}, state) do
+    {:noreply, %{state | last_teleop: pad}}
+  end
+
+  # Live enable/disable. Resets the integrator on any toggle so re-enabling
+  # starts clean (no windup carryover), mirroring the reference. Accepted both
+  # as a `handle_info` (a raw `send`, e.g. in tests) and a `handle_cast` (the
+  # `enable/1` / `disable/1` helpers, which `BB.Process.cast`).
+  def handle_info({:balance_enable, on?}, state) when is_boolean(on?) do
+    {:noreply, set_enabled(state, on?)}
+  end
+
+  def handle_info(_other, state), do: {:noreply, state}
+
+  @impl BB.Controller
+  def handle_cast({:balance_enable, on?}, state) when is_boolean(on?) do
+    {:noreply, set_enabled(state, on?)}
+  end
+
+  def handle_cast(_other, state), do: {:noreply, state}
+
+  defp set_enabled(state, on?) do
+    %{state | enabled: on?, pid: %{state.pid | integral: 0.0, prev_error: 0.0}}
+  end
+
+  # Command both wheels by publishing a typed Effort to each actuator topic. We
+  # do NOT write any slot directly — the actuator view is the single writer
+  # (§04); it pattern-matches exactly this `%BB.Message{payload: %Effort{}}` on
+  # `[:actuator | path]` and turns it into a slot write.
+  #
+  # We build the message struct directly rather than via `BB.Actuator.set_effort/4`:
+  # that helper passes `duration: nil` to `BB.Message.new!`, which the Effort
+  # schema rejects (`duration` is an optional :pos_integer with no default, so the
+  # key must be OMITTED, not nil). A bare struct sidesteps that and is exactly the
+  # shape the view (and the §02 slice tracer) expects.
+  defp command(state, %{left: left, right: right}) do
+    BB.publish(state.bb.robot, [:actuator | state.left_path], effort_message(left))
+    BB.publish(state.bb.robot, [:actuator | state.right_path], effort_message(right))
+    :ok
+  end
+
+  defp effort_message(nm) do
+    %BB.Message{
+      monotonic_time: System.monotonic_time(:nanosecond),
+      wall_time: System.system_time(:nanosecond),
+      node: Node.self(),
+      frame_id: :effort,
+      payload: %BB.Message.Actuator.Command.Effort{effort: nm * 1.0}
+    }
+  end
+end

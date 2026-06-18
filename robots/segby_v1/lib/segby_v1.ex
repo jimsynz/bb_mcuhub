@@ -18,8 +18,11 @@ defmodule BBMcuhub.Robots.SegbyV1 do
       both wheels, so it takes two effort commands (left/right) and reports two
       statuses. Its parent link is UART.
 
-  A balance controller is a later phase; this module wires only the sensors and
-  actuators so the topology is well-formed and projects a complete IR (§06).
+  The host control pipeline lives in `BBMcuhub.Segby.Balance` — a robot-level
+  `BB.Controller` placed in the `controllers do` block below. It consumes the
+  `chassis_imu` pose and produces per-wheel effort commands (it is a pure
+  consumer+producer across the BeamBots seam; the actuator views remain the
+  single writers of the command slots, §04). It starts DISABLED.
 
   The hub-gateway DSL (`BBMcuhub.Dsl`) composes alongside BeamBots' own: the
   `hubs do` block places each hub on a NODE id and the views in `topology` name
@@ -30,6 +33,27 @@ defmodule BBMcuhub.Robots.SegbyV1 do
   hubs do
     hub :blaster, BBMcuhub.Hubs.Blaster, node: 0x02, transport: :uart
     hub :wheels, BBMcuhub.Hubs.Wheels, node: 0x05, transport: :uart
+  end
+
+  controllers do
+    # The host balance loop (§09). It subscribes to the chassis-IMU pose topic
+    # and publishes Effort to BOTH wheel actuator topics — so it needs the two
+    # wheel actuator paths, which are the topology nesting (link → joint →
+    # actuator). Starts DISABLED; enable live via `BBMcuhub.Segby.Balance.enable/1`.
+    controller :balance,
+               {BBMcuhub.Segby.Balance,
+                pose_topic: [:sensor, :base_link, :chassis_imu],
+                left_actuator_path: [:base_link, :left_wheel, :left_drive],
+                right_actuator_path: [:base_link, :right_wheel, :right_drive],
+                kp: 0.5,
+                ki: 0.05,
+                kd: 0.1,
+                target_pitch: 0.0,
+                integral_clamp: 1.0,
+                output_clamp: 1.0,
+                max_forward: 0.5,
+                max_turn: 0.3,
+                enabled: false}
   end
 
   topology do
