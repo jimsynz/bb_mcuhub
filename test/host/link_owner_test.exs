@@ -15,19 +15,15 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
   end
 
   defp start_link_owner(opts \\ []) do
-    test_pid = self()
-
     base = [
       transport: LoopbackTransport,
       transport_opts: [],
-      drain_ms: 5,
       name: nil
     ]
 
     {:ok, owner} = LinkOwner.start_link(Keyword.merge(base, opts))
     # the loopback transport's pid is the link owner's `:transport` field
     transport = :sys.get_state(owner).transport
-    _ = test_pid
     %{owner: owner, transport: transport}
   end
 
@@ -71,12 +67,14 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
     assert_eventually(fn -> Stats.get(:decode_fail) >= before + 1 end)
   end
 
-  test "outbound: a command slot is drained to the wire when its seq advances" do
+  test "outbound: a command slot is drained to the wire when notified after a write" do
     {:ok, {node, port_id}} = PortIndex.resolve(:motor, :motor_target)
-    %{transport: transport} = start_link_owner(command_slots: [{node, port_id}])
+    %{owner: owner, transport: transport} = start_link_owner(command_slots: [{node, port_id}])
 
-    # the actuator view (here, the test) is the sole writer of the command slot
+    # the actuator view (here, the test) is the sole writer of the command slot:
+    # write, then notify the link owner (event-driven, no poll).
     NodeRegistry.put(node, port_id, %{nm: 0.5}, 1, 100)
+    LinkOwner.notify_command_slot(owner, node, port_id)
 
     assert_eventually(fn ->
       case LoopbackTransport.sent(transport) do
@@ -92,20 +90,39 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
     end)
   end
 
-  test "outbound: an unchanged command slot is NOT re-sent (seq inequality)" do
+  test "outbound: a redundant notification with no seq change is NOT re-sent (seq inequality)" do
     {:ok, {node, port_id}} = PortIndex.resolve(:motor, :motor_target)
-    %{transport: transport} = start_link_owner(command_slots: [{node, port_id}])
+    %{owner: owner, transport: transport} = start_link_owner(command_slots: [{node, port_id}])
 
     NodeRegistry.put(node, port_id, %{nm: 0.5}, 1, 100)
+    LinkOwner.notify_command_slot(owner, node, port_id)
     assert_eventually(fn -> length(LoopbackTransport.sent(transport)) == 1 end)
 
-    # let several drain ticks pass with no seq change
-    Process.sleep(40)
+    # further notifications with no seq change must not re-send (read-only,
+    # seq-inequality dedup is preserved without the poll)
+    LinkOwner.notify_command_slot(owner, node, port_id)
+    LinkOwner.notify_command_slot(owner, node, port_id)
+    # let the casts process
+    _ = :sys.get_state(owner)
     assert length(LoopbackTransport.sent(transport)) == 1
 
-    # a new value (advanced seq) is sent
+    # a new value (advanced seq) is sent on the next notification
     NodeRegistry.put(node, port_id, %{nm: 0.6}, 2, 200)
+    LinkOwner.notify_command_slot(owner, node, port_id)
     assert_eventually(fn -> length(LoopbackTransport.sent(transport)) == 2 end)
+  end
+
+  test "outbound: a notification for an unwatched slot is ignored (never written by the owner)" do
+    {:ok, {node, port_id}} = PortIndex.resolve(:motor, :motor_target)
+    # start with NO command slots registered
+    %{owner: owner, transport: transport} = start_link_owner()
+
+    NodeRegistry.put(node, port_id, %{nm: 0.5}, 1, 100)
+    LinkOwner.notify_command_slot(owner, node, port_id)
+    _ = :sys.get_state(owner)
+
+    # an unregistered slot is not drained — the owner only drains slots it watches
+    assert LoopbackTransport.sent(transport) == []
   end
 
   defp assert_eventually(fun, tries \\ 50) do

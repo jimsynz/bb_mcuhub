@@ -121,8 +121,19 @@ defmodule BBMcuhub.BBHub.Actuator do
     end
   end
 
+  # We are the sole writer of this command slot. Write, then notify the link owner
+  # so it drains the slot now (event-driven, no poll). The notify is best-effort,
+  # like disarm/1: if the link owner is unavailable the floor still backstops, and
+  # the link owner only ever READS the slot, so it can't manufacture a seq advance.
   defp write_command(st, value) do
     NodeRegistry.put(st.node_id, st.port_id, value, st.seq, 0)
+    notify_link_owner(st.node_id, st.port_id)
     %{st | seq: st.seq + 1}
+  end
+
+  defp notify_link_owner(node_id, port_id) do
+    LinkOwner.notify_command_slot(node_id, port_id)
+  rescue
+    _ -> :ok
   end
 end

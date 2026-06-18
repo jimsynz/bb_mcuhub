@@ -10,6 +10,28 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-18 — Host command drain is event-driven, not polled (§07)
+
+- **Was:** `BBMcuhub.Host.LinkOwner` drained watched command slots on a 5 ms
+  `Process.send_after` poll (`@default_drain_ms`).
+- **Now:** the drain is **event-driven**. The actuator view
+  (`BBMcuhub.BBHub.Actuator`) — the sole writer of its command slot — calls
+  `LinkOwner.notify_command_slot(node, port_id)` (a `cast`) after each write; the
+  link owner then drains that one slot. The poll/timer is removed entirely.
+- **Invariants preserved (§04):** the notification carries only the
+  `(node, port)` to look at, never a value, so the link owner still **only reads**
+  command slots (it cannot manufacture a `seq` advance), and the `seq`-inequality
+  test still dedups (a redundant notification with no new value sends nothing; an
+  unwatched slot is a no-op). The notify is best-effort like `disarm/1` — if the
+  link owner is unavailable the on-chip floor still backstops.
+- **Why:** the 5 ms poll was a v1 stopgap (the design's "revisit with conflation"
+  note). Event-driven removes idle wakeups and the up-to-5 ms command latency,
+  and is the natural shape now that the single writer is known. The doc (§07)
+  already described the drain only as "read-only," not as a poll, so it needed no
+  change.
+
+---
+
 ## 2026-06-18 — Single-source DSL: contract authored in BeamBots' DSL; boot checks become a compile-time verifier (§06, §09)
 
 The walking skeleton kept **two parallel models** that had to agree: the
@@ -260,7 +282,8 @@ confirms the new byte layouts agree C↔Elixir.
   ids, `fresh_for` ≥ one period, frame-size check) is specified but not yet
   implemented as a runtime boot check.
 - The host command **drain is a 5 ms poll**, not event-driven — fine for v1 rates;
-  revisit with conflation (SAFeD).
+  revisit with conflation (SAFeD). *(Now event-driven — see the 2026-06-18 command-
+  drain entry above.)*
 
 ---
 

@@ -71,13 +71,16 @@ defmodule BBMcuhub.SliceTest do
     test "the view writes its command slot and the link owner drains it" do
       {:ok, {m_node, m_port}} = PortIndex.resolve(:motor, :motor_target)
 
+      # Register under the DEFAULT name so the actuator view (which notifies the
+      # link owner via that name, like disarm/1) reaches it — exactly as in
+      # production. The drain is now event-driven: the view notifies on write.
       {:ok, owner} =
         LinkOwner.start_link(
           transport: LoopbackTransport,
-          command_slots: [{m_node, m_port}],
-          name: nil
+          command_slots: [{m_node, m_port}]
         )
 
+      on_exit(fn -> if Process.alive?(owner), do: GenServer.stop(owner) end)
       transport = :sys.get_state(owner).transport
 
       {:ok, view} =

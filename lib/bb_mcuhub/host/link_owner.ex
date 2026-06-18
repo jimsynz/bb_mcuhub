@@ -8,10 +8,13 @@ defmodule BBMcuhub.Host.LinkOwner do
   (`decode_fail`) and dropped — never guessed.
 
   **Outbound:** it is a **read-only drain** of command slots (§04). The actuator
-  *view* is the sole writer of a command slot; the link owner polls each
-  registered command slot on a tick and, when its `seq` advances, encodes and
-  sends it down the wire. Because it only ever *reads* command slots, it can never
-  manufacture a `seq` advance.
+  *view* is the sole writer of a command slot; after each write it *notifies* the
+  link owner, which then reads that slot and, when its `seq` has advanced, encodes
+  and sends it down the wire. The drain is **event-driven** — no poll — but the
+  link owner still only ever *reads* command slots (the notification carries just
+  the `(node, port)` to look at, never a value), so it can never manufacture a
+  `seq` advance. The `seq`-inequality test still dedups, so a redundant
+  notification with no new value sends nothing.
 
   Placed under a robot's supervisor so it survives a view or law crash — the link
   stays open and telemetry keeps flowing through a fault (§07).
@@ -21,8 +24,6 @@ defmodule BBMcuhub.Host.LinkOwner do
   alias BBMcuhub.Contract
   alias BBMcuhub.Host.NodeRegistry
   alias BBMcuhub.Wire.{Codec, Stats}
-
-  @default_drain_ms 5
 
   @type cmd_slot :: {node :: 0..255, port_id :: 0..255}
 
@@ -37,7 +38,6 @@ defmodule BBMcuhub.Host.LinkOwner do
     * `:transport_opts` — passed to the transport's `start_link/2`.
     * `:command_slots` — `[{node, port_id}]` to drain outbound (the actuator
       views' command slots).
-    * `:drain_ms` — how often to poll command slots (default #{@default_drain_ms}).
     * `:name` — process name.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -50,6 +50,20 @@ defmodule BBMcuhub.Host.LinkOwner do
   @spec watch_command_slot(GenServer.server(), 0..255, 0..255) :: :ok
   def watch_command_slot(server \\ __MODULE__, node, port_id) do
     GenServer.call(server, {:watch_command_slot, {node, port_id}})
+  end
+
+  @doc """
+  Notify the link owner that a watched command slot was just written, so it
+  drains that slot now (event-driven, no poll).
+
+  Fire-and-forget: the caller (the actuator *view*, the slot's sole writer) does
+  not block. The link owner reads the slot itself and sends only if `seq`
+  advanced, so a notification for an unchanged or unwatched slot is a no-op — the
+  read-only-drain invariant (§04) is preserved.
+  """
+  @spec notify_command_slot(GenServer.server(), 0..255, 0..255) :: :ok
+  def notify_command_slot(server \\ __MODULE__, node, port_id) do
+    GenServer.cast(server, {:notify_command_slot, {node, port_id}})
   end
 
   @doc """
@@ -68,19 +82,15 @@ defmodule BBMcuhub.Host.LinkOwner do
     Stats.setup()
     transport_mod = Keyword.get(opts, :transport, BBMcuhub.Host.Transport.UART)
     transport_opts = Keyword.get(opts, :transport_opts, [])
-    drain_ms = Keyword.get(opts, :drain_ms, @default_drain_ms)
     command_slots = Keyword.get(opts, :command_slots, [])
 
     case transport_mod.start_link(self(), transport_opts) do
       {:ok, transport} ->
-        if command_slots != [], do: schedule_drain(drain_ms)
-
         {:ok,
          %{
            transport_mod: transport_mod,
            transport: transport,
-           drain_ms: drain_ms,
-           # command slot -> last seq we drained (nil = never), born so the first
+           # command slot -> last seq we drained (:unseen = never), so the first
            # real value is sent once
            command_slots: Map.new(command_slots, &{&1, :unseen})
          }}
@@ -104,31 +114,33 @@ defmodule BBMcuhub.Host.LinkOwner do
     end
   end
 
-  # OUTBOUND drain: for each watched command slot, if its seq advanced, send it.
+  # OUTBOUND drain (event-driven): the slot's sole writer (the actuator view) just
+  # wrote it. Read it; if its seq advanced past what we last drained, send it. A
+  # notification for an unwatched slot, or one whose seq did not advance, is a
+  # no-op — we only ever READ command slots (§04).
   @impl true
-  def handle_info(:drain, st) do
-    slots =
-      Enum.reduce(st.command_slots, st.command_slots, fn {{n, p} = slot, last_seq}, acc ->
+  def handle_cast({:notify_command_slot, slot}, st) do
+    case Map.fetch(st.command_slots, slot) do
+      {:ok, last_seq} ->
+        {n, p} = slot
+
         case NodeRegistry.get(n, p) do
           {value, seq, t_dev} when seq != last_seq ->
             send_value(st, n, p, seq, t_dev, value)
-            Map.put(acc, slot, seq)
+            {:noreply, %{st | command_slots: Map.put(st.command_slots, slot, seq)}}
 
           _ ->
-            acc
+            {:noreply, st}
         end
-      end)
 
-    schedule_drain(st.drain_ms)
-    {:noreply, %{st | command_slots: slots}}
+      :error ->
+        {:noreply, st}
+    end
   end
 
   @impl true
   def handle_call({:watch_command_slot, slot}, _from, st) do
-    started? = st.command_slots != %{}
-    slots = Map.put_new(st.command_slots, slot, :unseen)
-    unless started?, do: schedule_drain(st.drain_ms)
-    {:reply, :ok, %{st | command_slots: slots}}
+    {:reply, :ok, %{st | command_slots: Map.put_new(st.command_slots, slot, :unseen)}}
   end
 
   def handle_call(:send_disarm, _from, st) do
@@ -157,6 +169,4 @@ defmodule BBMcuhub.Host.LinkOwner do
       st.transport_mod.send(st.transport, body)
     end
   end
-
-  defp schedule_drain(ms), do: Process.send_after(self(), :drain, ms)
 end
