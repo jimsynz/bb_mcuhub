@@ -188,23 +188,29 @@ defmodule BBMcuhub.Robots.SegbyV1.HostTest do
 
   # --- helpers ---------------------------------------------------------------
 
+  # one g, m/s² — the segby MCU ships accel in engineering units.
+  @g 9.81
+
   # Inject a pose frame at the wire (the loopback delivers it to the LinkOwner as
-  # if a hub produced it), with a body-Y tilt `pitch` and advancing `seq`.
+  # if a hub produced it). The segby Blaster MCU ships an IDENTITY orientation +
+  # real accel/gyro, so a body-Y tilt `pitch` rides as the gravity projection in
+  # the accel vector (ax = -g·sin(pitch), az = g·cos(pitch)) — exactly what the
+  # live complementary-filter path reads. Advancing `seq`.
   defp inject_pose(transport, seq, pitch) do
     {:ok, {node, port}} = PortIndex.resolve(:blaster, :pose)
-    q = Quaternion.from_euler(0.0, pitch, 0.0, :xyz)
 
     value = %{
-      qw: Quaternion.w(q),
-      qx: Quaternion.x(q),
-      qy: Quaternion.y(q),
-      qz: Quaternion.z(q),
+      # identity orientation — the MCU does not fuse (the host filter does)
+      qw: 1.0,
+      qx: 0.0,
+      qy: 0.0,
+      qz: 0.0,
       wx: 0.0,
       wy: 0.0,
       wz: 0.0,
-      ax: 0.0,
+      ax: -@g * :math.sin(pitch),
       ay: 0.0,
-      az: 9.81
+      az: @g * :math.cos(pitch)
     }
 
     body = Codec.encode_body(node, port, seq, seq * 1000, :imu, value, true)
@@ -212,10 +218,9 @@ defmodule BBMcuhub.Robots.SegbyV1.HostTest do
   end
 
   # Publish a pose directly on the chassis-IMU topic (bypasses the wire) — for the
-  # actuator-publish data-path test where we only need the controller to tick.
+  # actuator-publish data-path test where we only need the controller to tick. As
+  # on the wire: identity orientation, the tilt carried in the accel vector.
   defp send_pose_pubsub(pitch, mono) do
-    q = Quaternion.from_euler(0.0, pitch, 0.0, :xyz)
-
     msg = %BB.Message{
       monotonic_time: mono,
       wall_time: mono,
@@ -223,9 +228,9 @@ defmodule BBMcuhub.Robots.SegbyV1.HostTest do
       frame_id: :chassis_imu,
       robot: @robot,
       payload: %BB.Message.Sensor.Imu{
-        orientation: q,
+        orientation: Quaternion.identity(),
         angular_velocity: Vec3.zero(),
-        linear_acceleration: Vec3.new(0.0, 0.0, 9.81)
+        linear_acceleration: Vec3.new(-@g * :math.sin(pitch), 0.0, @g * :math.cos(pitch))
       }
     }
 

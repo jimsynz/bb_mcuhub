@@ -11,6 +11,12 @@
  * move() on both with motor.target = each floor's output torque (interpreted as a
  * q-axis voltage, the reference's "honest first-cut" torque→Uq mapping).
  *
+ * Each motor also has a bench-verified low-side current sense (INA181A2 ×50,
+ * 0.01 Ω shunt) read OUT-OF-BAND for telemetry only — control never reads it, so
+ * a flaky sense can't destabilise the loop. The v1 :status layout carries no
+ * current field, so the sampled amps are AVAILABLE for a future telemetry port
+ * but not put on the wire (adding a field would be a contract change).
+ *
  * Host-portability: every SimpleFOC call is #if defined(ARDUINO)-guarded (like
  * the reference), so the command-decode + floor path (wheels_hub.c) stays
  * host-compilable. Off-target, drive_left/right are no-ops; the floors + decode
@@ -44,14 +50,31 @@ extern "C" void status_right_sample_tick(uint32_t now_us);
 
 #include "schedule.gen.h" /* static Task tasks[]; N_TASKS — motor_{l,r} + status_{l,r} */
 
-/* --- Bench-verified electrical params (climber foc_bench/PARAMS.md). The MKS
- * Dual FOC v3.2 runs a 30-slot/20-pole outrunner (10 pole pairs) at 12 V. --- */
-static const int   kPolePairs    = 10;   /* TODO(hw): confirm for segby's wheels */
+/* --- Bench-verified electrical params (climber foc_bench/PARAMS.md, status
+ * "alignment ✓ · current sense ✓ · closed-loop velocity-mode working"). The MKS
+ * Dual FOC v3.2 runs a 30-slot/20-pole outrunner (10 pole pairs, cross-confirmed
+ * OLS slope 10.105 + A5@P11 motion) at 12 V. Leaving phase_resistance UNSET keeps
+ * the PID/target in VOLTS, which matches our torque→Uq mapping. --- */
+static const int   kPolePairs    = 10;   /* confirmed: OLS slope 10.105, cross-checked */
 static const float kVbusV        = 12.0f;
 static const float kDriverVLimit = 6.0f; /* half VBUS */
 static const float kMotorVLimit  = 4.0f; /* caps the applied q-axis voltage */
 static const float kMotorVAlign  = 8.0f; /* dominates this rotor's cogging */
 static const uint32_t kI2cHz     = 400000;
+
+/* --- Low-side current sense (verified on the bench, foc_bench/PARAMS.md:
+ * INA181A2 ×50 V/V, 0.01 Ω shunt; M0 IA/IB = ADC 39/36, M1 IA/IB = ADC 35/34;
+ * IC = NOT_SET (2-shunt, phase C reconstructed via KCL). Read OUT-OF-BAND for
+ * telemetry ONLY — control stays torque-voltage, so a flaky sense never
+ * destabilises the loop. The current LPF time constant smooths per-tick ADC
+ * noise into a stable reported value. --- */
+static const float kCsShuntOhms = 0.01f;
+static const float kCsInaGain   = 50.0f;
+static const float kCurrLpfTf   = 0.02f; /* ≈8 Hz one-pole on the reported current */
+#define M0_CS_IA 39
+#define M0_CS_IB 36
+#define M1_CS_IA 35
+#define M1_CS_IB 34
 
 /* --- MKS Dual FOC v3.2 pin map ---
  * Driver pins from climber's SimpleFocNode constructor (mirrors the board's
@@ -79,8 +102,24 @@ static BLDCMotor        m1_motor(kPolePairs);
 static BLDCDriver3PWM   m1_driver(M1_PWM_A, M1_PWM_B, M1_PWM_C, M_ENABLE);
 static MagneticSensorI2C m1_sensor(AS5600_I2C);
 
+/* Low-side current sense, two-shunt per motor (IC reconstructed via KCL). _NC for
+ * the third pin. Constructed unconditionally; linked + init'd only for a motor
+ * whose encoder answered (in hub_setup). Read out-of-band, telemetry only. */
+static LowsideCurrentSense m0_cs(kCsShuntOhms, kCsInaGain, M0_CS_IA, M0_CS_IB, _NC);
+static LowsideCurrentSense m1_cs(kCsShuntOhms, kCsInaGain, M1_CS_IA, M1_CS_IB, _NC);
+static LowPassFilter m0_ia_lpf(kCurrLpfTf), m0_ib_lpf(kCurrLpfTf);
+static LowPassFilter m1_ia_lpf(kCurrLpfTf), m1_ib_lpf(kCurrLpfTf);
+
 static bool m0_ready = false; /* M0 encoder present + initFOC ok */
 static bool m1_ready = false;
+static bool m0_cs_ready = false; /* M0 current sense linked + init ok */
+static bool m1_cs_ready = false;
+/* Latest filtered phase currents (amps) — telemetry only; control never reads
+ * these. No :status field carries current in the v1 contract, so they are
+ * SAMPLED + AVAILABLE for a future telemetry port but not (yet) put on the wire
+ * (changing the wire would be a contract change — out of scope). */
+static float m0_ia_a = 0.0f, m0_ib_a = 0.0f;
+static float m1_ia_a = 0.0f, m1_ib_a = 0.0f;
 
 /* AS5600 presence probe: a single, bounded I²C address-poll. GATES initFOC() —
  * calling initFOC on an absent encoder spins SimpleFOC's sensor-align on a
@@ -124,6 +163,31 @@ extern "C" void drive_right(float effort) {
   m1_motor.move();
 }
 
+/* --- board: sample the low-side current sense for telemetry ONLY (the reference's
+ * sample_currents_). One raw ADC read per linked phase, smoothed by a one-pole
+ * LPF into a stable amps value. A motor with no linked sense (encoder absent or
+ * init failed) holds at 0. This NEVER feeds control — a flaky sense can't
+ * destabilise the torque-voltage loop. The v1 :status layout carries no current
+ * field, so these are held in module state for a future telemetry port, not put
+ * on the wire (that would be a contract change). --- */
+static void sample_currents() {
+  if (m0_cs_ready) {
+    PhaseCurrent_s c = m0_cs.getPhaseCurrents();
+    m0_ia_a = m0_ia_lpf(c.a);
+    m0_ib_a = m0_ib_lpf(c.b);
+  }
+  if (m1_cs_ready) {
+    PhaseCurrent_s c = m1_cs.getPhaseCurrents();
+    m1_ia_a = m1_ia_lpf(c.a);
+    m1_ib_a = m1_ib_lpf(c.b);
+  }
+}
+
+/* control_loop_tick (wheels_hub.c) drives both floors; after the FOC loops run
+ * we cook the current at loop rate. Exposed so the leaf's control tick can call
+ * it; a no-op on the host (no SimpleFOC). */
+extern "C" void wheels_sample_currents(void) { sample_currents(); }
+
 static Router g_router;
 
 static void deliver_local(const Frame *f, void *) {
@@ -164,6 +228,11 @@ extern "C" void hub_setup(void) {
     m0_driver.voltage_limit = kDriverVLimit;
     m0_driver.init();
     m0_motor.linkDriver(&m0_driver);
+    /* low-side sense: linkDriver BEFORE init (MCPWM ISR registration). Read
+     * out-of-band for telemetry — we do NOT linkCurrentSense to the motor, so
+     * control stays torque-voltage and a flaky sense can't destabilise it. */
+    m0_cs.linkDriver(&m0_driver);
+    m0_cs_ready = (m0_cs.init() == 1);
     configure_motor(m0_motor);
     m0_motor.init();
     m0_ready = m0_motor.initFOC();
@@ -176,6 +245,8 @@ extern "C" void hub_setup(void) {
     m1_driver.voltage_limit = kDriverVLimit;
     m1_driver.init();
     m1_motor.linkDriver(&m1_driver);
+    m1_cs.linkDriver(&m1_driver);
+    m1_cs_ready = (m1_cs.init() == 1);
     configure_motor(m1_motor);
     m1_motor.init();
     m1_ready = m1_motor.initFOC();

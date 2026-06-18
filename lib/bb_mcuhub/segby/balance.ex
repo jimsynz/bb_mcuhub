@@ -14,24 +14,30 @@ defmodule BBMcuhub.Segby.Balance do
 
   ## Pipeline (per pose tick)
 
-      pose (BB.Message.Sensor.Imu) → pitch_from_imu/1 → PID step/3 → torque
-        → teleop mix/4 (forward + turn) → {left, right} → set_effort to both wheels
+      pose (BB.Message.Sensor.Imu) → step_pitch/4 (complementary filter)
+        → PID step/3 → torque → teleop mix/4 (forward + turn)
+        → {left, right} → set_effort to both wheels
 
-  ## Pitch extraction (quaternion, not a complementary filter)
+  ## Pitch extraction (accel/gyro complementary filter)
 
-  In this world the pose arrives as a `BB.Message.Sensor.Imu` whose orientation
-  quaternion is already a fused, engineering-unit estimate (the wire mirrors the
-  BB struct and `BBMcuhub.BBHub.Lift` normalises it on the way in). So there is
-  no raw int16 to decode and no drift to fight: we read pitch DIRECTLY from the
-  orientation quaternion rather than re-running the old accel/gyro complementary
-  filter. Pitch (rotation about the body Y axis, positive = nose up) is
+  The segby Blaster MCU does NOT fuse orientation — it packs an IDENTITY
+  quaternion and ships the REAL accel (m/s²) + gyro (rad/s) in the
+  `BB.Message.Sensor.Imu`'s `linear_acceleration` / `angular_velocity` Vec3s
+  (the MPU-9250 read scaled to engineering units in firmware). So pitch is
+  recovered HERE by the reference's complementary filter (`ImuEstimator.step/4`),
+  blending the gyro-integrated pitch with the accel-derived absolute pitch:
 
-      pitch = asin(clamp(2*(w*y - z*x), -1, 1))
+      accel_pitch = atan2(-ax, sqrt(ay² + az²))     # absolute, drift-free, noisy
+      gyro_pitch  = pitch + wy · dt                  # smooth short-term, drifts
+      pitch'      = α · gyro_pitch + (1-α) · accel_pitch   # α = 0.98
 
-  the standard aerospace (ZYX) pitch term — the cleaner, drift-free choice given
-  a reliable quaternion. The complementary filter is therefore not ported; only
-  its accel-fallback form (`pitch_from_accel/3`) is kept as a pure helper for
-  reference/tests.
+  `α = 0.98` (gyro-heavy short-term, accel-anchored long-term) matches the
+  reference. The gyro is already in rad/s on the wire, so `step_pitch/4`
+  integrates `wy · dt` directly (no deg→rad conversion — that scaling happened
+  in firmware). `step_pitch/4` is a pure function; `state.pitch` carries the
+  running estimate between ticks. The quaternion is identity now, so
+  `pitch_from_imu/1` (the quaternion term) is kept only as an unused reference
+  helper; the live loop reads accel/gyro.
 
   ## Gains (segby_v1 manifest)
 
@@ -73,7 +79,9 @@ defmodule BBMcuhub.Segby.Balance do
   ## Pure functional cores (tested directly)
 
     * `step/3` — the PID step (ported verbatim from the reference).
-    * `pitch_from_imu/1` — quaternion → pitch (radians).
+    * `step_pitch/4` — accel/gyro complementary filter → pitch (radians).
+    * `pitch_from_accel/3` — accel-only absolute pitch (the filter's anchor term).
+    * `pitch_from_imu/1` — quaternion → pitch (radians); unused reference helper.
     * `mix/4` — teleop forward/turn mixing onto a `{left, right}` torque.
   """
 
@@ -112,6 +120,10 @@ defmodule BBMcuhub.Segby.Balance do
 
   alias BB.Math.{Quaternion, Vec3}
   alias BB.Message.Geometry.Twist
+
+  # Complementary-filter blend factor (gyro-heavy short-term, accel-anchored
+  # long-term), matching the reference ImuEstimator default.
+  @filter_alpha 0.98
 
   # The PID functional core — its own struct so `step/3` stays pure and testable.
   defmodule Pid do
@@ -174,13 +186,51 @@ defmodule BBMcuhub.Segby.Balance do
   end
 
   @doc """
-  Extract pitch (radians, body-Y rotation, positive = nose up) from an
-  `BB.Message.Sensor.Imu`'s orientation quaternion.
+  Pure accel/gyro complementary-filter pitch step (ported from the reference
+  `ImuEstimator.step/4`). Given the previous `pitch` (radians), a
+  `BB.Message.Sensor.Imu` carrying the real accel (m/s²) + gyro (rad/s), the
+  time delta `dt_s` (seconds), and the blend factor `alpha`, return the new
+  pitch (radians, body-Y rotation, positive = nose up):
 
-  Uses the standard aerospace (ZYX) pitch term `asin(2*(w*y - z*x))` with the
-  argument clamped to `[-1, 1]` for numerical safety near gimbal lock. The
-  orientation is already a fused, normalised estimate, so no filtering is
-  needed.
+      accel_pitch = atan2(-ax, sqrt(ay² + az²))   # absolute, drift-free
+      gyro_pitch  = pitch + wy · dt_s             # integrated body-Y rate
+      pitch'      = α · gyro_pitch + (1-α) · accel_pitch
+
+  The gyro is already rad/s on the wire (scaled in firmware), so `wy` is
+  integrated directly — no deg→rad conversion. With `dt_s = 0.0` (the first
+  sample) the gyro term is `pitch` unchanged, so the result anchors fully to the
+  accel estimate via the blend. Pure — no process, no I/O.
+  """
+  @spec step_pitch(float(), BB.Message.Sensor.Imu.t(), float(), float()) :: float()
+  def step_pitch(pitch, %BB.Message.Sensor.Imu{} = imu, dt_s, alpha \\ @filter_alpha)
+      when is_float(pitch) and is_float(dt_s) and is_float(alpha) do
+    ax = Vec3.x(imu.linear_acceleration)
+    ay = Vec3.y(imu.linear_acceleration)
+    az = Vec3.z(imu.linear_acceleration)
+    wy = Vec3.y(imu.angular_velocity)
+
+    accel_pitch = pitch_from_accel(ax, ay, az)
+    gyro_pitch = pitch + wy * dt_s
+    alpha * gyro_pitch + (1.0 - alpha) * accel_pitch
+  end
+
+  @doc """
+  Pure accel-only absolute pitch (the complementary filter's drift-free anchor
+  term). `pitch = atan2(-ax, sqrt(ay² + az²))`.
+  """
+  @spec pitch_from_accel(float(), float(), float()) :: float()
+  def pitch_from_accel(ax, ay, az) do
+    :math.atan2(-ax, :math.sqrt(ay * ay + az * az))
+  end
+
+  @doc """
+  Extract pitch (radians, body-Y rotation, positive = nose up) from an
+  `BB.Message.Sensor.Imu`'s orientation quaternion — the standard aerospace
+  (ZYX) pitch term `asin(2*(w*y - z*x))` clamped for gimbal-lock safety.
+
+  UNUSED by the live loop: the segby MCU ships an identity quaternion and the
+  real accel/gyro, so the live path runs `step_pitch/4`. Kept as a pure
+  reference helper for a world where a fused orientation IS on the wire.
   """
   @spec pitch_from_imu(BB.Message.Sensor.Imu.t()) :: float()
   def pitch_from_imu(%BB.Message.Sensor.Imu{orientation: %Quaternion{} = q}) do
@@ -191,15 +241,6 @@ defmodule BBMcuhub.Segby.Balance do
 
     sin_pitch = clamp(2.0 * (w * y - z * x), -1.0, 1.0)
     :math.asin(sin_pitch)
-  end
-
-  @doc """
-  Pure accel-only pitch fallback (kept from the reference's complementary
-  filter, unused by the live loop). `pitch = atan2(-ax, sqrt(ay² + az²))`.
-  """
-  @spec pitch_from_accel(float(), float(), float()) :: float()
-  def pitch_from_accel(ax, ay, az) do
-    :math.atan2(-ax, :math.sqrt(ay * ay + az * az))
   end
 
   @doc """
@@ -225,6 +266,17 @@ defmodule BBMcuhub.Segby.Balance do
   defp clamp(v, lo, _hi) when v < lo, do: lo
   defp clamp(v, _lo, hi) when v > hi, do: hi
   defp clamp(v, _lo, _hi), do: v
+
+  # Seconds since the last pose tick (from monotonic nanoseconds). The first
+  # sample (or a non-advancing/backwards clock) yields 0.0 — the filter then
+  # anchors fully to the accel estimate and the PID skips its integral/derivative.
+  defp dt_since(%{last_mono: nil}, _msg), do: 0.0
+
+  defp dt_since(%{last_mono: prev}, %BB.Message{monotonic_time: now})
+       when now > prev,
+       do: (now - prev) / 1.0e9
+
+  defp dt_since(_state, _msg), do: 0.0
 
   # ----------------------------------------------------------------------------
   # Live enable/disable helpers
@@ -270,7 +322,9 @@ defmodule BBMcuhub.Segby.Balance do
       max_turn: opts[:max_turn] * 1.0,
       enabled: opts[:enabled],
       last_teleop: %{forward: 0.0, turn: 0.0},
-      last_mono: nil
+      last_mono: nil,
+      # running complementary-filter pitch estimate (radians), advanced each tick
+      pitch: 0.0
     }
 
     BB.subscribe(bb.robot, state.pose_topic, message_types: [BB.Message.Sensor.Imu])
@@ -281,30 +335,29 @@ defmodule BBMcuhub.Segby.Balance do
 
   # A pose tick while DISABLED: zero BALANCE torque (so the wheels rest), but
   # still mix teleop on top — with balance off, teleop drives the wheels directly
-  # (the reference behaviour). Do NOT advance the PID (no windup while off).
+  # (the reference behaviour). Do NOT advance the PID (no windup while off), but
+  # DO advance the complementary filter so the pitch estimate stays live for a
+  # clean re-enable (no settling jump on the first enabled tick).
   @impl BB.Controller
   def handle_info(
-        {:bb, topic, %BB.Message{payload: %BB.Message.Sensor.Imu{}} = msg},
+        {:bb, topic, %BB.Message{payload: %BB.Message.Sensor.Imu{} = imu} = msg},
         %{pose_topic: topic, enabled: false} = state
       ) do
+    pitch = step_pitch(state.pitch, imu, dt_since(state, msg))
     mixed = mix(%{left: 0.0, right: 0.0}, state.last_teleop, state.max_forward, state.max_turn)
     command(state, mixed)
-    {:noreply, %{state | last_mono: msg.monotonic_time}}
+    {:noreply, %{state | last_mono: msg.monotonic_time, pitch: pitch}}
   end
 
-  # A pose tick while ENABLED: pitch → PID → torque, mix teleop, command both wheels.
+  # A pose tick while ENABLED: accel/gyro complementary filter → pitch → PID →
+  # torque, mix teleop, command both wheels.
   def handle_info(
         {:bb, topic, %BB.Message{payload: %BB.Message.Sensor.Imu{} = imu} = msg},
         %{pose_topic: topic} = state
       ) do
-    dt_s =
-      case state.last_mono do
-        nil -> 0.0
-        prev when msg.monotonic_time > prev -> (msg.monotonic_time - prev) / 1.0e9
-        _ -> 0.0
-      end
+    dt_s = dt_since(state, msg)
 
-    pitch = pitch_from_imu(imu)
+    pitch = step_pitch(state.pitch, imu, dt_s)
     error = state.target_pitch - pitch
     {torque, new_pid} = step(state.pid, error, dt_s)
 
@@ -313,7 +366,7 @@ defmodule BBMcuhub.Segby.Balance do
 
     command(state, mixed)
 
-    {:noreply, %{state | pid: new_pid, last_mono: msg.monotonic_time}}
+    {:noreply, %{state | pid: new_pid, last_mono: msg.monotonic_time, pitch: pitch}}
   end
 
   # Teleop intent on the PubSub topic — the bb_tui path. The Teleop command's

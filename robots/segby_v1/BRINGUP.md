@@ -100,8 +100,8 @@ Confirm **pole pairs** (firmware assumes 10 — TODO) and the PWM/encoder pins m
 the MKS silkscreen.
 
 ### Stage 4 — IMU + closed-loop balance
-Wire the real MPU-9250 (link #3) and replace the synthetic `imu_read` (see below).
-With the host up:
+Wire the real MPU-9250 (link #3) — the firmware reads it for real. With the host
+up:
 ```sh
 # on the Pi, confirm pose flows:
 BB.subscribe(BBMcuhub.Robots.SegbyV1, [:sensor, :base_link, :chassis_imu])
@@ -119,15 +119,33 @@ both wheels, turn differentials them). Arm/disarm from the safety panel; recall
 the on-chip floor is the real safe-state — disarm/silence both resolve to wheels
 de-energising within 100 ms.
 
-## What's stubbed (replace for real flight)
-- **Blaster device reads are synthetic**: `imu_read` returns a fixed upright pose,
-  `range_read` a fixed distance (`hubs/blaster/mcu/main_blaster.cpp`). Bind the
-  real MPU-9250 (I²C 0x68) + HC-SR04 drivers before Stage 4. The WS2812
-  `status_led_apply` is a no-op (decode wired; bind a real LED lib if wanted).
-- **Wheels FOC pins / pole-pairs** are from the reference + TODO-flagged — confirm
-  against the actual MKS v3.2 board and motors.
+## Real (ported from the hardware-deployed reference)
+These carry the values verified on the reference bot (`SimpleFocNode.cpp`,
+`Mpu9250Backend.cpp`, `foc_bench/PARAMS.md`) — not placeholders:
+- **MPU-9250 IMU**: the real I²C driver (WHO_AM_I → wake PLL → 14-byte burst @
+  0x3B), addr 0x68, SDA 21 / SCL 22 @ 400 kHz. Scaled on the MCU to engineering
+  units (±2g → ÷16384·g m/s², ±250°/s → ÷131·π/180 rad/s); orientation shipped as
+  identity — the **host** fuses pitch via a complementary filter (α=0.98), exactly
+  as the reference fused on the Master.
+- **HC-SR04 range**: real (TRIG 18 pulse → bounded `pulseIn` ECHO 32 → metres).
+- **Dual FOC**: pole_pairs **10** (cross-confirmed), Vbus 12 V, driver/motor
+  V-limits 6/4, align 8, torque-voltage mode, AS5600 (0x36) M0 on Wire (19/18) /
+  M1 on Wire1 (23/5). Driver pins M0 (32,33,25,12) / M1 (26,27,14,12), shared
+  enable 12. `phase_resistance` left UNSET (keeps the target in volts).
+- **Current sense** (telemetry-only; control stays torque-voltage): INA181A2 ×50,
+  0.01 Ω shunt, M0 ADC 39/36, M1 ADC 35/34. Sampled out-of-band, LPF Tf 0.02.
+
+Hardware to confirm at bring-up (verify against your actual board/motors):
+- The MKS v3.2 silkscreen vs. the pin map above (a per-channel enable M0 22 / M1 12
+  appears in PARAMS.md's table, but the *deployed* firmware uses a shared enable 12
+  for both — we follow the deployed code; double-check on your board).
+- `zero_electric_angle` is NOT fixed — `initFOC()` re-aligns each boot (correct).
 - **torque→Uq** is the reference's honest first-cut (effort = q-axis voltage,
-  clamped); revisit once a current-sense topology is chosen.
+  clamped to 4 V); a real Nm→V map needs the motor's Kt once measured.
+
+## Still a no-op
+- WS2812 `status_led_apply` (the `:led` decode is wired; bind a real LED lib if you
+  want the strip to light — it's decorative, not in any control path).
 
 ## Safety reminders
 - **Born-disarmed**: every wheel boots de-energised and only drives after it

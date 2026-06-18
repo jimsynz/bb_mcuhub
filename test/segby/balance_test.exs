@@ -5,12 +5,14 @@ defmodule BBMcuhub.Segby.BalanceTest do
   Two layers:
 
     * the PURE cores — `step/3` (the PID, ported from the cog reference's tests),
-      `pitch_from_imu/1` (quaternion → pitch), and `mix/4` (teleop forward/turn) —
-      exercised directly, no process.
+      `step_pitch/4` (the accel/gyro complementary filter — the LIVE pitch source),
+      `pitch_from_imu/1` (quaternion → pitch — an unused reference helper), and
+      `mix/4` (teleop forward/turn) — exercised directly, no process.
     * an integration layer — the controller driven by synthetic pose messages
       through the real BB PubSub seam, asserting it publishes `Effort` to BOTH
       wheel actuator topics when enabled and zero when disabled (and never writes
-      a slot — it only publishes, per §04).
+      a slot — it only publishes, per §04). The synthetic pose carries the tilt in
+      the ACCEL vector (gravity projection), matching the live accel/gyro path.
   """
   use ExUnit.Case, async: false
 
@@ -113,6 +115,69 @@ defmodule BBMcuhub.Segby.BalanceTest do
     test "pure roll does not bleed into pitch" do
       q = Quaternion.from_euler(0.3, 0.0, 0.0, :xyz)
       assert_in_delta Balance.pitch_from_imu(imu(q)), 0.0, 1.0e-6
+    end
+  end
+
+  # ---------------------------------------------------------------------------
+  # Pure complementary filter — the LIVE pitch source (accel + gyro)
+  # ---------------------------------------------------------------------------
+  describe "step_pitch/4 — accel/gyro complementary filter" do
+    test "a level IMU (accel = {0,0,g}, gyro 0) -> ~0 pitch" do
+      imu = imu_accel_gyro({0.0, 0.0, 9.81}, {0.0, 0.0, 0.0})
+      # From rest at 0, a level accel keeps pitch at 0 regardless of dt/alpha.
+      assert_in_delta Balance.step_pitch(0.0, imu, 0.01), 0.0, 1.0e-9
+    end
+
+    test "a static tilt accel anchors pitch toward the gravity-projection angle" do
+      # nose-up tilt theta: gravity projects to ax = -g·sin(theta), az = g·cos(theta).
+      theta = 0.3
+      imu = imu_accel_gyro({-9.81 * :math.sin(theta), 0.0, 9.81 * :math.cos(theta)}, {0.0, 0.0, 0.0})
+
+      # On the FIRST tick (dt=0) the gyro term is the prior pitch unchanged (0), so
+      # the blend lands at (1-alpha)*accel_pitch = 0.02 * theta.
+      first = Balance.step_pitch(0.0, imu, 0.0)
+      assert_in_delta first, 0.02 * theta, 1.0e-6
+      assert first > 0.0
+
+      # Iterating with the SAME static accel + zero gyro converges to theta.
+      converged =
+        Enum.reduce(1..2000, 0.0, fn _i, p -> Balance.step_pitch(p, imu, 0.01) end)
+
+      assert_in_delta converged, theta, 1.0e-3
+    end
+
+    test "a nose-down tilt -> negative pitch" do
+      theta = -0.25
+      imu = imu_accel_gyro({-9.81 * :math.sin(theta), 0.0, 9.81 * :math.cos(theta)}, {0.0, 0.0, 0.0})
+      converged = Enum.reduce(1..2000, 0.0, fn _i, p -> Balance.step_pitch(p, imu, 0.01) end)
+      assert converged < 0.0
+      assert_in_delta converged, theta, 1.0e-3
+    end
+
+    test "gyro integration advances pitch over dt (rad/s, no deg conversion)" do
+      # level accel (so accel_pitch = 0) + a +0.5 rad/s body-Y rate over 0.1 s.
+      imu = imu_accel_gyro({0.0, 0.0, 9.81}, {0.0, 0.5, 0.0})
+      # gyro_pitch = 0 + 0.5*0.1 = 0.05; pitch' = 0.98*0.05 + 0.02*0 = 0.049.
+      assert_in_delta Balance.step_pitch(0.0, imu, 0.1), 0.98 * 0.05, 1.0e-9
+    end
+
+    test "alpha weights the gyro vs accel terms" do
+      # disagreeing sources: gyro says +0.1 (from prev 0 + rate*dt), accel says +0.3.
+      theta = 0.3
+      imu = imu_accel_gyro({-9.81 * :math.sin(theta), 0.0, 9.81 * :math.cos(theta)}, {0.0, 1.0, 0.0})
+      dt = 0.1
+      # gyro_pitch = 0 + 1.0*0.1 = 0.1; accel_pitch ~ 0.3.
+      gyro_pitch = 0.1
+      accel_pitch = :math.atan2(-(-9.81 * :math.sin(theta)), 9.81 * :math.cos(theta))
+
+      # alpha 0.98 (default): gyro-dominated.
+      hi = Balance.step_pitch(0.0, imu, dt, 0.98)
+      assert_in_delta hi, 0.98 * gyro_pitch + 0.02 * accel_pitch, 1.0e-6
+
+      # alpha 0.5: even blend pulls harder toward accel.
+      lo = Balance.step_pitch(0.0, imu, dt, 0.5)
+      assert_in_delta lo, 0.5 * gyro_pitch + 0.5 * accel_pitch, 1.0e-6
+      assert lo > hi
     end
   end
 
@@ -246,11 +311,23 @@ defmodule BBMcuhub.Segby.BalanceTest do
 
   # --- helpers ---------------------------------------------------------------
 
+  # The quaternion-pitch helper still exercises pitch_from_imu/1 (an unused
+  # reference helper) with a tilt orientation + a fixed level accel.
   defp imu(%Quaternion{} = q) do
     %BB.Message.Sensor.Imu{
       orientation: q,
       angular_velocity: Vec3.zero(),
       linear_acceleration: Vec3.new(0.0, 0.0, 9.81)
+    }
+  end
+
+  # An IMU shaped like the segby MCU ships it: identity orientation, real accel
+  # (m/s²) + gyro (rad/s). This is what the live complementary-filter path reads.
+  defp imu_accel_gyro({ax, ay, az}, {wx, wy, wz}) do
+    %BB.Message.Sensor.Imu{
+      orientation: Quaternion.identity(),
+      angular_velocity: Vec3.new(wx, wy, wz),
+      linear_acceleration: Vec3.new(ax, ay, az)
     }
   end
 
@@ -280,17 +357,21 @@ defmodule BBMcuhub.Segby.BalanceTest do
     pid
   end
 
-  # A pose message as the chassis_imu sensor view would publish it, with a body-Y
-  # tilt `pitch` (radians) and a monotonic timestamp `mono` (nanoseconds).
+  # A pose message as the chassis_imu sensor view would publish it. The segby MCU
+  # ships an IDENTITY orientation + real accel/gyro, so a body-Y tilt `pitch`
+  # (radians) is carried as the gravity projection in the accel vector
+  # (ax = -g·sin(pitch), az = g·cos(pitch), gyro zero) — exactly what the live
+  # complementary-filter path reads. `mono` is the monotonic timestamp (ns).
+  @g 9.81
   defp pose_msg(pitch, mono) do
-    q = Quaternion.from_euler(0.0, pitch, 0.0, :xyz)
+    accel = {-@g * :math.sin(pitch), 0.0, @g * :math.cos(pitch)}
 
     msg = %BB.Message{
       monotonic_time: mono,
       wall_time: mono,
       node: Node.self(),
       frame_id: :chassis_imu,
-      payload: imu(q),
+      payload: imu_accel_gyro(accel, {0.0, 0.0, 0.0}),
       robot: @robot
     }
 

@@ -28,6 +28,11 @@
 extern void drive_left(float effort);
 extern void drive_right(float effort);
 
+/* board: sample the low-side current sense (telemetry only, never control).
+ * Provided by main_wheels.cpp; a no-op off-target. Called once per control loop,
+ * AFTER the FOC loops run, mirroring the reference's sample_currents_. */
+extern void wheels_sample_currents(void);
+
 #ifndef MY_NODE
 #define MY_NODE 0x05
 #endif
@@ -78,6 +83,9 @@ void control_loop_tick(uint32_t now_us) {
   uint32_t now_ms = now_us / 1000u;
   drive_left(floor_tick(&g_floor_left, now_ms));
   drive_right(floor_tick(&g_floor_right, now_ms));
+  /* cook the current at loop rate, after both FOC loops; telemetry only, never
+   * read by control (a flaky sense can't destabilise the torque-voltage loop). */
+  wheels_sample_currents();
 }
 
 /* IN ports handled event-driven via on_command_*(); the scheduled cmd ticks
