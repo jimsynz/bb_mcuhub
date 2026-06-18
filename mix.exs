@@ -48,6 +48,10 @@ defmodule BBMcuhub.MixProject do
       # The host owns a UART to the root hub (§07); Circuits.UART provides the
       # framing behaviour our COBS+CRC framer implements (§03).
       {:circuits_uart, "~> 1.5"},
+      # The terminal dashboard over the BeamBots seam (§09): subscribes to the
+      # standard BB PubSub paths and renders safety/joints/events/commands. Wired
+      # to segby via the host launcher; launched foreground (it owns stdin/stdout).
+      {:bb_tui, "~> 0.1.0"},
       {:stream_data, "~> 1.0", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]

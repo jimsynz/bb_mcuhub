@@ -27,7 +27,8 @@ defmodule BBMcuhub.BBHub.Actuator do
       status_port: [type: :atom, required: true, doc: "the hub's status slot name"],
       fresh_for: [
         type: :pos_integer,
-        doc: "the command's consumer freshness window in beats — the floor window the hub enforces (§04/§05)"
+        doc:
+          "the command's consumer freshness window in beats — the floor window the hub enforces (§04/§05)"
       ],
       command_seq_start: [type: :non_neg_integer, default: 1],
       status_fresh_for: [type: :pos_integer, default: 5, doc: "status freshness window in beats"],
@@ -47,6 +48,15 @@ defmodule BBMcuhub.BBHub.Actuator do
 
     with {:ok, {node_id, port_id}} <- PortIndex.resolve(hub, port),
          {:ok, {^node_id, status_id}} <- PortIndex.resolve(hub, status_port) do
+      # Subscribe to our own command topic so a controller's published Effort (the
+      # §04 single-writer flow: a controller is a pure producer, the view is the
+      # sole slot writer) reaches `handle_info/2`. `BB.publish(robot, [:actuator |
+      # path], %Effort{})` lands here; we write the slot and notify the link owner.
+      # (The direct `{:command, msg}` cast — set_effort!/3 — is also handled.)
+      BB.subscribe(bb.robot, [:actuator | bb.path],
+        message_types: [BB.Message.Actuator.Command.Effort]
+      )
+
       # the status slot is read THROUGH a born-stale monitor (§05): a stale "not
       # floored" must never read as driving, so the view ticks the monitor on its
       # own beat and live/1 reads the monitor's verdict, not the raw slot.

@@ -46,12 +46,29 @@ defmodule BBMcuhub.Segby.Balance do
   resolve the running controller and cast the toggle. Toggling resets the
   integrator so re-enabling never dumps accumulated windup.
 
-  ## Teleop
+  ## Teleop (operator input via bb_tui)
 
-  Teleop intent (`%{forward, turn}`, both in `[-1.0, 1.0]`) arrives on a PubSub
-  topic (`:teleop_topic`, default `[:teleop, :segby]`); bb_tui wires it in a
-  later phase. Until then the latest intent defaults to zero, so the mix is a
-  no-op and balance torque reaches both wheels unchanged.
+  Teleop intent (`forward`, `turn`, both in `[-1.0, 1.0]`) arrives on a PubSub
+  topic (`:teleop_topic`, default `[:teleop, :segby]`) and is mixed ONTO the
+  balance torque every pose tick (`mix/4`); with no operator input the intent is
+  zero and balance torque reaches both wheels unchanged.
+
+  `bb_tui` has no built-in "teleop" concept — its operator surface is the
+  declared-`commands` panel (executed via `BB.Robot.Runtime.execute/3`), the
+  joints panel (`BB.Actuator.set_position!/3`), and arm/disarm. Driving the
+  wheels directly from the joints panel would fight this controller, which is the
+  *sole* actuator commander for the wheels (§04 single-writer + the balance loop
+  owns the wheels). So segby surfaces operator drive as a declared command,
+  `BBMcuhub.Robots.SegbyV1.Teleop` (`forward`/`turn` float args). Its handler
+  publishes a `BB.Message.Geometry.Twist` (`linear.x` = forward, `angular.z` =
+  turn) onto this `teleop_topic`; this controller consumes it below and biases
+  the next pose tick's output. bb_tui's Commands panel discovers and runs that
+  command — that is how an operator teleops segby from the dashboard.
+
+  Two delivery shapes are accepted, both updating `last_teleop`:
+
+    * a `BB.Message` whose payload is a `Twist` (the bb_tui / PubSub path), and
+    * a bare `{:teleop, %{forward, turn}}` map (the in-process / test path).
 
   ## Pure functional cores (tested directly)
 
@@ -93,7 +110,8 @@ defmodule BBMcuhub.Segby.Balance do
       enabled: [type: :boolean, default: false, doc: "start enabled? (default DISABLED)"]
     ]
 
-  alias BB.Math.Quaternion
+  alias BB.Math.{Quaternion, Vec3}
+  alias BB.Message.Geometry.Twist
 
   # The PID functional core — its own struct so `step/3` stays pure and testable.
   defmodule Pid do
@@ -261,14 +279,16 @@ defmodule BBMcuhub.Segby.Balance do
     {:ok, state}
   end
 
-  # A pose tick while DISABLED: command zero torque to both wheels (so the wheels
-  # rest and teleop drives directly), and do NOT advance the PID (no windup off).
+  # A pose tick while DISABLED: zero BALANCE torque (so the wheels rest), but
+  # still mix teleop on top — with balance off, teleop drives the wheels directly
+  # (the reference behaviour). Do NOT advance the PID (no windup while off).
   @impl BB.Controller
   def handle_info(
         {:bb, topic, %BB.Message{payload: %BB.Message.Sensor.Imu{}} = msg},
         %{pose_topic: topic, enabled: false} = state
       ) do
-    command(state, %{left: 0.0, right: 0.0})
+    mixed = mix(%{left: 0.0, right: 0.0}, state.last_teleop, state.max_forward, state.max_turn)
+    command(state, mixed)
     {:noreply, %{state | last_mono: msg.monotonic_time}}
   end
 
@@ -288,17 +308,32 @@ defmodule BBMcuhub.Segby.Balance do
     error = state.target_pitch - pitch
     {torque, new_pid} = step(state.pid, error, dt_s)
 
-    mixed = mix(%{left: torque, right: torque}, state.last_teleop, state.max_forward, state.max_turn)
+    mixed =
+      mix(%{left: torque, right: torque}, state.last_teleop, state.max_forward, state.max_turn)
+
     command(state, mixed)
 
     {:noreply, %{state | pid: new_pid, last_mono: msg.monotonic_time}}
   end
 
-  # Teleop intent — keep the latest, mixed into the next pose tick.
+  # Teleop intent on the PubSub topic — the bb_tui path. The Teleop command's
+  # handler publishes a `BB.Message.Geometry.Twist`; we read forward from
+  # `linear.x` and turn from `angular.z` (the ROS-style convention) and keep the
+  # latest intent, clamped, to mix into the next pose tick. Any other payload on
+  # the topic is ignored (we never guess an intent).
   def handle_info(
-        {:bb, topic, %BB.Message{} = _msg},
+        {:bb, topic, %BB.Message{payload: %Twist{} = twist}},
         %{teleop_topic: topic} = state
       ) do
+    pad = %{
+      forward: clamp(Vec3.x(twist.linear) * 1.0, -1.0, 1.0),
+      turn: clamp(Vec3.z(twist.angular) * 1.0, -1.0, 1.0)
+    }
+
+    {:noreply, %{state | last_teleop: pad}}
+  end
+
+  def handle_info({:bb, topic, %BB.Message{}}, %{teleop_topic: topic} = state) do
     {:noreply, state}
   end
 

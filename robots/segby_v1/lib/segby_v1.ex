@@ -31,8 +31,8 @@ defmodule BBMcuhub.Robots.SegbyV1 do
   use BB, extensions: [BBMcuhub.Dsl]
 
   hubs do
-    hub :blaster, BBMcuhub.Hubs.Blaster, node: 0x02, transport: :uart
-    hub :wheels, BBMcuhub.Hubs.Wheels, node: 0x05, transport: :uart
+    hub(:blaster, BBMcuhub.Hubs.Blaster, node: 0x02, transport: :uart)
+    hub(:wheels, BBMcuhub.Hubs.Wheels, node: 0x05, transport: :uart)
   end
 
   controllers do
@@ -40,31 +40,58 @@ defmodule BBMcuhub.Robots.SegbyV1 do
     # and publishes Effort to BOTH wheel actuator topics — so it needs the two
     # wheel actuator paths, which are the topology nesting (link → joint →
     # actuator). Starts DISABLED; enable live via `BBMcuhub.Segby.Balance.enable/1`.
-    controller :balance,
-               {BBMcuhub.Segby.Balance,
-                pose_topic: [:sensor, :base_link, :chassis_imu],
-                left_actuator_path: [:base_link, :left_wheel, :left_drive],
-                right_actuator_path: [:base_link, :right_wheel, :right_drive],
-                kp: 0.5,
-                ki: 0.05,
-                kd: 0.1,
-                target_pitch: 0.0,
-                integral_clamp: 1.0,
-                output_clamp: 1.0,
-                max_forward: 0.5,
-                max_turn: 0.3,
-                enabled: false}
+    controller(
+      :balance,
+      {BBMcuhub.Segby.Balance,
+       pose_topic: [:sensor, :base_link, :chassis_imu],
+       left_actuator_path: [:base_link, :left_wheel, :left_drive],
+       right_actuator_path: [:base_link, :right_wheel, :right_drive],
+       kp: 0.5,
+       ki: 0.05,
+       kd: 0.1,
+       target_pitch: 0.0,
+       integral_clamp: 1.0,
+       output_clamp: 1.0,
+       max_forward: 0.5,
+       max_turn: 0.3,
+       enabled: false}
+    )
+  end
+
+  commands do
+    # Operator teleop from the dashboard (§09). bb_tui's Commands panel runs this
+    # via the runtime; its handler publishes a Twist onto the balance
+    # controller's teleop topic, which biases the per-wheel effort. `allowed_states
+    # [:*]` so an operator can teleop in any non-disarmed state.
+    command :teleop do
+      handler(BBMcuhub.Robots.SegbyV1.Teleop)
+      allowed_states([:*])
+
+      argument :forward, :float do
+        default(0.0)
+        doc("forward bias in [-1.0, 1.0] (mixed onto BOTH wheels)")
+      end
+
+      argument :turn, :float do
+        default(0.0)
+        doc("turn differential in [-1.0, 1.0] (right +, left -)")
+      end
+    end
   end
 
   topology do
     link :base_link do
       # the chassis IMU — a BB.Sensor view over the blaster hub's pose port
-      sensor :chassis_imu,
-             {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :pose, fresh_for: 3, beat_ms: 10}
+      sensor(
+        :chassis_imu,
+        {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :pose, fresh_for: 3, beat_ms: 10}
+      )
 
       # the forward rangefinder — a BB.Sensor view over the blaster's range port
-      sensor :range_front,
-             {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :range_front, fresh_for: 3, beat_ms: 50}
+      sensor(
+        :range_front,
+        {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :range_front, fresh_for: 3, beat_ms: 50}
+      )
 
       # left wheel — a BB.Actuator view over the wheels hub's left command port,
       # reading its left status slot for liveness (§05). fresh_for is the
@@ -80,9 +107,11 @@ defmodule BBMcuhub.Robots.SegbyV1 do
           velocity(~u(20 radian_per_second))
         end
 
-        actuator :left_drive,
-                 {BBMcuhub.BBHub.Actuator,
-                  hub: :wheels, port: :motor_left, status_port: :status_left, fresh_for: 5}
+        actuator(
+          :left_drive,
+          {BBMcuhub.BBHub.Actuator,
+           hub: :wheels, port: :motor_left, status_port: :status_left, fresh_for: 5}
+        )
 
         link :left_wheel_link do
         end
@@ -100,9 +129,11 @@ defmodule BBMcuhub.Robots.SegbyV1 do
           velocity(~u(20 radian_per_second))
         end
 
-        actuator :right_drive,
-                 {BBMcuhub.BBHub.Actuator,
-                  hub: :wheels, port: :motor_right, status_port: :status_right, fresh_for: 5}
+        actuator(
+          :right_drive,
+          {BBMcuhub.BBHub.Actuator,
+           hub: :wheels, port: :motor_right, status_port: :status_right, fresh_for: 5}
+        )
 
         link :right_wheel_link do
         end
