@@ -14,7 +14,7 @@ defmodule BBMcuhub.BBHub.Sensor do
   its own boot — so a restart never republishes a leftover reading.
 
   Required options (validated by `options_schema`):
-    * `:node`, `:port` — the symbolic hub + port name (resolved to the wire id)
+    * `:hub`, `:port` — the symbolic hub + port name (resolved to the wire id)
     * `:fresh_for` — the freshness window in beats
     * `:beat_ms` — how often this view samples its slot
 
@@ -23,7 +23,7 @@ defmodule BBMcuhub.BBHub.Sensor do
   """
   use BB.Sensor,
     options_schema: [
-      node: [type: :atom, required: true, doc: "the hub name (resolved to a NODE id)"],
+      hub: [type: :atom, required: true, doc: "the hub name (resolved to a NODE id)"],
       port: [type: :atom, required: true, doc: "the sense port name on that hub"],
       fresh_for: [type: :pos_integer, default: 3, doc: "freshness window in beats"],
       beat_ms: [type: :pos_integer, default: 20, doc: "sample period for this view"]
@@ -36,7 +36,7 @@ defmodule BBMcuhub.BBHub.Sensor do
   @impl BB.Sensor
   def init(opts) do
     bb = Keyword.fetch!(opts, :bb)
-    hub = Keyword.fetch!(opts, :node)
+    hub = Keyword.fetch!(opts, :hub)
     port = Keyword.fetch!(opts, :port)
 
     case PortIndex.resolve(hub, port) do

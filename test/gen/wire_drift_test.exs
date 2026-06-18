@@ -8,7 +8,7 @@ defmodule BBMcuhub.Gen.WireDriftTest do
   alias BBMcuhub.Gen.WireGen
   alias BBMcuhub.Wire.{Codec, CRC16}
 
-  @robot BBMcuhub.Contract.Source.default_robot()
+  @robot BBMcuhub.Robots.Follower
 
   setup_all do
     %{ir: WireGen.ir(@robot)}

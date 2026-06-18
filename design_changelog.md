@@ -10,6 +10,72 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-18 — Single-source DSL: contract authored in BeamBots' DSL; boot checks become a compile-time verifier (§06, §09)
+
+The walking skeleton kept **two parallel models** that had to agree: the
+producer-side wire facts in `hubs/*/contract.exs` (loaded by `Source`, projected
+by `Contract.build_ir/2`) and the reader-side BeamBots `topology do` (the
+`sensor`/`actuator` views naming `(hub, port)`). They were reconciled only
+implicitly, at view `init/1`, via `PortIndex.resolve/2`. Authoring the same system
+in two places is the sync hazard this change removes.
+
+Decision (grilled with the user): **make the BeamBots DSL the single authored
+source of truth, and ship the hub gateway as a Spark extension to it.** A user
+imports the `bb` packages plus this library and gets new vocabulary to declare
+hubs, place them, and wire their ports — focusing on structure/config, while the
+library owns the communication logic (wire, floor, freshness, segmentation).
+
+### What changes
+- **Hub modules.** A hub is a reusable module (`use BBMcuhub.Hub`, a small Spark
+  DSL) declaring its ports' **intrinsic wire facts** — `dir`, `type`, `rate`,
+  `t_dev`, `safe_action`, and the pure `sample`/`step` core. Everything true about
+  the device, deployment-independent. Read back via `BBMcuhub.Hub.Info`.
+- **Placement in a sibling `hubs do` block.** A `hub :name, Module, node: 0xNN`
+  entity lives in a top-level `hubs do` section our extension owns, composed onto
+  `use BB, extensions: [BBMcuhub.Dsl]` (no `bb` fork). It places hubs on nodes;
+  the existing `topology do` wires their ports to components. (The first-choice
+  shape — injecting `hub` directly into BeamBots' `topology` section via
+  `Spark.Dsl.Patch.AddEntity` — is blocked: `bb` 0.20.3's `topology` section is
+  not `patchable?`, so the patch is silently dropped, and making it patchable
+  would fork `bb`. A sibling section is the no-fork equivalent.) The view option
+  `node:` is renamed `hub:` (it always named the hub, not a wire id; `node` is now
+  strictly the placed id).
+- **IR is projected, not authored.** A Spark **transformer** in the extension
+  walks the `hub` + `sensor`/`actuator` entities, reads producer facts via
+  `Hub.Info`, and **persists the IR row shape** into the robot's DSL state, read
+  back via `BBMcuhub.Robot.Info`. The IR row shape (the seam `WireGen`/`PortIndex`
+  and the parity/drift tests already trust) is **kept unchanged** — only its
+  source changes — so the entire C/firmware/parity side stays green.
+- **`build_ir`, `Source`, `contract.exs` are dissolved.** There is no file to
+  load; the hub modules and the robot module are the source.
+- **Boot checks → a compile-time verifier.** §06's checks move from "runtime, run
+  before the link opens" to a Spark **verifier** (runs after the transformer, so
+  it validates the persisted IR): reader↔producer reconciliation (every named
+  `(hub, port)` has exactly one producer), node-id uniqueness + reserved ids (host
+  0, broadcast `0x00`) unclaimed, `fresh_for` ≥ one writer period, no
+  `(node, port_id)` collision, and the frame-size ceiling (`header + payload +
+  CRC` ≤ **512 B**, one named constant matching the C `SEG_MAX_BODY`). A violation
+  raises `Spark.Error.DslError` naming the offending pair — **the bug cannot
+  compile, never mind reach the bus.** This is a strict strengthening of the
+  design (earlier = ship-then-refuse-at-boot).
+
+### Why
+- One authored model: a fact is stated once, in the DSL, so the producer and
+  reader sides cannot fall out of sync (the failure the two-file scheme invited).
+- Reuses the BeamBots ecosystem instead of paralleling it: Spark `dsl_patches` +
+  verifiers + InfoGenerators are the upstream-blessed extension surface, so the
+  library composes with `bb` rather than shadowing it.
+- The IR seam is preserved deliberately: it is the proven, drift-tested boundary
+  to the C side, which has no business reading the BeamBots DSL. Keeping it means
+  the refactor is "swap the front-end that produces the IR," not a wire rewrite.
+
+ADR-0002 records the single-source-of-truth / Spark-extension architecture
+(hard to reverse). §06 and §09 of the doc are reconciled in-place to describe the
+DSL-authored model and the compile-time verifier; CONTEXT.md gains **Hub module**
+and **Topology validation** and sharpens **Contract**.
+
+---
+
 ## 2026-06-18 — CAN segmentation/reassembly: on-wire encoding pinned (§03, §06)
 
 `docs/hub-design.html` §03 had already moved frame **segmentation into v1** (out of

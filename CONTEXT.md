@@ -32,13 +32,35 @@ node through one UART to the root hub, and holds the robot's truth in a small
 per-`(node, port)` registry. Logical id 0.
 
 ### Contract
-The small data a hub ships describing itself: its ports, each port's value `type` and
-`rate` (a single nominal number), its `safe_action`, and its `fresh_for` needs, plus
-the pure core (`sample` for a sensor, `step`/safe-action for an actuator). A generator
-reads every hub's contract plus the topology and emits **three** artifacts of one model
-— the C headers, the per-hub schedule, and the parity vectors (the Elixir codec is
-data-driven, reading the model at runtime, so it cannot drift within Elixir) — so the C
-and Elixir sides cannot drift. A hub's contract is its public face.
+The data describing what a hub produces on the wire: its ports, each port's value
+`type` and `rate` (a single nominal number), its `safe_action`/`t_dev`, plus the pure
+core (`sample` for a sensor, `step`/safe-action for an actuator). It is **authored in
+the DSL** — the intrinsic facts on a **hub module**, placement and consumption in the
+**topology** — not a standalone file; the contract is the producer-side facet that a
+**topology validation** transformer projects into the IR. From that one model a
+generator emits **three** artifacts — the C headers, the per-hub schedule, and the
+parity vectors (the Elixir codec is data-driven, reading the model at runtime) — so the
+C and Elixir sides cannot drift. A hub's contract is its public face.
+
+### Hub module
+A reusable building block: an Elixir module (`use BBMcuhub.Hub`) that declares one hub's
+ports and their **intrinsic wire facts** — `dir`, value `type`, `rate`, `t_dev`,
+`safe_action`, and the pure `sample`/`step` core. Everything true about the *device*,
+independent of where it is deployed. A user imports a stock hub module, extends it, or
+writes their own; the **topology** then *places* it on a `NODE` and wires its ports to
+BeamBots components. The library owns the communication logic (wire, floor, freshness,
+segmentation); the hub module owns the device-specific logic.
+
+### Topology validation (the verifier)
+The single compile-time check that the one authored model is well-formed (§06). It is a
+**Spark verifier** our DSL extension adds to `use BB` (no fork — hubs are placed in a
+sibling `hubs do` section the extension owns), so it runs **at compile time** over the
+assembled topology: it reconciles every `(hub, port)` a reader
+(a **component** view) names against exactly one producer in the IR, and checks node-id
+uniqueness, reserved ids (host 0, broadcast `0x00`) unclaimed, `fresh_for` ≥ one writer
+period, no `(node, port_id)` collision, and that every value body (`header + payload +
+CRC`) fits the segmentation ceiling (512 B). A violation refuses to compile, naming the
+offending pair — the bug cannot ship, never mind reach the bus.
 
 ### NODE / PORT (the wire identity)
 A value's identity on the wire is `(NODE, PORT)`. **NODE** is a flat, whole-tree-unique
@@ -128,7 +150,7 @@ is **segmented by the bridge** into ordered fragments, one per CAN frame, and re
 Fragment metadata rides the **13 reserved id bits**, never the data field, so the CAN body
 bytes are byte-identical to the UART body and the **parity vectors** hold across both
 transports. The layout is `[FIRST:1][LAST:1][SEQLO:5][FRAG_IDX:6]`: a 6-bit index (≤ 64
-fragments → a hard **512-byte body ceiling**, asserted by the §06 boot size-check), FIRST
+fragments → a hard **512-byte body ceiling**, asserted by the §06 compile-time size-check), FIRST
 on index 0, LAST on the final fragment, and the body `seq`'s low 5 bits binding every
 fragment to its body. Reassembly is **fail-closed and strictly sequential**: a buffer is
 seeded only by a FIRST fragment; any gap, reorder, `SEQLO` mismatch, or CRC failure

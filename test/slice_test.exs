@@ -39,7 +39,7 @@ defmodule BBMcuhub.SliceTest do
       # the Sensor view, attached to this robot/path, beating fast
       {:ok, view} =
         bb_init(BBHub.Sensor, [:base_link, :chassis_imu],
-          node: :imu,
+          hub: :imu,
           port: :pose,
           fresh_for: 3,
           beat_ms: 5
@@ -82,7 +82,7 @@ defmodule BBMcuhub.SliceTest do
 
       {:ok, view} =
         bb_init(BBHub.Actuator, [:base_link, :left_wheel, :wheel],
-          node: :motor,
+          hub: :motor,
           port: :motor_target,
           status_port: :motor_status
         )
@@ -118,7 +118,7 @@ defmodule BBMcuhub.SliceTest do
       # status monitor's beats explicitly for determinism.
       {:ok, view} =
         bb_init(BBHub.Actuator, [:base_link, :left_wheel, :wheel],
-          node: :motor,
+          hub: :motor,
           port: :motor_target,
           status_port: :motor_status,
           status_fresh_for: 2,

@@ -14,9 +14,12 @@ defmodule BBMcuhub.Contract.PortIndex do
   """
 
   alias BBMcuhub.Contract
-  alias BBMcuhub.Contract.Source
+  alias BBMcuhub.Robot.Info
 
   @key {__MODULE__, :index}
+
+  # The robot whose IR the runtime index is built from in v1's slice (§09).
+  @default_robot BBMcuhub.Robots.Follower
 
   @type entry :: %{
           hub: atom(),
@@ -30,9 +33,9 @@ defmodule BBMcuhub.Contract.PortIndex do
   Build (or rebuild) the index from the active robot's contracts + topology and
   cache it. Call once at boot. Returns the index map.
   """
-  @spec build(atom()) :: %{{0..255, 0..255} => entry()}
-  def build(robot \\ Source.default_robot()) do
-    ir = Contract.build_ir(Source.contracts(), Source.topology(robot))
+  @spec build(module()) :: %{{0..255, 0..255} => entry()}
+  def build(robot \\ @default_robot) do
+    ir = Info.ir(robot)
 
     index =
       Map.new(ir, fn row ->

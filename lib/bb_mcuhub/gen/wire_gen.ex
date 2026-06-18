@@ -23,8 +23,12 @@ defmodule BBMcuhub.Gen.WireGen do
   """
 
   alias BBMcuhub.Contract
-  alias BBMcuhub.Contract.{Layouts, Source}
+  alias BBMcuhub.Contract.Layouts
+  alias BBMcuhub.Robot.Info
   alias BBMcuhub.Wire.{Codec, CRC16}
+
+  # The robot whose IR every artifact is generated from in v1's slice (§09).
+  @default_robot BBMcuhub.Robots.Follower
 
   # Representative scalar per wire type — used to build deterministic parity
   # vectors. Chosen so each field is distinguishable in the bytes.
@@ -34,8 +38,8 @@ defmodule BBMcuhub.Gen.WireGen do
   # --- top-level ---
 
   @doc "Regenerate every artifact for the active robot. Returns the paths written."
-  @spec write_all!(atom()) :: [Path.t()]
-  def write_all!(robot \\ Source.default_robot()) do
+  @spec write_all!(module()) :: [Path.t()]
+  def write_all!(robot \\ @default_robot) do
     ir = ir(robot)
 
     header = {"firmware/include/wire_contract.h", emit_c_header(ir)}
@@ -55,9 +59,9 @@ defmodule BBMcuhub.Gen.WireGen do
   end
 
   @doc "The IR for a robot — the single model the emitters render."
-  @spec ir(atom()) :: [Contract.ir_row()]
-  def ir(robot \\ Source.default_robot()) do
-    Contract.build_ir(Source.contracts(), Source.topology(robot))
+  @spec ir(module()) :: [Contract.ir_row()]
+  def ir(robot \\ @default_robot) do
+    Info.ir(robot)
   end
 
   defp hubs(ir), do: ir |> Enum.map(& &1.hub) |> Enum.uniq() |> Enum.sort()

@@ -16,15 +16,19 @@ defmodule BBMcuhub.BBHub.Actuator do
   *status* slot via `live/1`, never inferred from "we sent a command".
 
   Required options:
-    * `:node`, `:port` — the command port (hub + port name)
+    * `:hub`, `:port` — the command port (hub + port name)
     * `:status_port` — the hub's reported-truth slot name
     * `:command_seq_start` — the first seq this view assigns (default 1)
   """
   use BB.Actuator,
     options_schema: [
-      node: [type: :atom, required: true, doc: "the hub name"],
+      hub: [type: :atom, required: true, doc: "the hub name"],
       port: [type: :atom, required: true, doc: "the command port name"],
       status_port: [type: :atom, required: true, doc: "the hub's status slot name"],
+      fresh_for: [
+        type: :pos_integer,
+        doc: "the command's consumer freshness window in beats — the floor window the hub enforces (§04/§05)"
+      ],
       command_seq_start: [type: :non_neg_integer, default: 1],
       status_fresh_for: [type: :pos_integer, default: 5, doc: "status freshness window in beats"],
       beat_ms: [type: :pos_integer, default: 20, doc: "status-monitor beat period"]
@@ -37,7 +41,7 @@ defmodule BBMcuhub.BBHub.Actuator do
   @impl BB.Actuator
   def init(opts) do
     bb = Keyword.fetch!(opts, :bb)
-    hub = Keyword.fetch!(opts, :node)
+    hub = Keyword.fetch!(opts, :hub)
     port = Keyword.fetch!(opts, :port)
     status_port = Keyword.fetch!(opts, :status_port)
 

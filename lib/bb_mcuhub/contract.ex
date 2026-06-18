@@ -1,15 +1,15 @@
 defmodule BBMcuhub.Contract do
   @moduledoc """
-  The wire contract (§06): the single in-memory model the generator renders into
-  four artifacts (Elixir codec, C header, per-hub schedule, parity vectors).
+  The wire contract's frozen primitives (§06): the IR row shape, the header
+  layout that frames every value, the reserved-id facts, and the stable `port_id`
+  hash. The IR itself is authored in the BeamBots DSL and projected by
+  `BBMcuhub.Dsl.IrTransformer` (a hub module's ports for the producer facts, the
+  topology's reader views for the consumer freshness window); this module is the
+  shared vocabulary those rows are built from and the renderers consume.
 
-  A **hub contract** is small data describing one hub — its ports, each port's
-  value `type`, its `rate` (a single nominal Hz number), its `dir` (`:in`/`:out`),
-  plus `safe_action` and `fresh_for` for actuator command ports. A **topology**
-  maps each hub to its flat, whole-tree-unique `NODE` id (§03).
-
-  This module owns the header layout that frames every value and the reserved-id
-  facts, and it builds the per-port IR rows the generator consumes.
+  An **IR row** carries one port's whole-tree identity: its `node` (from the
+  `hubs do` placement), generated `port_id`, value `type` + `layout`, `dir`,
+  `rate`, `stamped`, and the consumer `fresh_for` / `safe_action`.
 
   ## `t_dev` is opt-in per port (§04)
 
@@ -35,21 +35,6 @@ defmodule BBMcuhub.Contract do
   @type hub_name :: atom()
   @type port_name :: atom()
   @type dir :: :in | :out
-  @type hub_contract :: %{
-          required(:hub) => hub_name(),
-          required(:ports) => %{port_name() => port_spec()},
-          optional(:sample) => mfa_ref(),
-          optional(:step) => mfa_ref()
-        }
-  @type port_spec :: %{
-          required(:dir) => dir(),
-          required(:type) => atom(),
-          required(:rate) => pos_integer(),
-          optional(:t_dev) => boolean(),
-          optional(:fresh_for) => pos_integer(),
-          optional(:safe_action) => atom()
-        }
-  @type mfa_ref :: {module(), atom()}
 
   @type ir_row :: %{
           hub: hub_name(),
@@ -82,10 +67,6 @@ defmodule BBMcuhub.Contract do
     Enum.reduce(header(stamped?), 0, fn {_f, wt}, acc -> acc + Layouts.width(wt) end)
   end
 
-  @doc "Whether a port carries `t_dev` by default, given its spec (§04)."
-  @spec stamped?(port_spec()) :: boolean()
-  def stamped?(spec), do: Map.get(spec, :t_dev, false)
-
   @doc "The reserved broadcast / e-stop NODE id (lowest, wins CAN arbitration)."
   @spec broadcast_node() :: 0
   def broadcast_node, do: @reserved_node_broadcast
@@ -104,33 +85,5 @@ defmodule BBMcuhub.Contract do
   def port_id(hub, port) do
     <<n::16, _::binary>> = :crypto.hash(:sha256, "#{hub}/#{port}")
     0x10 + rem(n, 0xEF - 0x10 + 1)
-  end
-
-  @doc """
-  Build the per-port IR rows from the hub contracts + a topology.
-
-  Each row carries everything the four renderers need: the node id (from the
-  topology), the generated `port_id`, the shared layout (from `Layouts`), the
-  rate, and the actuator's `fresh_for`/`safe_action`. Rows are sorted by
-  `{node, port_id}` so every artifact is deterministic.
-  """
-  @spec build_ir([hub_contract()], %{hub_name() => 0..255}) :: [ir_row()]
-  def build_ir(contracts, topology) do
-    for %{hub: hub, ports: ports} <- contracts, {pname, p} <- ports do
-      %{
-        hub: hub,
-        node: Map.fetch!(topology, hub),
-        port: pname,
-        port_id: port_id(hub, pname),
-        dir: Map.fetch!(p, :dir),
-        type: Map.fetch!(p, :type),
-        layout: Layouts.fetch!(Map.fetch!(p, :type)),
-        stamped: stamped?(p),
-        rate: Map.fetch!(p, :rate),
-        fresh_for: Map.get(p, :fresh_for),
-        safe_action: Map.get(p, :safe_action)
-      }
-    end
-    |> Enum.sort_by(&{&1.node, &1.port_id})
   end
 end
