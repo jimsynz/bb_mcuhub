@@ -12,6 +12,13 @@
 #define WIRE_HEADER_STAMPED_SIZE 12
 #define WIRE_BROADCAST_NODE 0x00
 
+/* The root hub's children-facing backplane transport (a contract fact, not
+   a build flag — see docs/adr/0002). 1 = a plain UART carrying the same
+   COBS+CRC frames (no CAN segmentation: a wide body rides one frame); 0 =
+   the default CAN/TWAI backplane. For v1 the backplane is uniform per robot:
+   UART iff any non-root hub is reached over :uart. */
+#define BACKPLANE_TRANSPORT_UART 0
+
 /* Port ids — generated, stable, never hand-assigned (§06). */
 #define PORT_IMU_POSE 0xEF
 #define PORT_MOTOR_MOTOR_TARGET 0x28
@@ -58,6 +65,6 @@ typedef struct __attribute__((packed)) {
 #define CMD_PERIOD_MS_MOTOR_MOTOR_TARGET 20
 
 /* Contract hash — the drift test compares this. */
-#define WIRE_CONTRACT_SHA "2f944ae24365f0a4"
+#define WIRE_CONTRACT_SHA "58f56de36eaf7b86"
 
 #endif /* BB_MCUHUB_WIRE_CONTRACT_H */

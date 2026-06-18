@@ -84,6 +84,13 @@ defmodule BBMcuhub.Gen.WireGen do
         "#define WIRE_HEADER_STAMPED_SIZE #{Contract.header_size(true)}",
         "#define WIRE_BROADCAST_NODE 0x#{hex2(Contract.broadcast_node())}",
         "",
+        "/* The root hub's children-facing backplane transport (a contract fact, not",
+        "   a build flag — see docs/adr/0002). 1 = a plain UART carrying the same",
+        "   COBS+CRC frames (no CAN segmentation: a wide body rides one frame); 0 =",
+        "   the default CAN/TWAI backplane. For v1 the backplane is uniform per robot:",
+        "   UART iff any non-root hub is reached over :uart. */",
+        "#define BACKPLANE_TRANSPORT_UART #{backplane_transport_uart(ir)}",
+        "",
         "/* Port ids — generated, stable, never hand-assigned (§06). */",
         Enum.map_join(ir, "\n", &port_define/1),
         "",
@@ -337,6 +344,23 @@ defmodule BBMcuhub.Gen.WireGen do
   defp sample_scalar(:bool, idx), do: rem(idx, 2) == 0
 
   defp actuators(ir), do: Enum.filter(ir, &(&1.dir == :in and &1.safe_action != nil))
+
+  # The backplane transport, as the `0`/`1` value of BACKPLANE_TRANSPORT_UART.
+  #
+  # The host talks UART to the ROOT hub (its own host-UART seam is unchanged); the
+  # backplane is the link the root hub uses to reach its children. The IR has no
+  # explicit root marker, so v1 takes the lowest-node hub as the root (the host's
+  # entry point) and asks: is any hub BELOW it reached over :uart? For v1 the
+  # backplane is uniform per robot, so any one such hub flips it to a UART
+  # backplane. An all-:can robot (the Follower) emits 0 and is unchanged.
+  defp backplane_transport_uart(ir) do
+    root_node = ir |> Enum.map(& &1.node) |> Enum.min(fn -> nil end)
+
+    uart? =
+      Enum.any?(ir, fn row -> row.node != root_node and row.transport == :uart end)
+
+    if uart?, do: 1, else: 0
+  end
 
   defp tick_name(%{dir: :out, hub: _hub, port: port}), do: "#{port}_sample_tick"
   defp tick_name(%{dir: :in, port: port}), do: "#{port}_cmd_tick"

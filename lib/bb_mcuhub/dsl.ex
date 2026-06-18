@@ -1,15 +1,19 @@
 defmodule BBMcuhub.Dsl.Hub do
   @moduledoc """
   One hub placed in the robot (§06): its symbolic `name`, the hub `module` that
-  declares its ports, and its whole-tree-unique `node` id (§03).
+  declares its ports, its whole-tree-unique `node` id (§03), and the `transport`
+  that carries this hub's backplane (CAN by default, UART when the robot has no
+  CAN transceiver). The transport is a contract fact, not a build flag — the
+  generator emits it and firmware reads it at boot.
   """
 
-  defstruct [:name, :module, :node, __spark_metadata__: nil]
+  defstruct [:name, :module, :node, transport: :can, __spark_metadata__: nil]
 
   @type t :: %__MODULE__{
           name: atom(),
           module: module(),
           node: 0..255,
+          transport: :can | :uart,
           __spark_metadata__: term()
         }
 end
@@ -60,6 +64,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
     %{
       hub: hub.name,
       node: hub.node,
+      transport: hub.transport,
       port: port.name,
       port_id: Contract.port_id(hub.name, port.name),
       dir: port.dir,
@@ -251,9 +256,14 @@ defmodule BBMcuhub.Dsl.Verifier do
     end
   end
 
-  # Every port's framed value fits under the segmentation ceiling.
+  # Every port's framed value fits under the segmentation ceiling. This is a
+  # CAN-only invariant: the 512-byte ceiling is the segmentation budget (§03). A
+  # :uart backplane carries arbitrary-length bodies in one COBS frame (no
+  # fragmentation), so its ports are exempt — filter them out before the check.
   defp verify_frame_sizes(ir, module) do
-    case Enum.find(ir, fn row -> frame_size(row) > @segmentation_ceiling end) do
+    can_rows = Enum.filter(ir, &(&1.transport == :can))
+
+    case Enum.find(can_rows, fn row -> frame_size(row) > @segmentation_ceiling end) do
       nil ->
         :ok
 
@@ -333,7 +343,12 @@ defmodule BBMcuhub.Dsl do
     schema: [
       name: [type: :atom, required: true, doc: "the symbolic hub name"],
       module: [type: :module, required: true, doc: "the hub module (use BBMcuhub.Hub)"],
-      node: [type: {:in, 0..255}, required: true, doc: "the flat, whole-tree-unique NODE id (§03)"]
+      node: [type: {:in, 0..255}, required: true, doc: "the flat, whole-tree-unique NODE id (§03)"],
+      transport: [
+        type: {:in, [:can, :uart]},
+        default: :can,
+        doc: "the wire to this hub's children/parent backplane"
+      ]
     ]
   }
 
