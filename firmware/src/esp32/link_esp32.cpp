@@ -20,8 +20,9 @@
  *   -DROOT_HUB  → UP is UART to the host; the backplane (DOWN) reaches
  * children. (default)   → UP is the backplane to the parent (a leaf).
  *
- * A root hub with a UART backplane therefore has TWO UARTs: Serial (host) and
- * Serial2 (backplane). The host↔root seam is unchanged regardless of backplane.
+ * A root hub with a UART backplane therefore has TWO UARTs: Serial1 (host, on
+ * GPIO 16/17 — NOT UART0/USB) and Serial2 (backplane). The host↔root seam is
+ * unchanged regardless of backplane.
  *
  * This file only compiles under the Arduino/ESP32 framework (PlatformIO). The
  * pure codec it rides on (frame/transport/crc16/cobs) is the same host-tested
@@ -45,6 +46,19 @@ extern "C" {
 
 #ifndef HOST_UART_BAUD
 #define HOST_UART_BAUD 1000000
+#endif
+
+/* The host↔root-hub seam is UART1 (Serial1) on dedicated GPIO pins — NOT Serial
+ * (UART0), which on the ESP32 is the USB-bridge console (GPIO 1/3) and is not
+ * wired to the host. Pins match the proven reference wiring: the Blaster
+ * receives the host on RX 16 and transmits on TX 17 (the two ends crossed by
+ * wiring). The Pi's PL011 (/dev/ttyAMA0) is the other end. Overridable per
+ * board. */
+#ifndef HOST_UART_RX_PIN
+#define HOST_UART_RX_PIN 16
+#endif
+#ifndef HOST_UART_TX_PIN
+#define HOST_UART_TX_PIN 17
 #endif
 
 #if BACKPLANE_TRANSPORT_UART
@@ -148,8 +162,10 @@ void link_begin(void) {
 
 #if defined(ROOT_HUB)
   transport_decoder_init(&g_uart_rx);
-  /* UART to the host (always Serial, independent of the backplane transport) */
-  Serial.begin(HOST_UART_BAUD);
+  /* UART1 to the host on dedicated GPIO pins (NOT UART0/USB) — independent of
+   * the backplane transport. RX 16 / TX 17, crossed to the Pi's PL011 by
+   * wiring. */
+  Serial1.begin(HOST_UART_BAUD, SERIAL_8N1, HOST_UART_RX_PIN, HOST_UART_TX_PIN);
 #endif
 
 #if BACKPLANE_TRANSPORT_UART
@@ -177,11 +193,11 @@ void link_send_up(const Frame *f) {
     return;
 
 #if defined(ROOT_HUB)
-  /* UP from the root hub is the host UART (Serial) — unchanged by the
-   * backplane. */
+  /* UP from the root hub is the host UART (Serial1 on GPIO 16/17) — unchanged
+   * by the backplane. */
   uint8_t wire[FRAME_MAX_WIRE];
   size_t w = transport_encode(body, body_len, wire, sizeof(wire));
-  Serial.write(wire, w);
+  Serial1.write(wire, w);
 #elif BACKPLANE_TRANSPORT_UART
   /* UP from a leaf over a UART backplane: COBS+CRC the whole body into one
    * frame. No segmentation — a wide body rides one COBS frame, exactly like the
@@ -228,8 +244,8 @@ void link_send_up(const Frame *f) {
 /* Pump inbound bytes/frames toward g_on_body. Call every loop. */
 void link_pump(void) {
 #if defined(ROOT_HUB)
-  while (Serial.available() > 0) {
-    uint8_t b = (uint8_t)Serial.read();
+  while (Serial1.available() > 0) {
+    uint8_t b = (uint8_t)Serial1.read();
     transport_decoder_feed(&g_uart_rx, &b, 1, uart_body_cb, nullptr);
   }
 #endif
