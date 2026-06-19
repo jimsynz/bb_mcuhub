@@ -41,11 +41,17 @@ defmodule BBMcuhub.Gen.WireDriftTest do
         assert File.read!(WireGen.gen_dir(slug, "parity_vectors.h")) == WireGen.emit_parity_c(ir)
       end
 
-      test "#{inspect(robot)}: each hub's schedule matches its ports' rates" do
+      test "#{inspect(robot)}: each hub's generated glue + device header match the emitters now" do
         ir = WireGen.ir(@robot)
+        slug = WireGen.slug(@robot)
 
         for hub <- ir |> Enum.map(& &1.hub) |> Enum.uniq() do
-          assert File.read!("hubs/#{hub}/mcu/schedule.gen.h") == WireGen.emit_schedule(ir, hub)
+          assert File.read!(WireGen.gen_dir(slug, "#{hub}.glue.h")) == WireGen.emit_glue(ir, hub),
+                 "glue drift for #{hub}"
+
+          assert File.read!(WireGen.gen_dir(slug, "#{hub}.device.h")) ==
+                   WireGen.emit_device_header(ir, hub),
+                 "device-header drift for #{hub}"
         end
       end
     end

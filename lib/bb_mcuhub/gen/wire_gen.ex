@@ -7,27 +7,35 @@ defmodule BBMcuhub.Gen.WireGen do
   **Elixir codec is data-driven** — `BBMcuhub.Wire.Codec` reads each port's
   value-type layout (`BBMcuhub.ValueType`) and the `BBMcuhub.Contract` header at
   runtime, so it *cannot* drift from the model within Elixir (there is no generated
-  Elixir file to fall stale). That leaves three emitters whose output crosses a
-  boundary the
-  in-language guarantee can't reach, so they are emitted to disk and drift-tested:
+  Elixir file to fall stale). That leaves the emitters whose output crosses a
+  boundary the in-language guarantee can't reach, so they are emitted to disk and
+  drift-tested:
 
-    * `emit_c_header/1`   → `firmware/gen/<slug>/wire_contract.h` — port ids,
+    * `emit_c_header/1`     → `firmware/gen/<slug>/wire_contract.h` — port ids,
       packed structs, the floor window constants, and a contract hash.
-    * `emit_schedule/2`   → `hubs/<hub>/mcu/schedule.gen.h` — per-port
-      `{period_us, tick}` rows from each port's `rate` (§08).
-    * `emit_parity/1`     → `test/fixtures/<slug>/parity_vectors.exs` — `{port,
+    * `emit_glue/2`         → `firmware/gen/<slug>/<hub>.glue.h` — the GENERATED
+      mechanical per-hub firmware glue (§08, ADR-0003): the router table,
+      `hub_on_body`, command dispatch, the floor init/`on_command`/`control_tick`/
+      status plumbing, the sense ticks, and the `hub_tasks` schedule. This replaces
+      the hand-written `main_<hub>.cpp` + the old `schedule.gen.h`.
+    * `emit_device_header/2`→ `firmware/gen/<slug>/<hub>.device.h` — the prototypes
+      for the hand-written device hooks the glue calls (the contract the
+      `mcu/<hub>.{c,cpp}` file owes), signatures owned by each port's value-type.
+    * `emit_parity/1`       → `test/fixtures/<slug>/parity_vectors.exs` — `{port,
       value, body, crc}` rows computed by running the *real* encoder, the
       cross-language witness (§03). Numbers are correct by construction.
 
   Artifacts are **robot-scoped** (§09): each robot owns a `firmware/gen/<slug>/`
-  dir and a `test/fixtures/<slug>/` dir, so two robots (e.g. the Follower and
-  segby_v1) can coexist without one clobbering the other's `wire_contract.h`.
-  `<slug>` is the robot module's last segment, underscored (`Follower` →
-  `follower`, `SegbyV1` → `segby_v1`). The per-hub schedules stay at
-  `hubs/<hub>/mcu/schedule.gen.h` — hub names don't collide across robots.
+  dir (now holding wire_contract.h + the per-hub glue/device headers) and a
+  `test/fixtures/<slug>/` dir, so two robots (e.g. the Follower and segby_v1) can
+  coexist without one clobbering the other's artifacts. `<slug>` is the robot
+  module's last segment, underscored (`Follower` → `follower`, `SegbyV1` →
+  `segby_v1`). Each hub appears in exactly one robot, so `<hub>.glue.h` never
+  collides across robots.
 
-  `write_all!/0` regenerates everything (the `mix wire.gen` alias). The drift test
-  asserts each file on disk equals what these emitters produce *now*, per robot.
+  `write_all!/0` regenerates everything for every committed robot (the `mix
+  wire.gen` alias). The drift test asserts each file on disk equals what these
+  emitters produce *now*, per robot.
   """
 
   alias BBMcuhub.Contract
@@ -45,9 +53,17 @@ defmodule BBMcuhub.Gen.WireGen do
 
   # --- top-level ---
 
-  @doc "Regenerate every artifact for the active robot. Returns the paths written."
+  # Every robot whose artifacts are committed. `mix wire.gen` (no arg)
+  # regenerates ALL of them, so a contract change anywhere is one command.
+  @robots [BBMcuhub.Robots.Follower, BBMcuhub.Robots.SegbyV1]
+
+  @doc "Regenerate every artifact for every committed robot. Returns the paths written."
+  @spec write_all!() :: [Path.t()]
+  def write_all!, do: Enum.flat_map(@robots, &write_all!/1)
+
+  @doc "Regenerate every artifact for one robot. Returns the paths written."
   @spec write_all!(module()) :: [Path.t()]
-  def write_all!(robot \\ @default_robot) do
+  def write_all!(robot) do
     ir = ir(robot)
     slug = slug(robot)
 
@@ -55,12 +71,21 @@ defmodule BBMcuhub.Gen.WireGen do
     parity = {fixtures_path(slug), emit_parity(ir)}
     parity_c = {gen_dir(slug, "parity_vectors.h"), emit_parity_c(ir)}
 
-    schedules =
+    # The per-hub glue + device-prototype headers go in the SAME robot-scoped gen
+    # dir as wire_contract.h (§08, ADR-0003). The glue is fully generated and
+    # drift-tested; the device header is the contract the hand-written mcu/<hub>.c
+    # owes. Each hub lives in exactly one robot, so the per-robot dir never
+    # collides across robots.
+    glue =
       for hub <- hubs(ir) do
-        {"hubs/#{hub}/mcu/schedule.gen.h", emit_schedule(ir, hub)}
+        [
+          {gen_dir(slug, "#{hub}.glue.h"), emit_glue(ir, hub)},
+          {gen_dir(slug, "#{hub}.device.h"), emit_device_header(ir, hub)}
+        ]
       end
+      |> List.flatten()
 
-    for {path, contents} <- [header, parity, parity_c | schedules] do
+    for {path, contents} <- [header, parity, parity_c | glue] do
       File.mkdir_p!(Path.dirname(path))
       File.write!(path, contents)
       path
@@ -188,30 +213,644 @@ defmodule BBMcuhub.Gen.WireGen do
     |> Enum.join("\n")
   end
 
-  # --- emit: per-hub schedule ---
+  # --- emit: per-hub generated glue (§08, ADR-0003) ---
+  #
+  # The hand-written `main_<hub>.cpp` was mechanical: a router table, hub_on_body,
+  # command dispatch, the floor init/on_command/control_tick/status plumbing, the
+  # sense ticks, and the hub_tasks schedule assembly. ALL of it is derivable from
+  # the IR, so it is generated here into `<hub>.glue.h`. The user is left only the
+  # device hooks (`<hub>_device_setup`, per-port read/drive) declared in
+  # `<hub>.device.h` and implemented in a hand-authored `mcu/<hub>.{c,cpp}`.
+  #
+  # Derivations, all from the IR (documented for the safety review):
+  #
+  #   * ROOT hub  — the lowest-NODE hub in the robot (`Enum.min` on node), matching
+  #     `backplane_transport_uart/1`'s root rule. A root's route table defaults to
+  #     LINK_UP (toward host), MY_NODE → LINK_LOCAL, and every OTHER hub's node →
+  #     LINK_DOWN. Its hub_on_body forwards (fwd_up/fwd_down, both `link_send_up`,
+  #     matching the hand-written root hubs). A LEAF defaults route_table[*] =
+  #     LINK_LOCAL and passes nullptr,nullptr (local-only) — matching motor/wheels.
+  #
+  #   * FLOORED command port — `dir: :in` AND `safe_action != nil`. Gets a Floor,
+  #     an `on_command_<port>` that decodes the effort and feeds the floor's seq,
+  #     and a per-loop `<hub>_<port>_drive(floor_tick(...))` in control_tick. The
+  #     floor window = FLOOR_MISSES_* * CMD_PERIOD_MS_* (from wire_contract.h); the
+  #     safe_action atom maps to a numeric via `safe_action_value/1` (default 0.0f).
+  #
+  #   * NON-FLOORED command port — `dir: :in` AND `safe_action == nil` (segby's
+  #     `status_led`). No floor: `on_command_<port>` decodes the value and calls the
+  #     device drive hook directly, reproducing the hand-written LED path exactly.
+  #
+  #   * STATUS port — `dir: :out`, `type: :status`. Reports {applied_seq, floored?}
+  #     of its PAIRED floored command port (see `status_pair/2`).
+  #
+  #   * SENSE port — `dir: :out`, not :status. A scheduled read → pack → send-up.
+  #
+  #   * DRIVE/READ hook signatures are owned by the value-type (§ Firmware hook): a
+  #     single numeric field → scalar `(float)` (effort) or `bool read(<Struct>*)`;
+  #     a multi-field value → struct-pointer (`const <Struct>*` to drive, `<Struct>*`
+  #     to read). See `drive_sig/2` / `read_call/2`.
+  #
+  #   * OPTIONAL post-control hook — the glue ALWAYS calls `<hub>_post_control()` at
+  #     the end of control_tick AND emits a `__attribute__((weak))` empty default,
+  #     so a device that needs it (wheels' current sense) overrides it and one that
+  #     doesn't links fine with the no-op. Portable C, no #ifdef per hub.
 
-  @doc "Render a hub's `schedule.gen.h` — one `{period_us, tick}` row per port."
-  @spec emit_schedule([Contract.ir_row()], atom()) :: String.t()
-  def emit_schedule(ir, hub) do
+  @doc """
+  Render a hub's `<hub>.glue.h` — all mechanical per-hub firmware wiring (§08).
+
+  This replaces the hand-written `main_<hub>.cpp`. It defines the C-linkage
+  `hub_setup`/`hub_on_body`/`hub_tasks` the generic `hub_main.cpp` expects, plus
+  the router table, command dispatch, floor plumbing, status + sense ticks, and
+  the schedule. ARDUINO-guarded so the host C harnesses (which never compile it)
+  still build.
+  """
+  @spec emit_glue([Contract.ir_row()], atom()) :: String.t()
+  def emit_glue(ir, hub) do
     rows = ir |> Enum.filter(&(&1.hub == hub)) |> Enum.sort_by(& &1.port_id)
+    root? = root_hub?(ir, hub)
+    my_node = rows |> hd() |> Map.fetch!(:node)
+
+    floored = Enum.filter(rows, &floored_command?/1)
+    nonfloored = Enum.filter(rows, &nonfloored_command?/1)
+    statuses = Enum.filter(rows, &status_port?/1)
+    senses = Enum.filter(rows, &sense_port?/1)
+    actuator? = floored != []
+
+    finalize([
+      header_banner("#{hub}.glue.h", "generated per-hub glue (router, floor, ticks) — §08"),
+      glue_intro(hub, root?),
+      "#if defined(ARDUINO)",
+      "",
+      ~s(#include <Arduino.h>),
+      "extern \"C\" {",
+      "#include \"frame.h\"",
+      "#include \"scheduler.h\"",
+      "#include \"router.h\"",
+      "#include \"link.h\"",
+      if(actuator?, do: "#include \"floor.h\"", else: nil),
+      "#include \"wire_contract.h\"",
+      ~s(#include "#{hub}.device.h" /* the hand-written device hooks */),
+      "}",
+      "",
+      "#ifndef MY_NODE",
+      "#define MY_NODE 0x#{hex2(my_node)}",
+      "#endif",
+      "",
+      glue_post_control_default(hub),
+      glue_floor_state(floored),
+      glue_sense_state(senses),
+      glue_status_state(statuses),
+      glue_on_commands(hub, floored, nonfloored),
+      glue_control_tick(hub, floored, actuator?),
+      glue_cmd_ticks(rows),
+      glue_status_ticks(hub, statuses, floored),
+      glue_sense_ticks(hub, senses),
+      glue_router(hub, rows, root?),
+      glue_setup(hub, floored, root?, ir),
+      glue_tasks(hub, rows, actuator?),
+      "#endif /* ARDUINO */"
+    ])
+  end
+
+  @doc """
+  Render a hub's `<hub>.device.h` — the prototypes for the hand-written device
+  hooks (the contract the `mcu/<hub>.{c,cpp}` file owes). Legible, link-time
+  resolved (Shape 1, ADR-0003). Signatures are owned by each port's value-type.
+  """
+  @spec emit_device_header([Contract.ir_row()], atom()) :: String.t()
+  def emit_device_header(ir, hub) do
+    rows = ir |> Enum.filter(&(&1.hub == hub)) |> Enum.sort_by(& &1.port_id)
+    cmds = Enum.filter(rows, &(&1.dir == :in))
+    senses = Enum.filter(rows, &sense_port?/1)
+    guard = "BB_MCUHUB_#{up(hub)}_DEVICE_H"
+
+    setup_proto = "void #{hub}_device_setup(void); /* init pins/peripherals at boot */"
+
+    read_protos =
+      Enum.map(senses, fn row ->
+        "bool #{hub}_#{row.port}_read(#{c_struct_name(row.type)} *out); /* bounded read; false on timeout */"
+      end)
+
+    drive_protos =
+      Enum.map(cmds, fn row ->
+        "void #{hub}_#{row.port}_drive(#{drive_param(row)}); /* apply to the plant */"
+      end)
+
+    post_control =
+      "void #{hub}_post_control(void); /* OPTIONAL: per-loop telemetry. To provide one, `#define #{up(hub)}_POST_CONTROL_OVERRIDE` before #include'ing #{hub}.glue.h; else a no-op default is used. */"
+
+    finalize([
+      header_banner(
+        "#{hub}.device.h",
+        "device-hook prototypes — the hand-written contract (§ Firmware hook)"
+      ),
+      "#ifndef #{guard}",
+      "#define #{guard}",
+      "#include <stdint.h>",
+      "#include <stdbool.h>",
+      "#include \"wire_contract.h\" /* the packed value structs the hooks fill/take */",
+      "",
+      "#ifdef __cplusplus",
+      "extern \"C\" {",
+      "#endif",
+      "",
+      "/* Implemented by the hand-authored mcu/#{hub}.{c,cpp}; the generated glue calls these. */",
+      [setup_proto] |> Enum.join("\n"),
+      if(read_protos == [], do: nil, else: Enum.join(read_protos, "\n")),
+      if(drive_protos == [], do: nil, else: Enum.join(drive_protos, "\n")),
+      post_control,
+      "",
+      "#ifdef __cplusplus",
+      "}",
+      "#endif",
+      "",
+      "#endif /* #{guard} */"
+    ])
+  end
+
+  # --- glue: section renderers ---
+
+  defp glue_intro(hub, root?) do
+    role =
+      if root?,
+        do: "ROOT hub (host UART ↔ backplane + local ports)",
+        else: "LEAF hub (local ports only)"
+
+    [
+      "/* GENERATED firmware glue for the #{hub} hub — #{role}.",
+      "   Mechanical wiring derived from the IR (§08): router table, hub_on_body,",
+      "   command dispatch, the floor init/on_command/control_tick/status plumbing,",
+      "   the sense ticks, and the hub_tasks schedule. The user writes ONLY the",
+      "   device hooks in mcu/#{hub}.{c,cpp} (prototypes in #{hub}.device.h).",
+      "   This header is #include'd by the device file, which the build compiles. */"
+    ]
+    |> Enum.join("\n")
+  end
+
+  # The optional per-loop hook. The glue ALWAYS calls `<hub>_post_control()` at the
+  # end of control_tick; here it emits a no-op DEFAULT body UNLESS the device file
+  # signalled it provides its own by `#define <HUB>_POST_CONTROL_OVERRIDE` before
+  # including the glue. A weak attribute can't be used because the glue is included
+  # INTO the device TU (a weak default + a strong override in one TU is a
+  # redefinition error), so this compile-time switch is the portable form: a hub
+  # that needs it (wheels' current sense) defines the macro and supplies the real
+  # body; one that doesn't gets the no-op for free.
+  defp glue_post_control_default(hub) do
+    """
+    /* Optional per-loop telemetry hook (§08). The glue calls #{hub}_post_control() at
+       the end of every control_tick. The device file can provide its own by doing
+       `#define #{up(hub)}_POST_CONTROL_OVERRIDE` BEFORE including this header (then
+       implementing #{hub}_post_control() itself); otherwise this no-op default is used. */
+    #ifndef #{up(hub)}_POST_CONTROL_OVERRIDE
+    extern "C" void #{hub}_post_control(void) {}
+    #endif
+    """
+  end
+
+  defp glue_floor_state([]), do: nil
+
+  defp glue_floor_state(floored) do
+    decls =
+      Enum.flat_map(floored, fn row ->
+        win =
+          "(FLOOR_MISSES_#{up(row.hub)}_#{up(row.port)} * CMD_PERIOD_MS_#{up(row.hub)}_#{up(row.port)})"
+
+        [
+          "static Floor g_floor_#{row.port};",
+          "static uint16_t g_applied_seq_#{row.port} = 0;  /* last command seq we handed the floor */",
+          "#define FLOOR_WINDOW_MS_#{up(row.port)} #{win}"
+        ]
+      end)
+
+    "/* One floor per floored command port (§05) — born-disarmed, safe at boot. */\n" <>
+      Enum.join(decls, "\n")
+  end
+
+  defp glue_sense_state([]), do: nil
+
+  defp glue_sense_state(senses) do
+    "/* Per-sensor seq — advanced only on a real new value (§04). */\n" <>
+      Enum.map_join(senses, "\n", &"static uint16_t g_seq_#{&1.port} = 0;")
+  end
+
+  defp glue_status_state([]), do: nil
+
+  defp glue_status_state(statuses) do
+    "/* Per-status-port seq. */\n" <>
+      Enum.map_join(statuses, "\n", &"static uint16_t g_status_seq_#{&1.port} = 0;")
+  end
+
+  defp glue_on_commands(_hub, [], []), do: nil
+
+  defp glue_on_commands(hub, floored, nonfloored) do
+    floored_fns =
+      Enum.map(floored, fn row ->
+        """
+        /* A command for #{row.port}: decode the value, hand its seq to the floor
+           (the floor watches the seq, not the value), record applied_seq (§05). */
+        static void on_command_#{row.port}(const Frame *f) {
+          if (f->port != PORT_#{up(hub)}_#{up(row.port)}) return;
+          if (f->payload_len < 4) return;
+          float v = be_get_f32(&f->payload[0]);
+          floor_on_command(&g_floor_#{row.port}, f->seq, v);
+          g_applied_seq_#{row.port} = f->seq;
+        }\
+        """
+      end)
+
+    nonfloored_fns =
+      Enum.map(nonfloored, fn row ->
+        glue_nonfloored_on_command(hub, row)
+      end)
+
+    Enum.join(floored_fns ++ nonfloored_fns, "\n\n")
+  end
+
+  # A non-floored command port (e.g. segby's decorative LED): no safe-state, just
+  # decode the value and drive directly. Reproduces the hand-written LED path.
+  defp glue_nonfloored_on_command(hub, row) do
+    layout = ValueType.resolve(row.type).layout()
+    min_len = payload_min_len(layout)
+
+    {decode, drive_arg} =
+      case layout do
+        [{_field, _wt}] ->
+          # single field → pass the scalar (only effort uses this path today;
+          # a single-:u8 would also land here but no such command port exists)
+          {"  #{c_type(elem(hd(layout), 1))} v = #{scalar_get(elem(hd(layout), 1), 0)};", "v"}
+
+        _ ->
+          # multi-field → build the packed struct, pass a pointer (LED's r,g,b)
+          fields =
+            layout
+            |> Enum.with_index()
+            |> Enum.map_join("\n", fn {{field, wt}, idx} ->
+              "  v.#{field} = #{scalar_get(wt, field_offset(layout, idx))};"
+            end)
+
+          {"  #{c_struct_name(row.type)} v;\n" <> fields, "&v"}
+      end
+
+    """
+    /* A command for #{row.port}: NOT floored (safe_action == nil), so decode the
+       value and drive the device directly — a stale command is harmless (§09). */
+    static void on_command_#{row.port}(const Frame *f) {
+      if (f->port != PORT_#{up(hub)}_#{up(row.port)}) return;
+      if (f->payload_len < #{min_len}) return;
+    #{decode}
+      #{hub}_#{row.port}_drive(#{drive_arg});
+    }\
+    """
+  end
+
+  defp glue_control_tick(_hub, [], false), do: nil
+
+  defp glue_control_tick(hub, floored, true) do
+    drives =
+      Enum.map_join(floored, "\n", fn row ->
+        "  #{hub}_#{row.port}_drive(floor_tick(&g_floor_#{row.port}, now_ms));"
+      end)
+
+    """
+    /* The drive loop — period 0 so it runs every loop pass, never starved (§08).
+       Each floor gates its own port: target while armed, safe action otherwise
+       (default safe). Then the optional per-loop device hook (telemetry). */
+    static void control_tick(uint32_t now_us) {
+      uint32_t now_ms = now_us / 1000u;
+    #{drives}
+      #{hub}_post_control();
+    }\
+    """
+  end
+
+  defp glue_control_tick(_hub, _floored, _actuator?), do: nil
+
+  # Command ports are event-driven via on_command; their scheduled cmd tick (the
+  # schedule lists every port) is a no-op, matching the hand-written hubs.
+  defp glue_cmd_ticks(rows) do
+    cmds = Enum.filter(rows, &(&1.dir == :in))
+    if cmds == [], do: nil, else: cmd_ticks_body(cmds)
+  end
+
+  defp cmd_ticks_body(cmds) do
+    "/* IN ports are event-driven via on_command; the scheduled cmd tick is a no-op. */\n" <>
+      Enum.map_join(
+        cmds,
+        "\n",
+        &"static void #{&1.port}_cmd_tick(uint32_t now_us) { (void)now_us; }"
+      )
+  end
+
+  defp glue_status_ticks(_hub, [], _floored), do: nil
+
+  defp glue_status_ticks(hub, statuses, floored) do
+    Enum.map_join(statuses, "\n\n", fn st ->
+      pair = status_pair(st, floored)
+
+      """
+      /* Report #{st.port}'s reported truth (§05): the paired floor's applied_seq +
+         floored? flag, so the host reads truth instead of inferring it. */
+      static void #{st.port}_sample_tick(uint32_t now_us) {
+        (void)now_us; /* status omits t_dev, so the tick needs no clock */
+        Frame f;
+        f.node = MY_NODE;
+        f.port = PORT_#{up(hub)}_#{up(st.port)};
+        f.seq = ++g_status_seq_#{st.port};
+        f.stamped = PORT_#{up(hub)}_#{up(st.port)}_STAMPED;
+        f.t_dev = 0;
+
+        be_put_u16(&f.payload[0], g_applied_seq_#{pair.port});
+        f.payload[2] = g_floor_#{pair.port}.armed ? 0 : 1; /* floored? = not armed */
+        f.payload_len = 3;
+
+        link_send_up(&f);
+      }\
+      """
+    end)
+  end
+
+  defp glue_sense_ticks(_hub, []), do: nil
+
+  defp glue_sense_ticks(hub, senses) do
+    Enum.map_join(senses, "\n\n", fn row ->
+      layout = ValueType.resolve(row.type).layout()
+      struct = c_struct_name(row.type)
+
+      pack =
+        layout
+        |> Enum.with_index()
+        |> Enum.map_join("\n", fn {{field, wt}, idx} ->
+          "  #{scalar_put(wt, field_offset(layout, idx), "raw.#{field}")}"
+        end)
+
+      payload_len = payload_min_len(layout)
+
+      tdev =
+        if row.stamped do
+          "  f.t_dev = now_us;                 /* this hub's own µs, same-device use only */"
+        else
+          "  f.t_dev = 0;\n  (void)now_us;"
+        end
+
+      """
+      /* Sense #{row.port} (§08): one bounded read, pack big-endian, send up. A read
+         that fails returns → no write → the seq stalls → the reader goes stale. */
+      static void #{row.port}_sample_tick(uint32_t now_us) {
+        #{struct} raw;
+        if (!#{hub}_#{row.port}_read(&raw)) return;
+
+        Frame f;
+        f.node = MY_NODE;
+        f.port = PORT_#{up(hub)}_#{up(row.port)};
+        f.seq = ++g_seq_#{row.port};        /* advance only on a real new value */
+        f.stamped = PORT_#{up(hub)}_#{up(row.port)}_STAMPED;
+      #{tdev}
+
+      #{pack}
+        f.payload_len = #{payload_len};
+
+        link_send_up(&f);
+      }\
+      """
+    end)
+  end
+
+  defp glue_router(hub, rows, root?) do
+    cmds = Enum.filter(rows, &(&1.dir == :in))
+
+    deliver =
+      if cmds == [] do
+        """
+        static void deliver_local(const Frame *f, void *) {
+          (void)f; /* sense-only hub: no local command ports */
+        }\
+        """
+      else
+        dispatch =
+          cmds
+          |> Enum.with_index()
+          |> Enum.map_join("\n", fn {row, idx} ->
+            kw = if idx == 0, do: "if", else: "else if"
+            "  #{kw} (f->port == PORT_#{up(hub)}_#{up(row.port)}) on_command_#{row.port}(f);"
+          end)
+
+        """
+        static void deliver_local(const Frame *f, void *) {
+        #{dispatch}
+        }\
+        """
+      end
+
+    {fwd_decls, sinks} =
+      if root? do
+        {
+          """
+          static void fwd_up(const Frame *f, void *) { link_send_up(f); }
+          static void fwd_down(const Frame *f, void *) { link_send_up(f); /* link re-frames onto the backplane */ }
+          """,
+          "RouterSinks sinks = {deliver_local, fwd_up, fwd_down, nullptr};"
+        }
+      else
+        {nil,
+         "RouterSinks sinks = {deliver_local, nullptr, nullptr, nullptr}; /* leaf: local only */"}
+      end
+
+    [
+      "static Router g_router;",
+      "",
+      deliver,
+      fwd_decls,
+      """
+
+      /* Meaning-blind inbound (§04): decode the body (CRC-clean at the seam), learn
+         t_dev-ness per port just-in-time, route by NODE. seq/t_dev never touched. */
+      extern "C" void hub_on_body(const uint8_t *body, size_t len) {
+        if (len < FRAME_HEADER_BASE_SIZE) return;
+        Frame f;
+        bool stamped = wire_port_stamped(body[0], body[1]); /* per-port t_dev (§04) */
+        if (!frame_decode_body(body, len, stamped, &f)) return;
+        #{sinks}
+        router_route(&g_router, &f, &sinks);
+      }\
+      """
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp glue_setup(hub, floored, root?, ir) do
+    floor_inits =
+      Enum.map_join(floored, "\n", fn row ->
+        "  floor_init(&g_floor_#{row.port}, FLOOR_WINDOW_MS_#{up(row.port)}, #{safe_action_value(row.safe_action)}f); /* #{inspect(row.safe_action)} */"
+      end)
+
+    route_fill =
+      if root? do
+        my_node = ir |> Enum.find(&(&1.hub == hub)) |> Map.fetch!(:node)
+
+        child_nodes =
+          ir |> Enum.map(& &1.node) |> Enum.uniq() |> Enum.reject(&(&1 == my_node)) |> Enum.sort()
+
+        downs =
+          Enum.map_join(child_nodes, "\n", fn n ->
+            "  g_router.route_table[0x#{hex2(n)}] = LINK_DOWN; /* a child hub, reached over the backplane */"
+          end)
+
+        """
+          g_router.my_node = MY_NODE;
+          for (int i = 0; i < 256; i++) g_router.route_table[i] = LINK_UP; /* default: toward host */
+          g_router.route_table[MY_NODE] = LINK_LOCAL;
+        #{downs}\
+        """
+      else
+        """
+          g_router.my_node = MY_NODE;
+          for (int i = 0; i < 256; i++) g_router.route_table[i] = LINK_LOCAL; /* leaf: every port is local */\
+        """
+      end
+
+    floor_block =
+      if floored == [] do
+        nil
+      else
+        "  /* born-disarmed floors first (§05), so the safe output is selected before any drive */\n" <>
+          floor_inits <> "\n"
+      end
+
+    [
+      """
+      extern "C" void hub_setup(void) {
+      """
+      |> String.trim_trailing(),
+      floor_block,
+      route_fill,
+      "",
+      "  #{hub}_device_setup(); /* the hand-written hardware bring-up */",
+      "}"
+    ]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join("\n")
+  end
+
+  defp glue_tasks(hub, rows, actuator?) do
+    sorted = Enum.sort_by(rows, & &1.port_id)
 
     table =
-      rows
+      sorted
       |> Enum.map_join(",\n", fn row ->
         period_us = div(1_000_000, row.rate)
         "  { #{period_us}, 0, #{tick_name(row)} }  /* #{row.port} @ #{row.rate} Hz */"
       end)
 
-    finalize([
-      header_banner("schedule.gen.h", "per-port {period_us, last_us, tick} for #{hub} (§08)"),
-      "/* Generated from #{hub}'s contract rates. The actuator floor runs every",
-      "   loop (period 0) and is added by the firmware, not listed here. */",
-      "",
-      "static Task tasks[] = {",
-      table,
-      "};",
-      "#define N_TASKS (sizeof(tasks) / sizeof(tasks[0]))"
-    ])
+    if actuator? do
+      """
+      /* The schedule (§08): one {period_us, tick} row per port from its rate. The
+         drive loop runs EVERY loop (period 0) and is prepended here, never starved. */
+      static Task #{hub}_tasks[] = {
+        { 0, 0, control_tick },  /* period 0 → every loop pass */
+      #{table}
+      };
+      #define #{up(hub)}_N_TASKS (sizeof(#{hub}_tasks) / sizeof(#{hub}_tasks[0]))
+
+      extern "C" Task *hub_tasks(size_t *n_tasks) {
+        *n_tasks = #{up(hub)}_N_TASKS;
+        return #{hub}_tasks;
+      }\
+      """
+    else
+      """
+      /* The schedule (§08): one {period_us, tick} row per port from its rate. A
+         sense-only hub has no control_tick. */
+      static Task #{hub}_tasks[] = {
+      #{table}
+      };
+      #define #{up(hub)}_N_TASKS (sizeof(#{hub}_tasks) / sizeof(#{hub}_tasks[0]))
+
+      extern "C" Task *hub_tasks(size_t *n_tasks) {
+        *n_tasks = #{up(hub)}_N_TASKS;
+        return #{hub}_tasks;
+      }\
+      """
+    end
+  end
+
+  # --- glue: classification + derivation helpers (all from the IR) ---
+
+  # The ROOT hub is the lowest-NODE hub (matches backplane_transport_uart/1).
+  defp root_hub?(ir, hub) do
+    root_node = ir |> Enum.map(& &1.node) |> Enum.min()
+    hub_node = ir |> Enum.find(&(&1.hub == hub)) |> Map.fetch!(:node)
+    hub_node == root_node
+  end
+
+  defp floored_command?(row), do: row.dir == :in and row.safe_action != nil
+  defp nonfloored_command?(row), do: row.dir == :in and row.safe_action == nil
+  defp status_port?(row), do: row.dir == :out and row.type == :status
+  defp sense_port?(row), do: row.dir == :out and row.type != :status
+
+  # Map a status OUT-port to the floored command port whose truth it reports.
+  #
+  #   * one floored command port → every status reports that one floor (motor).
+  #   * many → pair by a shared name suffix (status_LEFT ↔ motor_LEFT,
+  #     status_RIGHT ↔ motor_RIGHT on wheels). The in-tree hubs (motor, wheels)
+  #     are the only actuators this phase; the rule reproduces their exact pairing.
+  defp status_pair(_status, [only]), do: only
+
+  defp status_pair(status, floored) do
+    suffix = name_suffix(status.port)
+
+    Enum.find(floored, fn cmd -> name_suffix(cmd.port) == suffix end) ||
+      raise "no floored command pairs status port #{status.port} (suffix #{suffix})"
+  end
+
+  defp name_suffix(port), do: port |> Atom.to_string() |> String.split("_") |> List.last()
+
+  # The safe_action atom → its numeric drive value. Default 0.0f (safe = off).
+  # Today only :zero_torque exists; documented mapping so a new safe action is
+  # one line here.
+  defp safe_action_value(:zero_torque), do: "0.0"
+  defp safe_action_value(nil), do: "0.0"
+  defp safe_action_value(_other), do: "0.0"
+
+  # The drive-hook *parameter* declaration, from the value-type layout (§ Firmware
+  # hook): a single numeric field → the scalar by value; a multi-field value → a
+  # const pointer to the packed struct.
+  defp drive_param(row) do
+    case ValueType.resolve(row.type).layout() do
+      [{_f, wt}] -> c_type(wt)
+      _ -> "const #{c_struct_name(row.type)} *v"
+    end
+  end
+
+  # Big-endian field GET at `off` for wire type `wt` (decode in on_command).
+  defp scalar_get(:f32, off), do: "be_get_f32(&f->payload[#{off}])"
+  defp scalar_get(:f64, off), do: "be_get_f64(&f->payload[#{off}])"
+  defp scalar_get(:u8, off), do: "f->payload[#{off}]"
+  defp scalar_get(:u16, off), do: "be_get_u16(&f->payload[#{off}])"
+  defp scalar_get(:u32, off), do: "be_get_u32(&f->payload[#{off}])"
+  defp scalar_get(:u64, off), do: "be_get_u64(&f->payload[#{off}])"
+  defp scalar_get(:bool, off), do: "(f->payload[#{off}] != 0)"
+
+  # Big-endian field PUT at `off` for wire type `wt` (pack in a sense/status tick).
+  defp scalar_put(:f32, off, src), do: "be_put_f32(&f.payload[#{off}], #{src});"
+  defp scalar_put(:f64, off, src), do: "be_put_f64(&f.payload[#{off}], #{src});"
+  defp scalar_put(:u8, off, src), do: "f.payload[#{off}] = #{src};"
+  defp scalar_put(:u16, off, src), do: "be_put_u16(&f.payload[#{off}], #{src});"
+  defp scalar_put(:u32, off, src), do: "be_put_u32(&f.payload[#{off}], #{src});"
+  defp scalar_put(:u64, off, src), do: "be_put_u64(&f.payload[#{off}], #{src});"
+  defp scalar_put(:bool, off, src), do: "f.payload[#{off}] = (#{src}) ? 1 : 0;"
+
+  # Byte offset of the field at `idx` in a layout (sum of preceding widths).
+  defp field_offset(layout, idx) do
+    layout
+    |> Enum.take(idx)
+    |> Enum.reduce(0, fn {_f, wt}, acc -> acc + Contract.Layouts.width(wt) end)
+  end
+
+  # Total packed payload length for a layout (the body's payload byte count).
+  defp payload_min_len(layout) do
+    Enum.reduce(layout, 0, fn {_f, wt}, acc -> acc + Contract.Layouts.width(wt) end)
   end
 
   # --- emit: parity vectors ---
