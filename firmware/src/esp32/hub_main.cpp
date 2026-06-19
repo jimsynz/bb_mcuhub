@@ -34,12 +34,20 @@ void setup() {
   };
   esp_task_wdt_reconfigure(
       &wdt); /* the TWDT is already inited by Arduino; reconfigure it */
-  esp_task_wdt_add(NULL);
 
+  /* Bring-up runs BEFORE the task subscribes to the watchdog. hub_setup() is a
+   * one-time bounded init that can legitimately exceed WDT_TIMEOUT_MS (e.g. a
+   * FOC initFOC() sensor-alignment that spins the motor, or an i2c-ng settle
+   * delay) — the watchdog guards the steady-state LOOP, not bring-up (§08).
+   * Subscribing the task before hub_setup() would reset the chip mid-alignment,
+   * before loop() can ever feed it (a boot loop). Add the task only once setup
+   * is complete; the first feed is at the top of loop(). */
   link_begin();
   link_set_on_body(hub_on_body);
   hub_setup();
   g_tasks = hub_tasks(&g_n_tasks);
+
+  esp_task_wdt_add(NULL);
 }
 
 void loop() {
