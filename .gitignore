@@ -36,3 +36,6 @@ bb_mcuhub-*.tar
 # pio venv
 /.pio-venv/
 .pio-core
+
+# direnv / nix devShell
+.direnv/
