@@ -91,11 +91,18 @@ defmodule BBMcuhub.Robots.SegbyV1.Host do
   NOTE: this phase wires + documents the Pi/Nerves path only. It does NOT add a
   Nerves `MIX_TARGET` project — that is the hardware phase, which needs a Pi to
   verify.
-  """
-  use Supervisor
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.LinkOwner
+  ## Implementation
+
+  This launcher is now a thin wrapper over the generic library launcher
+  `BBMcuhub.Host` (ADR-0003): `start_link/1` just forwards `robot: @robot` plus
+  the operator's `transport`/`transport_opts`/`bb_opts`/`name` to it. The generic
+  launcher derives the wheel command slots from segby's IR and wires the standard
+  `BB.Supervisor` + `LinkOwner` tree, so the slot-resolution supervisor no longer
+  lives here.
+  """
+
+  alias BBMcuhub.Host
 
   @robot BBMcuhub.Robots.SegbyV1
 
@@ -105,7 +112,8 @@ defmodule BBMcuhub.Robots.SegbyV1.Host do
 
   @doc """
   Start the supervised host tree: the BeamBots supervision tree for segby plus
-  the `LinkOwner` (which owns the host↔root-hub UART).
+  the `LinkOwner` (which owns the host↔root-hub UART). Delegates to
+  `BBMcuhub.Host.start_link/1` with `robot: #{inspect(@robot)}`.
 
   ## Options
 
@@ -115,59 +123,34 @@ defmodule BBMcuhub.Robots.SegbyV1.Host do
       1_000_000]` for the UART).
     * `:bb_opts` — extra options forwarded to `BB.Supervisor.start_link/2`
       (e.g. `:params`, `:simulation`).
-    * `:name` — this supervisor's name (default `__MODULE__`).
+    * `:name` — this supervisor's name (default `BBMcuhub.Host`).
   """
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do
-    {name, opts} = Keyword.pop(opts, :name, __MODULE__)
-    Supervisor.start_link(__MODULE__, opts, name: name)
+    Host.start_link([robot: @robot] ++ opts)
   end
 
   @doc """
-  The two wheel command `(node, port_id)` slots the `LinkOwner` drains, resolved
-  from the segby IR. Builds the `PortIndex` for segby as a side effect (it
-  defaults to the Follower otherwise). Raises if a slot can't be resolved — a
-  contract change that drops a wheel port must fail loudly here, not silently
-  watch nothing.
+  Child spec for placing this launcher under a supervisor (e.g. the Nerves app's
+  tree, or `ExUnit`'s `start_supervised/1`). It is a `:supervisor`-type child that
+  starts this module's `start_link/1`, so the wrapper keeps the same supervisable
+  shape it had under `use Supervisor`.
+  """
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :supervisor
+    }
+  end
+
+  @doc """
+  The two wheel command `(node, port_id)` slots the `LinkOwner` drains, derived
+  from the segby IR (every `dir: :in` command port with a `safe_action`). Builds
+  the `PortIndex` for segby as a side effect (it defaults to a fixture otherwise).
+  Delegates to `BBMcuhub.Host.command_slots/1`.
   """
   @spec command_slots() :: [{0..255, 0..255}]
-  def command_slots do
-    PortIndex.build(@robot)
-
-    for port <- [:motor_left, :motor_right] do
-      case PortIndex.resolve(:wheels, port) do
-        {:ok, slot} -> slot
-        :error -> raise "segby_v1 host: cannot resolve wheels/#{port} command slot"
-      end
-    end
-  end
-
-  @impl true
-  def init(opts) do
-    transport = Keyword.get(opts, :transport, BBMcuhub.Host.Transport.UART)
-    transport_opts = Keyword.get(opts, :transport_opts, [])
-    bb_opts = Keyword.get(opts, :bb_opts, [])
-
-    slots = command_slots()
-
-    children = [
-      # The BeamBots tree first: views, the :balance controller, the :teleop
-      # command, the PubSub + process registries.
-      %{
-        id: BB.Supervisor,
-        start: {BB.Supervisor, :start_link, [@robot, bb_opts]},
-        type: :supervisor
-      },
-      # The link owner beside the tree (§07) — owns the UART, drains the two
-      # wheel command slots. Default-named so the actuator views notify it.
-      %{
-        id: LinkOwner,
-        start:
-          {LinkOwner, :start_link,
-           [[transport: transport, transport_opts: transport_opts, command_slots: slots]]}
-      }
-    ]
-
-    Supervisor.init(children, strategy: :one_for_one)
-  end
+  def command_slots, do: Host.command_slots(@robot)
 end
