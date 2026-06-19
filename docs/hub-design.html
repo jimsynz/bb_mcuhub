@@ -623,18 +623,19 @@ flowchart TB
 <h2><span class="num">06</span>The contract — generated, no drift</h2>
 <p class="lead">The router multiplies the number of codecs that must agree byte-for-byte — the Elixir host and every hub's C. The two ends that actually parse never meet a validator in the middle, so code generation is the <em>only</em> thing keeping them in sync. v1 generates the wire constants from one contract and drift-tests them; the fuller declare/pick/validate rail is deferred.</p>
 
-<h3>One model, one Elixir codec, three emitted artifacts</h3>
-<p>A hub's contract is <em>authored in the BeamBots DSL</em>, not a file that travels with it. A <b>hub module</b> declares each port's intrinsic wire facts — its <code>dir</code>, value type, rate, <code>t_dev</code>, safe action, and pure <code>sample</code>/<code>step</code> core — and the robot's topology <em>places</em> that hub on a node id and wires its ports to BeamBots components, the consumer's <code>fresh_for</code> riding the view. A compile-time transformer projects the <b>assembled DSL</b> into <b>one model</b> (the IR), and from that model the host's <b>Elixir codec is data-driven</b>: it reads the layout tables at runtime rather than being generated into a file, so within Elixir it <em>cannot</em> diverge from the model — there is no generated <code>.ex</code> to fall stale. The drift risk lives only at the boundary the in-language guarantee can't reach — the <em>other</em> language — so the generator emits <b>three artifacts</b> and drift-tests them: the C headers (<code>port ids</code>, <code>struct</code> layouts, <code>FLOOR_MISSES</code>, <code>CMD_PERIOD_MS</code>), the per-hub <b>schedule</b> table (each port's <code>rate</code> as a <code>{period_us, tick}</code> row, §08), and the parity-vector fixture (§03). A <b>drift test</b> fails the build if any emitted file on disk differs from what the model would emit now, so the C constants physically cannot diverge from the Elixir definitions, and the parity vectors witness that the two codecs agree byte-for-byte. The next subsection sketches that generator.</p>
+<h3>One model, one Elixir codec, four emitted artifacts</h3>
+<p>A hub's contract is <em>authored in the BeamBots DSL</em>, not a file that travels with it. A <b>hub module</b> declares each port's intrinsic wire facts — its <code>dir</code>, value-type, rate, <code>t_dev</code>, safe action, and pure <code>sample</code>/<code>step</code> core — and the robot's topology <em>places</em> that hub on a node id and wires its ports to BeamBots components, the consumer's <code>fresh_for</code> riding the view. A port names its value-type by module (§09); a <b>value-type</b> owns the layout (the ordered <code>{field, wire_type}</code> list), the host <code>lift</code>/<code>unlift</code>, and the firmware-hook signature for ports of its shape. A compile-time transformer projects the <b>assembled DSL</b> into <b>one model</b> (the IR), and from that model the host's <b>Elixir codec is data-driven</b>: it reads the resolved layouts at runtime rather than being generated into a file, so within Elixir it <em>cannot</em> diverge from the model — there is no generated <code>.ex</code> to fall stale. The drift risk lives only at the boundary the in-language guarantee can't reach — the <em>other</em> language — so the generator emits <b>four artifacts</b> and drift-tests them: the C header <code>wire_contract.h</code> (<code>port ids</code>, <code>struct</code> layouts, floor constants <code>FLOOR_MISSES</code>/<code>CMD_PERIOD_MS</code>, the contract hash); the per-hub <b>glue header</b> — the router table, <code>hub_on_body</code>, command dispatch, the floor init/<code>on_command</code>/<code>control_tick</code>/status plumbing, the <b>schedule</b> table (each port's <code>rate</code> as a <code>{period_us, tick}</code> row, §08), and <code>hub_tasks</code> — beside a companion <code>&lt;hub&gt;.device.h</code> declaring the hook prototypes the user owes; and the parity-vector fixture (§03). A <b>drift test</b> fails the build if any emitted file on disk differs from what the model would emit now, so the C constants physically cannot diverge from the Elixir definitions, and the parity vectors witness that the two codecs agree byte-for-byte. The next subsection sketches that generator.</p>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">hubs/imu/lib/imu.ex</span><span style="margin-left:auto">a hub module · intrinsic wire facts</span></div>
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">lib/my_robot/hubs/imu.ex</span><span style="margin-left:auto">a hub module · intrinsic wire facts</span></div>
 <pre class="code"><span class="c"># A hub module declares its ports and their INTRINSIC wire facts — what the</span>
 <span class="c"># DEVICE does, independent of where it is deployed. Authored data only.</span>
+<span class="c"># A port names its VALUE-TYPE by module (below); the layout lives there, not here.</span>
 <span class="k">defmodule</span> <span class="t">Hubs.Imu</span> <span class="k">do</span>
   <span class="k">use</span> <span class="t">BBMcuhub.Hub</span>
 
   ports <span class="k">do</span>
-    port :pose, dir: :out, type: :imu, rate: 50, t_dev: <span class="t">true</span>,   <span class="c"># sense port: imu at 50 Hz</span>
+    port :pose, dir: :out, type: <span class="t">BBMcuhub.ValueType.Imu</span>, rate: 50, t_dev: <span class="t">true</span>,   <span class="c"># sense port: imu @ 50 Hz</span>
       sample: {<span class="t">Hubs.Imu.SamplePose</span>, :sample}                  <span class="c"># pure sampler (data only)</span>
   <span class="k">end</span>
 <span class="k">end</span>
@@ -644,15 +645,15 @@ flowchart TB
   <span class="k">use</span> <span class="t">BBMcuhub.Hub</span>
 
   ports <span class="k">do</span>
-    port :motor_target, dir: :in, type: :effort, rate: 50,
+    port :motor_target, dir: :in, type: <span class="t">BBMcuhub.ValueType.Effort</span>, rate: 50,
       safe_action: :zero_torque, step: {<span class="t">Hubs.Motor.Floor</span>, :step}
-    port :motor_status, dir: :out, type: :status, rate: 50      <span class="c"># reports its own truth (§05)</span>
+    port :motor_status, dir: :out, type: <span class="t">BBMcuhub.ValueType.Status</span>, rate: 50  <span class="c"># reports its own truth (§05)</span>
   <span class="k">end</span>
 <span class="k">end</span></pre>
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">robots/follower/lib/follower.ex</span><span style="margin-left:auto">the robot · places hubs + wires ports</span></div>
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">lib/my_robot/robot.ex</span><span style="margin-left:auto">the robot · places hubs + wires ports</span></div>
 <pre class="code"><span class="c"># The robot composes our extension alongside BeamBots' own; a sibling `hubs do`</span>
 <span class="c"># block PLACES each hub on a node id, and `topology` wires ports to components.</span>
 <span class="k">use</span> <span class="t">BB</span>, extensions: [<span class="t">BBMcuhub.Dsl</span>]
@@ -676,86 +677,96 @@ topology <span class="k">do</span>
 <span class="k">end</span></pre>
 </div>
 
-<h3>The generator — contract → Elixir + C + parity vectors</h3>
-<p>The generator is one small, pure pipeline run by <code>mix compile</code> (a file emitter for the C side). Its input is the <em>assembled DSL</em>: the hub modules' declared ports (intrinsic wire facts) and the topology that places each hub on a node id and wires its ports to components. A compile-time <b>transformer</b> projects that into one in-memory model (the IR); the generator renders the artifacts from it. The host's Elixir codec reads the model directly (data-driven, never emitted), and the generator emits <em>three</em> artifacts the other language and the wire test need, so nothing can describe different bytes or different rates. There is no hand-written codec or hand-set period anywhere in the system; if you find yourself editing byte offsets or task periods by hand, that is the bug this section exists to remove.</p>
+<h3>The generator — contract → Elixir + C + glue + parity vectors</h3>
+<p>The generator is one small, pure pipeline run by <code>mix compile</code> (a file emitter for the C side). Its input is the <em>assembled DSL</em>: the hub modules' declared ports (intrinsic wire facts), the value-types they name (each carrying its resolved layout), and the topology that places each hub on a node id and wires its ports to components. A compile-time <b>transformer</b> projects that into one in-memory model (the IR); the generator renders the artifacts from it. The host's Elixir codec reads the model directly (data-driven, never emitted), and the generator emits <em>four</em> artifacts the other language and the wire test need, so nothing can describe different bytes or different rates — and the safety-critical seq/floor wiring is generated, not hand-glued per hub. There is no hand-written codec or hand-set period anywhere in the system; if you find yourself editing byte offsets or task periods by hand, that is the bug this section exists to remove.</p>
 
 <figure>
 <div class="mermaid">
 flowchart LR
   C1["hub modules (use BBMcuhub.Hub)<br/>ports · wire facts: dir·type·rate·t_dev·safe_action"]:::in --> TR
   C2["topology do<br/>hub placement (node id) + view wiring (fresh_for)"]:::in --> TR
-  TY["value types<br/>Pose · Torque · …<br/>field order + widths"]:::in --> TR
+  TY["value-type modules (use BBMcuhub.ValueType)<br/>layout + lift/unlift + hook sig"]:::in --> TR
   TR["Spark transformer<br/>projects the assembled DSL → IR (compile time)"]:::ir --> IR
   IR["wire model (IR)<br/>per port: {node, port_id, type, layout, rate, fresh_for, safe_action}"]:::ir
-  IR --> E["platform/host/wire/codec.ex<br/>encode/decode — DATA-DRIVEN (reads the IR)"]:::live
-  IR --> H["firmware/wire_contract.h<br/>ids · structs · FLOOR_MISSES · CMD_PERIOD_MS · EMITTED"]:::out
-  IR --> S["hubs/*/schedule.gen.h<br/>per-port {period_us, tick} rows · EMITTED"]:::out
-  IR --> P["test/fixtures/parity_vectors.exs<br/>{port, payload, body, crc} · EMITTED"]:::out
+  IR --> E["lib/bb_mcuhub/wire/codec.ex<br/>encode/decode — DATA-DRIVEN (reads the IR)"]:::live
+  IR --> H["firmware/gen/&lt;slug&gt;/wire_contract.h<br/>ids · structs · FLOOR_MISSES · CMD_PERIOD_MS · hash · EMITTED"]:::out
+  IR --> S["firmware/gen/&lt;slug&gt;/&lt;hub&gt;.glue.h (+ &lt;hub&gt;.device.h)<br/>router · dispatch · floor · schedule · hub_tasks · EMITTED"]:::out
+  IR --> P["test fixture · parity_vectors.exs<br/>{port, payload, body, crc} · EMITTED"]:::out
   classDef in fill:#191e27,stroke:#56b6ff,color:#cfe6ff;
   classDef ir fill:#1a1733,stroke:#9b8cff,color:#ece9ff;
   classDef out fill:#0d2415,stroke:#46c970,color:#dcf6e4;
   classDef live fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
 </div>
-<figcaption>One model. The Elixir codec reads it directly (data-driven, so it cannot drift within Elixir); the C header, the per-hub schedule, and the parity vectors are <b>emitted</b> renderings and drift-tested. The IR is the single place a port's layout <em>and</em> its rate are decided. Change a type's field order or a port's rate in one place and everything moves together — or the drift test (below) goes red.</figcaption>
+<figcaption>One model. The Elixir codec reads it directly (data-driven, so it cannot drift within Elixir); the C header, the per-hub glue (router · dispatch · floor · schedule · <code>hub_tasks</code>, beside its hook-prototype <code>.device.h</code>), and the parity vectors are <b>emitted</b> renderings and drift-tested. The IR is the single place a port's layout <em>and</em> its rate are decided. Change a value-type's field order or a port's rate in one place and everything moves together — or the drift test (below) goes red.</figcaption>
 </figure>
 
-<p>The load-bearing idea is the <b>layout table</b>: each value type maps to an ordered list of <code>{field, wire-type}</code>, and <em>that</em> table — not the encoder code — is the source of truth both languages render. A <code>Pose</code> is <code>[tilt: :f32, rate: :f32]</code>; a <code>Torque</code> is <code>[nm: :f32]</code>. The encoder, the C struct, and the fixture bytes are all derived from the same list, so a reordered field is a single-line change that ripples everywhere consistently.</p>
+<p>The load-bearing idea is the <b>value-type</b>: a standalone module (<code>use BBMcuhub.ValueType</code>) whose <code>layout</code> is an ordered list of <code>{field, wire-type}</code>, and <em>that</em> layout — not the encoder code — is the source of truth both languages render. The library ships a lean stock set — <code>imu</code>, <code>effort</code>, <code>status</code> — and a consumer adds their own value-type in their own project with no library edit, since a value-type names no node, pin, or bot and so composes across hubs and robots. The encoder, the C struct, and the fixture bytes are all derived from the same layout, so a reordered field is a single-line change that ripples everywhere consistently; the value-type also owns the host <code>lift</code>/<code>unlift</code> (§09) and the firmware-hook signature for ports of its shape (§08), so one declaration governs both strata.</p>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">platform/gen/wire_gen.ex</span><span style="margin-left:auto">the one generator · pure · run at compile time</span></div>
-<pre class="code"><span class="k">defmodule</span> <span class="t">Gen.WireGen</span> <span class="k">do</span>
-  <span class="c"># Render three artifacts from the IR the transformer already projected from the</span>
-  <span class="c"># assembled DSL. Pure: IR rows in, files/quoted-code out. No device, no clock.</span>
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">lib/bb_mcuhub/value_type/imu.ex</span><span style="margin-left:auto">a value-type module · the shared source of truth</span></div>
+<pre class="code"><span class="c"># A VALUE-TYPE is a standalone, cross-bot-reusable unit: it owns one kind of</span>
+<span class="c"># wire value and nothing else. Field order IS the wire order. The library ships</span>
+<span class="c"># imu/effort/status; a consumer writes their own the same way, no library edit.</span>
+<span class="k">defmodule</span> <span class="t">BBMcuhub.ValueType.Imu</span> <span class="k">do</span>
+  <span class="k">use</span> <span class="t">BBMcuhub.ValueType</span>
 
-  <span class="c"># The shared source of truth: every value type as an ordered field layout.</span>
-  <span class="c"># Header constants (LEN/NODE/PORT/SEQ/T_DEV/CRC widths) live here too, once.</span>
-  @layouts %{
-    <span class="t">Pose</span>:   [tilt: :f32, rate: :f32],   <span class="c"># field order IS the wire order</span>
-    <span class="t">Torque</span>: [nm: :f32],
-    <span class="t">Range</span>:  [mm: :u16]
-  }
-  @header [node: :u8, port: :u8, seq: :u16, t_dev: :u64]   <span class="c"># before payload; LEN+CRC frame it</span>
+  layout [quat: :f32x4, accel: :f32x3, gyro: :f32x3]   <span class="c"># ordered {field, wire_type} = the layout</span>
+
+  <span class="c"># host side: raw field-map &lt;-&gt; a typed BB.Message (Nx-backed); §09 delegates here</span>
+  <span class="k">def</span> lift(v),   <span class="k">do:</span> <span class="t">BB.Message.Sensor.Imu</span>.new(v)
+  <span class="k">def</span> unlift(m), <span class="k">do:</span> %{quat: m.quat, accel: m.accel, gyro: m.gyro}
+  <span class="c"># the firmware-hook signature for ports of this shape is owned here too (§08).</span>
+<span class="k">end</span></pre>
+</div>
+
+<div class="codewrap">
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">lib/bb_mcuhub/gen/wire_gen.ex</span><span style="margin-left:auto">the one generator · pure · run at compile time</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">BBMcuhub.Gen.WireGen</span> <span class="k">do</span>
+  <span class="c"># Render four artifacts from the IR the transformer already projected from the</span>
+  <span class="c"># assembled DSL. Pure: IR rows in, files/quoted-code out. No device, no clock.</span>
 
   <span class="c"># The model is the IR persisted at compile time (one row per port):</span>
   <span class="c">#   %{node:, port_id:, type:, layout:, rate:, dir:, fresh_for:, safe_action:}</span>
-  <span class="c"># sorted by {node, port_id}. The transformer (§06) projected it; we just render.</span>
+  <span class="c"># sorted by {node, port_id}. Each row's :layout came from the port's value-type</span>
+  <span class="c"># module (§06). The transformer projected it; we just render. base = out dir.</span>
   <span class="k">def</span> model(robot), <span class="k">do:</span> <span class="t">BBMcuhub.Robot.Info</span>.ir(robot)
 
-  <span class="c"># The host codec is DATA-DRIVEN: it reads @layouts/@header at runtime, so it</span>
+  <span class="c"># The host codec is DATA-DRIVEN: it reads the IR layouts at runtime, so it</span>
   <span class="c"># can't drift from the model within Elixir — nothing to emit, nothing to stale.</span>
-  <span class="c"># THREE emitted artifacts cross the boundary the in-language guarantee can't reach:</span>
-  <span class="k">def</span> emit_c(model),       <span class="k">do:</span> render_header(model, @header, @layouts)   <span class="c"># writes wire_contract.h</span>
-  <span class="k">def</span> emit_vectors(model), <span class="k">do:</span> render_parity_vectors(model)            <span class="c"># writes the fixture</span>
-  <span class="k">def</span> emit_schedule(m),    <span class="k">do:</span> render_schedule(m)                    <span class="c"># writes schedule.gen.h per hub: {period_us, tick} rows from each port's rate</span>
+  <span class="c"># FOUR emitted artifacts cross the boundary the in-language guarantee can't reach:</span>
+  <span class="k">def</span> emit_c(base, model),       <span class="k">do:</span> render_header(base, model)        <span class="c"># gen/&lt;slug&gt;/wire_contract.h: ids · structs · floor consts · hash</span>
+  <span class="k">def</span> emit_glue(base, model),    <span class="k">do:</span> render_glue(base, model)          <span class="c"># gen/&lt;slug&gt;/&lt;hub&gt;.glue.h + .device.h: router · dispatch · floor · schedule · hub_tasks</span>
+  <span class="k">def</span> emit_vectors(base, model), <span class="k">do:</span> render_parity_vectors(base, model) <span class="c"># the parity-vector fixture</span>
+  <span class="c"># (the host Elixir codec is NOT emitted — it reads the IR directly)</span>
 <span class="k">end</span></pre>
 </div>
 
 <div class="grid2">
 <div class="codewrap" style="margin-bottom:0">
   <div class="codehdr"><span class="badge erl">ERL</span><span class="fn">…/wire/codec.ex</span><span style="margin-left:auto">DATA-DRIVEN (reads the layout)</span></div>
-<pre class="code"><span class="c"># NOT generated: one codec that walks the layout at runtime, so it can't</span>
-<span class="c"># drift from @layouts within Elixir. No per-port clauses to fall stale.</span>
+<pre class="code"><span class="c"># NOT generated: one codec that walks the value-type's layout at runtime, so</span>
+<span class="c"># it can't drift from the IR within Elixir. No per-port clauses to fall stale.</span>
 <span class="k">def</span> encode_body(node, port_id, seq, t, type, value) <span class="k">do</span>
   header  = pack(@header, %{node: node, port: port_id, seq: seq, t_dev: t})
-  payload = pack(<span class="t">Layouts</span>.fetch!(type), value)   <span class="c"># field order = the layout</span>
+  payload = pack(type.layout(), value)          <span class="c"># field order = the value-type's layout</span>
   header &lt;&gt; payload                              <span class="c"># LEN+CRC+COBS added by the framer</span>
 <span class="k">end</span>
 
 <span class="k">def</span> decode_body(body) <span class="k">do</span>                        <span class="c"># {node,port,seq,t_dev} + value map</span>
   {hdr, rest} = take(@header, body)
   {:ok, type} = <span class="t">PortIndex</span>.type_for(hdr.node, hdr.port)
-  {value, &lt;&lt;&gt;&gt;} = take(<span class="t">Layouts</span>.fetch!(type), rest)
+  {value, &lt;&lt;&gt;&gt;} = take(type.layout(), rest)     <span class="c"># type is the value-type MODULE</span>
   {:ok, %{hdr | type: type, value: value}}
 <span class="k">end</span></pre>
 </div>
 <div class="codewrap" style="margin-bottom:0">
-  <div class="codehdr"><span class="badge c">C out</span><span class="fn">firmware/wire_contract.h</span><span style="margin-left:auto">GENERATED</span></div>
+  <div class="codehdr"><span class="badge c">C out</span><span class="fn">firmware/gen/&lt;slug&gt;/wire_contract.h</span><span style="margin-left:auto">GENERATED</span></div>
 <pre class="code"><span class="c">/* ids, struct layout, and the floor constants —</span>
 <span class="c">   identical source of truth as the Elixir side. */</span>
 <span class="t">#define</span> PORT_POSE         <span class="n">0x10</span>
 <span class="t">#define</span> PORT_MOTOR_TARGET <span class="n">0x20</span>
 
-<span class="c">/* field order MATCHES @layouts[Pose] exactly */</span>
+<span class="c">/* field order MATCHES the value-type's layout exactly */</span>
 <span class="f">typedef struct</span> __attribute__((packed)) {
   <span class="f">float</span> tilt;
   <span class="f">float</span> rate;
@@ -772,7 +783,7 @@ flowchart LR
 
 <div class="callout good">
 <div class="ct"><span class="t-val">the parity vectors are computed, never typed</span> and they close the loop</div>
-<p style="margin:.3em 0 0">The third emitter walks the same model, builds a representative value per port, and runs the <em>real</em> encoder over it to produce the fixture rows. The numbers are therefore correct by construction, not by a human getting the bytes right. Worked for <code>:pose</code> with <code>tilt=1.0, rate=0.0</code>, node <code>0x02</code>, seq <code>42</code>, <code>t_dev</code> <code>1234</code>:</p>
+<p style="margin:.3em 0 0">The parity-vector emitter walks the same model, builds a representative value per port, and runs the <em>real</em> encoder over it to produce the fixture rows. The numbers are therefore correct by construction, not by a human getting the bytes right. Worked for an illustrative two-field <code>:pose</code> value (<code>tilt=1.0, rate=0.0</code>), node <code>0x02</code>, seq <code>42</code>, <code>t_dev</code> <code>1234</code>:</p>
 <div class="bytes" style="margin:.5em 0 0">
   <div class="bf f"><b>0x12</b><span>LEN=18</span></div>
   <div class="bf m"><b>0x02</b><span>node</span></div>
@@ -790,15 +801,16 @@ flowchart LR
   <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">test/wire_drift_test.exs</span><span style="margin-left:auto">the build is red if C and Elixir could disagree</span></div>
 <pre class="code"><span class="k">defmodule</span> <span class="t">WireDriftTest</span> <span class="k">do</span>
   <span class="k">use</span> <span class="t">ExUnit.Case</span>
+  <span class="n">@base</span> <span class="s">"test/support/firmware/gen/fixture"</span>   <span class="c"># the fixture robot's gen tree (§10)</span>
 
   <span class="c"># 1) The emitted files on disk match what the generator emits NOW.</span>
-  <span class="c">#    Catches a hand-edit to wire_contract.h / a schedule / the vectors, or a stale checkout.</span>
+  <span class="c">#    Catches a hand-edit to wire_contract.h / a glue header / the vectors, or a stale checkout.</span>
   test <span class="s">"emitted artifacts are not stale"</span> <span class="k">do</span>
-    model = <span class="t">Gen.WireGen</span>.model(<span class="t">Follower</span>)               <span class="c"># the IR the transformer projected (§06)</span>
-    assert <span class="t">File</span>.read!(<span class="s">"firmware/wire_contract.h"</span>) == <span class="t">Gen.WireGen</span>.emit_c(model)
-    assert <span class="t">File</span>.read!(<span class="s">"test/fixtures/parity_vectors.exs"</span>) == <span class="t">Gen.WireGen</span>.emit_vectors(model)
-    <span class="k">for</span> hub &lt;- <span class="t">Gen.WireGen</span>.hubs(model) <span class="k">do</span>             <span class="c"># each hub's schedule matches its ports' rates</span>
-      assert <span class="t">File</span>.read!(<span class="s">"hubs/</span>#{hub}<span class="s">/schedule.gen.h"</span>) == <span class="t">Gen.WireGen</span>.emit_schedule({model, hub})
+    model = <span class="t">BBMcuhub.Gen.WireGen</span>.model(<span class="t">FixtureRobot</span>)   <span class="c"># the IR the transformer projected (§06)</span>
+    assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/wire_contract.h"</span>) == <span class="t">BBMcuhub.Gen.WireGen</span>.emit_c(@base, model)
+    assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/parity_vectors.exs"</span>) == <span class="t">BBMcuhub.Gen.WireGen</span>.emit_vectors(@base, model)
+    <span class="k">for</span> hub &lt;- <span class="t">BBMcuhub.Gen.WireGen</span>.hubs(model) <span class="k">do</span>   <span class="c"># each hub's glue carries its schedule + dispatch + floor</span>
+      assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/</span>#{hub}<span class="s">.glue.h"</span>) == <span class="t">BBMcuhub.Gen.WireGen</span>.emit_glue(@base, {model, hub})
     <span class="k">end</span>
   <span class="k">end</span>
 
@@ -816,7 +828,7 @@ flowchart LR
 <span class="k">end</span></pre>
 </div>
 
-<blockquote><p>The generator's contract in one line: <b>one model, a data-driven Elixir codec, three emitted artifacts, and a test that fails the build the moment they could disagree</b> — so a value's bytes <em>and</em> its rate are decided exactly once, and the C hub and the Elixir host are physically prevented from drifting apart.</p></blockquote>
+<blockquote><p>The generator's contract in one line: <b>one model, a data-driven Elixir codec, four emitted artifacts, and a test that fails the build the moment they could disagree</b> — so a value's bytes <em>and</em> its rate are decided exactly once, and the C hub and the Elixir host are physically prevented from drifting apart.</p></blockquote>
 
 <h3>The compile-time checks v1 keeps</h3>
 <p>The full wire-budget and per-pick validation rail is <span class="tag t-bad">SAFeD</span>. v1 keeps the handful of checks that are cheap and catch a real bug on a laptop, run as a <b>Spark verifier</b> over the one projected model — so they fire <em>at compile time</em>. A malformed topology fails <code>mix compile</code>, raising a <code>DslError</code> that names the offending pair: the bug cannot ship, never mind reach the bus.</p>
@@ -926,34 +938,34 @@ flowchart TB
 <!-- ===================== 08 ===================== -->
 <section id="s8">
 <h2><span class="num">08</span>Hub firmware — the per-port scheduler</h2>
-<p class="lead">Each port runs at its own rate (§04), so the firmware needs a way to drive many cadences from one loop without a hand-rolled timer per device. The answer is a tiny <b>table-driven cooperative scheduler</b>: each port becomes a <code>{period, tick}</code> row generated from the contract, and one loop fires each row when its period has elapsed. The author writes only a <code>sample</code> or a safe action; the scheduler, the framing, and the routing are the framework's.</p>
+<p class="lead">Each port runs at its own rate (§04), so the firmware needs a way to drive many cadences from one loop without a hand-rolled timer per device. The answer is a tiny <b>table-driven cooperative scheduler</b>: each port becomes a <code>{period, tick}</code> row in the per-hub glue generated from the contract, and one loop fires each row when its period has elapsed. The user writes only the thin <b>firmware hook</b> for each port — a bounded device read or drive; the schedule table, the floor and command wiring, the framing, and the routing are all generated glue.</p>
 
 <h3>The scheduler — one table, many rates</h3>
-<p>Every job on a hub is a <b>period</b> plus a <b>tick function</b>. The IMU's pose port at 50&nbsp;Hz is a row with <code>period_us = 20&nbsp;000</code>; a range port at 20&nbsp;Hz is <code>50&nbsp;000</code>; the actuator floor runs every loop (period 0). The loop checks each row's elapsed time and calls the ones that are due — cooperative, non-preemptive, no per-device timer, no RTOS task. Because the rows are <b>generated from this hub's contract</b>, a hub only contains the tasks its ports declare: a sense-only leaf has no <code>control_tick</code>, a pure actuator has no sample task. The same source that sizes the wire (§06) sizes the schedule, so a port's declared <code>rate</code> and its firmware period can never disagree.</p>
+<p>Every job on a hub is a <b>period</b> plus a <b>tick function</b>. The IMU's pose port at 50&nbsp;Hz is a row with <code>period_us = 20&nbsp;000</code>; a range port at 20&nbsp;Hz is <code>50&nbsp;000</code>; the actuator floor runs every loop (period 0). The loop checks each row's elapsed time and calls the ones that are due — cooperative, non-preemptive, no per-device timer, no RTOS task. Because the rows are <b>generated into this hub's glue header from its contract</b>, a hub only contains the tasks its ports declare: a sense-only leaf has no <code>control_tick</code>, a pure actuator has no sample task. The generated tick wraps the user's device hook (it calls <code>imu_read</code>, drains the floor, advances the <code>seq</code>); the user never wires a task into the table by hand. The same source that sizes the wire (§06) sizes the schedule, so a port's declared <code>rate</code> and its firmware period can never disagree.</p>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge c">C</span><span class="fn">hubs/firmware/scheduler.c</span><span style="margin-left:auto">period + tick, one loop drives them all</span></div>
-<pre class="code"><span class="c">/* Each port is a period and a tick. The table is GENERATED from this hub's</span>
-<span class="c">   contract — only the ports this hub actually has appear here. One loop fires</span>
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">firmware/src/scheduler.c</span><span style="margin-left:auto">period + tick, one loop drives them all</span></div>
+<pre class="code"><span class="c">/* The chassis loop is hub-agnostic; the task table is GENERATED into this hub's</span>
+<span class="c">   glue header — only the ports this hub actually has appear there. One loop fires</span>
 <span class="c">   each task when due; nothing preempts, so every tick must be bounded.       */</span>
 <span class="f">typedef struct</span> { uint32_t period_us, last_us; <span class="f">void</span> (*tick)(uint32_t now); } Task;
 
-<span class="c">/* --- generated: hubs/&lt;this hub&gt;/schedule.gen.h --- */</span>
-<span class="f">static</span> Task tasks[] = {
-  {  20000, 0, pose_sample_tick   },   <span class="c">/* SENSE pose @ 50 Hz  (rate from contract) */</span>
-  {  50000, 0, range_sample_tick  },   <span class="c">/* SENSE range @ 20 Hz                      */</span>
-  {  20000, 0, status_write_tick  },   <span class="c">/* report status @ 50 Hz                    */</span>
-  {      0, 0, control_tick       },   <span class="c">/* ACT: floor + drive — every loop (kHz)    */</span>
+<span class="c">/* --- generated: firmware/gen/&lt;slug&gt;/&lt;this hub&gt;.glue.h provides hub_tasks[] --- */</span>
+<span class="f">static</span> Task hub_tasks[] = {
+  {  20000, 0, pose_sample_tick   },   <span class="c">/* SENSE pose @ 50 Hz — wraps imu_read hook  */</span>
+  {  50000, 0, range_sample_tick  },   <span class="c">/* SENSE range @ 20 Hz                       */</span>
+  {  20000, 0, status_write_tick  },   <span class="c">/* report status @ 50 Hz                     */</span>
+  {      0, 0, control_tick       },   <span class="c">/* ACT: floor + drive — every loop (kHz)     */</span>
 };
 
 <span class="f">void</span> loop() {
   uint32_t now = micros();
   feed_watchdog();                              <span class="c">/* hardware backstop, independent of any tick */</span>
 
-  <span class="k">for</span> (size_t i = 0; i &lt; N_TASKS; i++) {         <span class="c">/* fire every task that is due */</span>
-    <span class="k">if</span> ((uint32_t)(now - tasks[i].last_us) &gt;= tasks[i].period_us) {
-      tasks[i].last_us = now;                    <span class="c">/* schedule next; tick gets `now` so it needs no clock of its own */</span>
-      tasks[i].tick(now);
+  <span class="k">for</span> (size_t i = 0; i &lt; N_HUB_TASKS; i++) {     <span class="c">/* fire every task that is due */</span>
+    <span class="k">if</span> ((uint32_t)(now - hub_tasks[i].last_us) &gt;= hub_tasks[i].period_us) {
+      hub_tasks[i].last_us = now;                <span class="c">/* schedule next; tick gets `now` so it needs no clock of its own */</span>
+      hub_tasks[i].tick(now);
     }
   }
 
@@ -979,7 +991,7 @@ flowchart TB
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge c">C</span><span class="fn">hubs/firmware/router.c</span><span style="margin-left:auto">meaning-blind forwarding</span></div>
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">firmware/src/router.c</span><span style="margin-left:auto">meaning-blind forwarding</span></div>
 <pre class="code"><span class="c">/* Flat addressing (§03): NODE is a whole-tree-unique id, never a path. A branch</span>
 <span class="c">   hub forwards a frame toward the local link that reaches the dest node — a child</span>
 <span class="c">   link is NOT a port. It does NOT decode the payload and does NOT touch seq/t_dev.</span>
@@ -992,14 +1004,14 @@ flowchart TB
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge c">C</span><span class="fn">hubs/imu/imu_sensor.c</span><span style="margin-left:auto">a tick: bounded read + pure sample</span></div>
-<pre class="code"><span class="c">/* The scheduler calls this AT its period, so the tick owns no timer of its own —</span>
-<span class="c">   it just does one bounded read, one pure sample, and one write. The producing</span>
-<span class="c">   hub owns the seq; it advances only on a real new value.                      */</span>
+  <div class="codehdr"><span class="badge c">C gen</span><span class="fn">firmware/gen/&lt;slug&gt;/imu.glue.h</span><span style="margin-left:auto">GENERATED tick — wraps the user's hook</span></div>
+<pre class="code"><span class="c">/* GENERATED. The scheduler calls this AT its period, so the tick owns no timer</span>
+<span class="c">   of its own — it does one bounded read (the user's device hook), one pure</span>
+<span class="c">   sample, one write. The hub owns the seq; it advances only on a real value.  */</span>
 <span class="f">void</span> pose_sample_tick(uint32_t now) {
-  <span class="f">float</span> ax, az, gy;
-  <span class="k">if</span> (!imu_read(&amp;ax, &amp;az, &amp;gy)) <span class="k">return</span>;       <span class="c">/* bounded by Wire.setTimeOut → no write → seq stalls → reader goes stale */</span>
-  Sample c = sample_pose(ax, az, gy);      <span class="c">/* PURE: → {:ok, value} | :invalid */</span>
+  Imu raw;
+  <span class="k">if</span> (!imu_pose_read(&amp;raw)) <span class="k">return</span>;          <span class="c">/* the hand-authored hook; bounded → no write → seq stalls → reader stale */</span>
+  Sample c = sample_pose(&amp;raw);            <span class="c">/* PURE: → {:ok, value} | :invalid */</span>
   <span class="k">if</span> (c.invalid) <span class="k">return</span>;
   Frame f = { .node = MY_NODE, .port = PORT_POSE,
               .seq = pose_seq++, .t_dev = now, .payload = c.value };   <span class="c">/* `now` = this hub's own µs */</span>
@@ -1007,7 +1019,19 @@ flowchart TB
 }</pre>
 </div>
 
-<p>The split is the whole point: the <b>scheduler</b> owns <em>when</em> (one table, generated from rates), the <b>tick</b> owns <em>one bounded step</em>, and the <b>pure <code>sample</code></b> owns <em>the math</em> — three concerns, three homes, none of them a timer the author has to write. A faster or slower port is a different number in the contract; the tick and the <code>sample</code> never change.</p>
+<div class="codewrap">
+  <div class="codehdr"><span class="badge c">C</span><span class="fn">firmware/mcu/imu.c</span><span style="margin-left:auto">the hand-authored device hook — all the user owes</span></div>
+<pre class="code"><span class="c">/* HAND-AUTHORED. The ONLY firmware the user writes for this hub: device setup</span>
+<span class="c">   plus, per port, a bounded read/drive hook. The hook's SIGNATURE is owned by</span>
+<span class="c">   the port's value-type (imu) and declared in the generated imu.device.h, so</span>
+<span class="c">   the contract the user owes is legible and resolved at link time.            */</span>
+<span class="k">bool</span> imu_pose_read(Imu *out) {
+  <span class="k">return</span> bno055_read(out);                  <span class="c">/* bounded by Wire.setTimeOut; false → tick writes nothing */</span>
+}
+<span class="f">void</span> imu_device_setup(<span class="f">void</span>) { bno055_begin(); }   <span class="c">/* init pins/peripherals */</span></pre>
+</div>
+
+<p>The split is the whole point: the <b>scheduler</b> owns <em>when</em> (the chassis loop), the <b>generated tick</b> owns <em>the wiring</em> (one row per port, the floor and command plumbing, the <code>seq</code> advance), the <b>hand-authored hook</b> owns <em>one bounded device step</em>, and the <b>pure <code>sample</code></b> owns <em>the math</em> — four concerns, four homes, none of them a timer or a frame the user has to write. Everything under <code>gen/</code> is generated and drift-tested; everything under <code>mcu/</code> is hand-authored. A faster or slower port is a different number in the contract; the hook and the <code>sample</code> never change, and a user-defined hub is wired identically to a stock one.</p>
 </section>
 
 <!-- ===================== 09 ===================== -->
@@ -1021,15 +1045,16 @@ flowchart TB
 </div>
 
 <div class="codewrap">
-  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">robots/follower/lib/follower.ex</span><span style="margin-left:auto">the bot, defined in BeamBots</span></div>
-<pre class="code"><span class="k">defmodule</span> <span class="t">Follower</span> <span class="k">do</span>
+  <div class="codehdr"><span class="badge erl">ELIXIR</span><span class="fn">examples/segby_v1/lib/segby_v1/robot.ex</span><span style="margin-left:auto">the bot, defined in BeamBots</span></div>
+<pre class="code"><span class="k">defmodule</span> <span class="t">SegbyV1.Robot</span> <span class="k">do</span>
   <span class="k">use</span> <span class="t">BB</span>, extensions: [<span class="t">BBMcuhub.Dsl</span>]      <span class="c"># BeamBots' DSL + our hub-gateway extension</span>
 
-  <span class="c"># A sibling `hubs do` block PLACES each hub module on a node id (§06). The</span>
-  <span class="c"># topology section is not patchable, so placement lives here, not inside it.</span>
+  <span class="c"># The consumer references BBMcuhub.* only at library seams; hubs and value-types</span>
+  <span class="c"># live in the example's own SegbyV1.* namespace. A sibling `hubs do` block PLACES</span>
+  <span class="c"># each hub module on a node id (§06); the topology section is not patchable.</span>
   hubs <span class="k">do</span>
-    hub :imu,   <span class="t">Hubs.Imu</span>,   node: <span class="n">0x02</span>
-    hub :motor, <span class="t">Hubs.Motor</span>, node: <span class="n">0x05</span>
+    hub :imu,   <span class="t">SegbyV1.Hubs.Blaster</span>, node: <span class="n">0x02</span>
+    hub :motor, <span class="t">SegbyV1.Hubs.Wheels</span>,  node: <span class="n">0x05</span>
   <span class="k">end</span>
 
   topology <span class="k">do</span>
@@ -1051,7 +1076,9 @@ flowchart TB
 <span class="k">end</span>
 
 <span class="c"># The link owner (the root UART) is NOT a topology entity — it is started in the</span>
-<span class="c"># application supervisor, placed to survive a view/law crash (§07).</span>
+<span class="c"># application supervisor, placed to survive a view/law crash (§07). The consumer</span>
+<span class="c"># does not hand-write that supervisor: BBMcuhub.Host takes `robot: SegbyV1.Robot`,</span>
+<span class="c"># derives the command slots from its IR, and wires the BB.Supervisor + LinkOwner.</span></pre>
 </div>
 
 <table>
@@ -1086,19 +1113,18 @@ flowchart TB
             mon: <span class="t">Monitor</span>.new(node, port, opts[:fresh_for])}}   <span class="c"># witnessed: false → born stale</span>
   <span class="k">end</span>
 
-  <span class="c"># Each beat: update the freshness monitor, publish only if fresh.</span>
+  <span class="c"># Each beat: update the freshness monitor, publish only if fresh. The view is</span>
+  <span class="c"># VALUE-TYPE-AGNOSTIC: it delegates lifting to the port's value-type module, so a</span>
+  <span class="c"># consumer's own value-type surfaces through this same view unchanged.</span>
   <span class="f">@impl true</span>
   <span class="k">def</span> handle_info(:beat, st) <span class="k">do</span>
     mon = <span class="t">Monitor</span>.check(st.mon)                       <span class="c"># did seq advance within fresh_for? (§04)</span>
     <span class="k">if</span> <span class="t">Monitor</span>.fresh?(mon) <span class="k">do</span>
       {value, _seq, _t} = <span class="t">NodeRegistry</span>.get(st.node, st.port)
-      <span class="t">BB</span>.publish(st.bb.robot, [:sensor | st.bb.path], lift(st.type, value))
+      <span class="t">BB</span>.publish(st.bb.robot, [:sensor | st.bb.path], st.type.lift(value))  <span class="c"># value-type owns the lift (§06)</span>
     <span class="k">end</span>                                                  <span class="c"># stale → publish NOTHING</span>
     {:noreply, %{st | mon: mon}}
   <span class="k">end</span>
-
-  <span class="c"># pure: a slot value (a field map) → a typed BB.Message.Sensor.* (Nx-backed)</span>
-  <span class="k">defp</span> lift(:imu, v), <span class="k">do:</span> <span class="t">Lift</span>.imu_to_bb(v)   <span class="c"># Quaternion.new/Vec3.new, wrapped in BB.Message</span>
 <span class="k">end</span></pre>
 </div>
 
@@ -1126,14 +1152,16 @@ flowchart TB
     {:ok, {^node, status}} = <span class="t">PortIndex</span>.resolve(opts[:hub], opts[:status_port])
     :timer.send_interval(opts[:beat_ms], :status_beat)     <span class="c"># tick the status freshness monitor</span>
     {:ok, %{bb: bb, node: node, cmd: cmd, status: status, seq: 1,
+            type: <span class="t">PortIndex</span>.type!(node, cmd),               <span class="c"># the command port's value-type module</span>
             status_mon: <span class="t">Monitor</span>.new(node, status, opts[:status_fresh_for])}}
   <span class="k">end</span>
 
   <span class="c"># A command from BeamBots → write our ONE command slot (single-writer; each put</span>
   <span class="c"># advances the command seq). The link owner drains it; the floor decides to act.</span>
+  <span class="c"># VALUE-TYPE-AGNOSTIC: the port's value-type owns unlift, so any value-type fits.</span>
   <span class="f">@impl true</span>
-  <span class="k">def</span> handle_info({:bb, _topic, %<span class="t">BB.Message</span>{payload: %<span class="t">Command.Effort</span>{} = c}}, st) <span class="k">do</span>
-    <span class="t">NodeRegistry</span>.put(st.node, st.cmd, <span class="t">Lift</span>.effort_from_bb(c), st.seq, 0)
+  <span class="k">def</span> handle_info({:bb, _topic, %<span class="t">BB.Message</span>{} = msg}, st) <span class="k">do</span>
+    <span class="t">NodeRegistry</span>.put(st.node, st.cmd, st.type.unlift(msg), st.seq, 0)  <span class="c"># value-type owns the unlift (§06)</span>
     {:noreply, %{st | seq: st.seq + 1}}
   <span class="k">end</span>
   <span class="k">def</span> handle_info(:status_beat, st), <span class="k">do:</span> {:noreply, %{st | status_mon: <span class="t">Monitor</span>.check(st.status_mon)}}
@@ -1164,35 +1192,48 @@ flowchart TB
 <p style="margin:.3em 0 0">Neither view opens a port, frames a byte, or names UART vs CAN — all of that is the link owner's, so the views are pure lift + a freshness gate and would run unchanged if a port moved from the root hub's I²C to a CAN leaf. Neither view makes anything safe: the sensor stops <em>publishing</em> when stale, the actuator relays intent and reads truth back through a born-stale monitor, and the hub's own floor is the safe-state mechanism. And the actuator is the <b>only</b> writer of its command slot — the rule that lets the link owner be a harmless read-only drain (§04). Because the actuator <em>server</em> auto-subscribes the command topic and auto-registers the actuator for <code>disarm</code> when <code>disarm/1</code> is implemented, the view's only standing obligation is to <em>implement</em> the callbacks correctly — there is no manual <code>subscribe</code>/<code>register</code> to forget.</p>
 </div>
 
-<p>The views are deliberately thin and will eventually be <em>generated</em> from the contract (so <code>options_schema</code> <em>is</em> the contract, <code>init</code> self-subscribes and registers automatically, and <code>lift/2</code> follows the slot→<code>BB.Message</code> map) — that generation is <span class="tag t-bad">SAFeD</span>. v1 hand-writes these two small modules to get the BeamBots round-trip working, holding to the rules above: pure-lift, born-stale, single-writer, no socket.</p>
+<p>The views are deliberately thin: lifting already lives in the port's value-type (<code>lift</code>/<code>unlift</code>), so the same two modules serve every value-type — stock or consumer-defined — without a per-atom clause. Generating the views themselves from the contract (so <code>options_schema</code> <em>is</em> the contract and <code>init</code> self-subscribes and registers automatically) is <span class="tag t-bad">SAFeD</span>. v1 hand-writes these two small modules to get the BeamBots round-trip working, holding to the rules above: value-type-agnostic lift, born-stale, single-writer, no socket.</p>
 </section>
 
 <!-- ===================== 10 ===================== -->
 <section id="s10">
 <h2><span class="num">10</span>Layout &amp; the deferred list</h2>
-<p class="lead">The repository mirrors the three strata, the dependency arrow points only downward, and the wire contract is generated — never hand-written.</p>
+<p class="lead">The repository is a publishable <b>library</b> (the machinery every consumer gets free) plus a separate <b>example</b> app (the device logic, modelling a consumer); the dependency arrow points only downward — library ← example — and the wire contract is generated, never hand-written.</p>
 
-<pre class="tree"><span class="d">platform/</span>                            <span class="cm"># every robot gets this free, never edits it</span>
-  host/          (mix app)            <span class="cm"># node_registry · link_owner · monitor · hub_runner</span>
-    lib/ node_registry.ex link_owner.ex monitor.ex hub_runner.ex
-         wire/crc16.ex wire/cobs.ex wire/framing_cobs.ex wire/codec.ex
-  bb_hub/        (mix app)            <span class="cm"># the BeamBots seam (§09)</span>
-    lib/ hub_view/sensor.ex hub_view/actuator.ex
-         hub_view/schema.ex           <span class="cm"># hub contract → Spark.Options schema (later: generated)</span>
-  firmware/                           <span class="cm"># the C hub chassis (shared by every hub)</span>
-    scheduler.c loop.c router.c transport.c floor.c
-    wire_contract.h                   <span class="cm"># GENERATED from the projected IR — drift-tested</span>
-  dsl/                                <span class="cm"># the hub-gateway extension: hubs do · transformer (→IR) · verifier (§06)</span>
-  gen/                                <span class="cm"># the one generator: IR → Elixir + C + schedule + parity vectors</span>
+<pre class="tree"><span class="d">bb_mcuhub/</span>  (publishable library, repo root)    <span class="cm"># the machinery — every consumer gets it free</span>
+  mix.exs                                       <span class="cm"># the :bb_mcuhub package</span>
+  <span class="cg">lib/bb_mcuhub/</span>
+    wire/      crc16.ex cobs.ex frame.ex codec.ex   <span class="cm"># the wire (§03), codec is DATA-DRIVEN (§06)</span>
+    contract/  ir.ex port_index.ex             <span class="cm"># the projected model + (node,port) ↔ (hub,port) resolution</span>
+    value_type/ imu.ex effort.ex status.ex     <span class="cm"># the LEAN STOCK value-types: layout + lift/unlift + hook sig (§06)</span>
+    dsl/       extension.ex transformer.ex verifier.ex  <span class="cm"># the `hubs do` extension → IR → compile-time checks</span>
+    gen/       wire_gen.ex                      <span class="cm"># the one generator: IR → wire_contract.h + per-hub glue + parity vectors</span>
+    hub.ex                                      <span class="cm"># `use BBMcuhub.Hub` — declare a hub's ports</span>
+    host.ex                                     <span class="cm"># `use BBMcuhub.Host` — generic launcher: robot: → command slots → BB.Supervisor + LinkOwner (§09)</span>
+    bb_hub/    sensor.ex actuator.ex            <span class="cm"># the BeamBots seam — value-type-agnostic views (§09)</span>
+  <span class="cg">firmware/</span>  (self-contained PlatformIO library)  <span class="cm"># the C CHASSIS, pulled via lib_deps</span>
+    library.json
+    src/   cobs.c crc16.c frame.c router.c scheduler.c segment.c transport.c floor.c
+    src/esp32/  glue.c                          <span class="cm"># ESP32 transport glue (UART/TWAI)</span>
+    include/                                    <span class="cm"># the chassis headers the generated glue includes</span>
+  test/support/                                 <span class="cm"># a coverage-maximizing FIXTURE ROBOT (no example needed)</span>
+    fixture_robot.ex                            <span class="cm"># spans both transports · stamped+unstamped · the actuator floor · its OWN custom value-type</span>
+    firmware/gen/fixture/                        <span class="cm"># the fixture's generated artifacts — backs the drift + C-parity tests</span>
 
-<span class="cg">hubs/</span>                                <span class="cm"># one folder per capability — a hub module (use BBMcuhub.Hub) + its pure sample/step</span>
-  imu/    lib/imu.ex lib/sample_pose.ex  mcu/imu_sensor.c schedule.gen.h  <span class="cm"># schedule GENERATED</span>
-  range/  lib/range.ex mcu/sample_range.c            schedule.gen.h
-  motor/  lib/motor.ex lib/floor.ex mcu/floor.c foc.c schedule.gen.h  <span class="cm"># floor + safe action</span>
-  balance/lib/balance.ex                              <span class="cm"># pure step/4 on the host</span>
-
-<span class="bt">robots/</span>                              <span class="cm"># a robot = BeamBots DSL (hubs do + topology) + UI</span>
-  follower/  lib/follower.ex  dashboard.ex</pre>
+<span class="bt">examples/segby_v1/</span>  (a consumer app)         <span class="cm"># the device logic — depends on the library like any downstream</span>
+  mix.exs                                       <span class="cm"># {:bb_mcuhub, path: "../.."} — a path dep today, a registry dep later</span>
+  <span class="cg">lib/segby_v1/</span>                                <span class="cm"># its OWN root namespace; BBMcuhub.* only at library seams</span>
+    robot.ex                                    <span class="cm"># SegbyV1.Robot — BeamBots DSL (hubs do + topology)</span>
+    hubs/      blaster.ex wheels.ex             <span class="cm"># use BBMcuhub.Hub</span>
+    value_types/ range.ex led.ex               <span class="cm"># the example DEFINES Range+Led ITSELF — proving the extension seam</span>
+    balance.ex teleop.ex                        <span class="cm"># pure control + teleop loop</span>
+    host.ex                                     <span class="cm"># thin wrapper over BBMcuhub.Host</span>
+  <span class="cg">firmware/</span>
+    mcu/    blaster.c wheels.c                   <span class="cm"># HAND-AUTHORED device hooks ONLY (_device_setup + per-port read/drive)</span>
+    gen/segby_v1/  wire_contract.h *.glue.h *.device.h parity_vectors.exs  <span class="cm"># GENERATED — drift-tested</span>
+    platformio.ini                              <span class="cm"># envs blaster_root / wheels_leaf · lib_deps the library chassis</span>
+  test/                                         <span class="cm"># the example's own tests + its own drift test</span>
+  BRINGUP.md</pre>
 
 <div class="callout note">
 <div class="ct"><span class="t-bad">SAFeD</span> the deferred list, in priority order</div>
@@ -1204,6 +1245,7 @@ flowchart TB
   <li><b>Per-register params + EEPROM/SRAM split</b> — runtime tuning of gains, clamped against declared <code>[min,max]</code> host-side and at the hub.</li>
   <li><b>Wire-budget &amp; full declare/pick/validate</b> — refuse a topology that over-subscribes a link; one rail for every pick.</li>
   <li><b>Host coordination policy</b> — cross-hub judgment (a dangerous combination no single hub floored on) that may initiate a stop; pure <code>decide/3</code> + thin shell.</li>
+  <li><b>A registerable <code>HubDevice</code> vtable (Shape 2)</b> — a struct of function pointers the device file fills, for runtime device-swap and host-mocked hubs. The generated glue (§08) resolves hooks by well-known link-time names (Shape 1) and does <em>not</em> preclude adding this later.</li>
   <li><b>Health fold across scopes</b>, <b>self-heal</b>, <b>A/B firmware</b>, and a branch hub <b>bridging to a second, deeper CAN segment</b> (a sub-backplane below a limb) — the root hub's UART↔CAN bridge generalised one level down.</li>
 </ol>
 </div>

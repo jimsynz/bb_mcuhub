@@ -49,7 +49,26 @@ ports and their **intrinsic wire facts** — `dir`, value `type`, `rate`, `t_dev
 independent of where it is deployed. A user imports a stock hub module, extends it, or
 writes their own; the **topology** then *places* it on a `NODE` and wires its ports to
 BeamBots components. The library owns the communication logic (wire, floor, freshness,
-segmentation); the hub module owns the device-specific logic.
+segmentation); the hub module owns the device-specific logic. A port names a
+**value-type**, not its own layout.
+
+### Value-type
+A standalone, reusable unit (`use BBMcuhub.ValueType`) defining *what bytes a kind of
+value puts on the wire and how those bytes become a typed `BB.Message`* — and nothing
+else. It carries an ordered `[{field, wire_type}]` **layout** plus a `lift`/`unlift` pair
+(raw field-map ↔ `BB.Message`). It names no node, pin, rate, or bot, so the **same**
+value-type composes across many **hubs** and robots — `:imu` is one contract whether on a
+follower's IMU board or segby's Blaster. A **port** references its value-type by module;
+the library ships a lean stock set — **imu**, **effort**, and **status** (the universal
+pair plus the floor's reported-truth slot, §05) — and a consumer writes their own in their
+own project to extend the wire vocabulary, no library edit. The worked example proves this
+by defining its own `Range` and `Led` value-types rather than relying on stock ones, so the
+extension seam is exercised — and validated — by construction. The IR carries the resolved layout, so the C struct, the Elixir codec, and the
+parity bytes all derive from the one declaration. A value-type owns the contract on **both
+strata**: the host `lift`/`unlift`, *and* the **firmware hook** signature for ports of its
+shape. It is the single extensibility spine — a new kind of value is one self-contained,
+cross-bot-reusable unit.
+_Avoid_: layout (that is one *field* of a value-type, not the unit itself).
 
 ### Topology validation (the verifier)
 The single compile-time check that the one authored model is well-formed (§06). It is a
@@ -176,11 +195,28 @@ writer — so it can never manufacture a `seq` advance.
 
 ### Component (the BeamBots view)
 A thin `BB.Sensor` / `BB.Actuator` that surfaces a hub's port to BeamBots. A *view*: it
-reads/writes slots through the LinkOwner, lifts to/from typed `BB.Message`, and carries
-the hub contract in its `options_schema`. It owns no socket and names no transport, so it
-runs unchanged whether the port is on the root hub's own I²C or a CAN leaf three hops
-down. A sensor view publishes only when born-stale freshness passes; an **actuator view
-is the single writer of its command slot**.
+reads/writes slots through the LinkOwner and carries the hub contract in its
+`options_schema`. It is **value-type-agnostic** — it lifts to/from a typed `BB.Message` by
+delegating to the port's **value-type** (`lift`/`unlift`), never hard-coding a struct
+shape, so a consumer's own value-type surfaces through the same view. It owns no socket
+and names no transport, so it runs unchanged whether the port is on the root hub's own I²C
+or a CAN leaf three hops down. A sensor view publishes only when born-stale freshness
+passes; an **actuator view is the single writer of its command slot**.
+
+### Firmware hook
+The thin device-specific seam a user implements on the MCU: a small set of well-known C
+functions the **generated** per-hub glue calls — `<hub>_device_setup()` (init pins/
+peripherals) plus, per port, a sense/act hook (`<hub>_<port>_read` / `<hub>_<port>_drive`).
+The hook *signature* is owned by the port's **value-type**, not invented per hub, so a
+user-defined value-type carries its own firmware-hook shape and is a first-class citizen.
+Everything mechanical — router table, `hub_on_body`, command dispatch, the floor init/
+`on_command`/`control_tick`/status plumbing, the schedule + `hub_tasks` — is generated
+from the IR (never hand-written, so safety-critical seq/floor wiring cannot be miswired
+per hub). The generator emits the hook prototypes into a `<hub>.device.h` so the contract
+a user owes is legible, resolved at link time. Generating from the IR means a user-defined
+hub gets its glue generated identically to a stock one — a device hook is *never*
+hand-glued.
+_Avoid_: hand-written `main_*.cpp` (the pre-generation baseline).
 
 ### SAFeD (Safe-by-Default, elaborate later)
 The rule for deferred work: a stub must default to the *safe* behaviour (disarmed, stale,
@@ -188,4 +224,6 @@ refused) so elaborating it later only ever *adds* permission, never removes a gu
 Deferred items are named in the text, not hidden. Notable v1 holes left explicit: node
 identity is **trust-on-first-use** (a mis-flashed/duplicate board is undetected until the
 deferred `fw_id` check), and right-rate enforcement (wire-budget + conflation) is deferred
-— v1 permits right-rate but does not yet enforce it.
+— v1 permits right-rate but does not yet enforce it. The **firmware hook** is resolved by
+well-known link-time names (Shape 1); a registerable `HubDevice` vtable (runtime device
+swap, host-mocked hubs) is a deferred extension the generated glue does not preclude.

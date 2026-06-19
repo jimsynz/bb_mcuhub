@@ -10,6 +10,66 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-18 — `bb_mcuhub` becomes a reusable library + a `segby_v1` consumer example (§06, §08, §09, §10; ADR-0003)
+
+The system was one Mix app with the example tangled into the library namespace
+(`BBMcuhub.Robots.{Follower,SegbyV1}`, `BBMcuhub.Segby.Balance`, `hubs/*`,
+`robots/*` compiled into `:bb_mcuhub`) and the firmware glue hand-written per hub.
+The design now draws a real consumer boundary, with two load-bearing seams.
+
+- **Two apps, a path dependency.** A publishable **library** (`:bb_mcuhub`, repo
+  root) + a separate **example** (`:segby_v1`, `examples/segby_v1/`) depending on
+  the library exactly as a downstream consumer would — a Mix `path` dep (host) and
+  a PlatformIO `lib_deps` dep on the chassis packaged as a `library.json` library
+  (firmware). The example owns its own root namespace `SegbyV1.*` and references
+  `BBMcuhub.*` only for library seams.
+- **Value-type is the extensibility spine (Option C).** A wire value-type
+  (`imu`/`effort`/`status`/…) is no longer a library-internal `@layouts` map entry;
+  it is a standalone `use BBMcuhub.ValueType` module owning its layout, host
+  `lift`/`unlift`, and firmware-hook signature. A port names its type by module;
+  the library ships a lean stock set (imu, effort, status) and a consumer adds
+  their own with no library edit. The host views become value-type-agnostic
+  (delegate to `type_module.lift/unlift`; the old `BBHub.Lift` dissolves into the
+  stock type modules).
+- **Firmware per-hub glue is generated; the user writes only device hooks (Shape
+  1).** The generator emits the router table, `hub_on_body`, command dispatch, the
+  floor init/`on_command`/`control_tick`/status plumbing, the schedule, and
+  `hub_tasks` into `<app>/firmware/gen/<slug>/`; the user implements only
+  `<hub>_device_setup()` + per-port `<hub>_<port>_read`/`_drive` hooks (signatures
+  owned by the value-type) under `<app>/firmware/mcu/`. Clean on-disk split:
+  `gen/` is generated + drift-tested, `mcu/` is hand-authored. The emitted-artifact
+  count grows from three to four (the per-hub glue header joins the C header,
+  parity vectors, and the data-driven — not emitted — Elixir codec); the old
+  `hubs/*/mcu/schedule.gen.h` is folded into the glue header.
+- **Library is self-testing; Follower retired.** The Follower walking skeleton
+  (robot + imu/motor hubs + their artifacts) is removed; a fresh,
+  coverage-maximizing **fixture robot** under `test/support/` backs the drift +
+  C-parity witnesses (both transports, stamped/unstamped, the actuator floor, and
+  a custom value-type), so the library proves the wire *and* the extension seam in
+  isolation. The example adds its own drift test over its own artifacts.
+- **Consumer ergonomics.** `@default_robot` defaults (which pointed at the
+  now-external Follower) are removed — generation is always explicit-robot;
+  `WireGen` takes an explicit output-base so each app generates into its own tree;
+  the library ships `mix wire.gen --robot <Mod>`; a generic `BBMcuhub.Host`
+  launcher (taking `robot:`, deriving command slots from the IR) absorbs the
+  LinkOwner/slot-resolution supervisor a consumer otherwise hand-writes.
+
+- **Why:** the prior tangle could not prove the import boundary, and the
+  hand-written firmware glue forced a consumer to re-derive safety-critical
+  seq/floor wiring per hub. Making the example a true consumer, the value-type the
+  open extension seam, and the firmware glue generated turns "is this library good
+  to consume?" into a property CI checks by construction — a broken seam breaks the
+  example build. Rejected: a closed value-type map (can't extend without a fork),
+  authoring layouts inline in the hub DSL (buries a reusable unit in a
+  non-reusable one), C glue via macros (a second source of wiring, the dual-model
+  problem ADR-0002 killed). Deferred (SAFeD): a registerable `HubDevice` vtable for
+  runtime device-swap / host-mocked hubs (the generated glue does not preclude it).
+- **Deferred to implementation:** this is the design pass (ADR-0003 + §06/§08/§09/
+  §10 + CONTEXT.md terms Value-type, Firmware hook). The code split, the generator
+  extension, the fixture robot, and the example app are the build phases.
+
+---
+
 ## 2026-06-18 — Host command drain is event-driven, not polled (§07)
 
 - **Was:** `BBMcuhub.Host.LinkOwner` drained watched command slots on a 5 ms
