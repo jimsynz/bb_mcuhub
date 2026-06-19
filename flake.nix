@@ -84,6 +84,11 @@
             clang # cc/clang for firmware/test host harnesses
             gnumake # `cd firmware/test && make`
             pkg-config # vintage_net_wifi's host NIF needs it (Nerves firmware build)
+            # Nerves host tooling for `mix firmware` (assemble the rpi0_2 .fw image):
+            fwup # assembles + burns/uploads the .fw image (mix firmware / upload)
+            squashfsTools # mksquashfs — the root filesystem image
+            xz # firmware payload compression
+            coreutils-prefixed # GNU coreutils as g-prefixed (Nerves wants `gstat` on macOS)
 
             # --- shared dev tooling ---
             lefthook # pre-commit format gate (run `lefthook install`)
