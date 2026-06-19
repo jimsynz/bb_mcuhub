@@ -47,3 +47,6 @@ examples/*/_build/
 examples/*/deps/
 examples/*/cover/
 examples/*/doc/
+
+# Local secrets (wifi creds for the Nerves build, etc.) — never commit
+.env

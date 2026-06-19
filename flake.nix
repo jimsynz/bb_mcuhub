@@ -71,13 +71,19 @@
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             # --- Elixir host stratum ---
-            elixir # 1.18.x — satisfies elixir ~> 1.18
-            erlang # OTP — the BEAM the host runs on
+            # Elixir 1.18 on OTP 28 (both pinned to erlang_28 so `mix` and the
+            # standalone BEAM agree). OTP 28 is required by nerves_system_rpi0_2
+            # ~> 2.0 (the OTP-28 line the Pi runs); a 1.18-on-OTP-27 elixir makes
+            # `mix firmware` fail the host/target OTP-major check. Satisfies the
+            # apps' `elixir ~> 1.18`.
+            beam.packages.erlang_28.elixir_1_18 # Elixir 1.18.x on OTP 28
+            erlang_28 # OTP 28 — matches the elixir above + nerves rpi0_2 2.x
 
             # --- C / ESP32 firmware stratum ---
-            platformio # `pio run` for the 4 ESP32 envs (6.1.x)
+            platformio # `pio run` for the ESP32 envs (6.1.x)
             clang # cc/clang for firmware/test host harnesses
             gnumake # `cd firmware/test && make`
+            pkg-config # vintage_net_wifi's host NIF needs it (Nerves firmware build)
 
             # --- shared dev tooling ---
             lefthook # pre-commit format gate (run `lefthook install`)
