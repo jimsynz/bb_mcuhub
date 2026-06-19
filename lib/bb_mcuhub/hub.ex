@@ -48,7 +48,7 @@ defmodule BBMcuhub.Hub.Dsl do
     schema: [
       name: [type: :atom, required: true, doc: "the port name on this hub"],
       dir: [type: {:in, [:in, :out]}, required: true, doc: ":in (command) or :out (produced)"],
-      type: [type: :atom, required: true, doc: "the value type (a Contract.Layouts key)"],
+      type: [type: :atom, required: true, doc: "the value type (a BBMcuhub.ValueType ref)"],
       rate: [type: :pos_integer, required: true, doc: "nominal sample/command rate in Hz"],
       t_dev: [type: :boolean, default: false, doc: "carry the producer µs stamp (§04)"],
       safe_action: [type: :atom, doc: "the on-chip floor's safe action for a command port (§05)"],

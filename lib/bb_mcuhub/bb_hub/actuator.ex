@@ -35,9 +35,9 @@ defmodule BBMcuhub.BBHub.Actuator do
       beat_ms: [type: :pos_integer, default: 20, doc: "status-monitor beat period"]
     ]
 
-  alias BBMcuhub.BBHub.Lift
   alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host.{LinkOwner, Monitor, NodeRegistry}
+  alias BBMcuhub.ValueType
 
   @impl BB.Actuator
   def init(opts) do
@@ -68,6 +68,7 @@ defmodule BBMcuhub.BBHub.Actuator do
          node_id: node_id,
          port_id: port_id,
          status_id: status_id,
+         value_type: command_value_type(node_id, port_id),
          seq: opts[:command_seq_start] || 1,
          status_mon: Monitor.new(node_id, status_id, opts[:status_fresh_for] || 5)
        }}
@@ -80,11 +81,8 @@ defmodule BBMcuhub.BBHub.Actuator do
   # the wire; the floor decides whether the hub acts on it. We are the sole writer
   # of this slot, so each write advances the command seq exactly once.
   @impl BB.Actuator
-  def handle_info(
-        {:bb, _topic, %BB.Message{payload: %BB.Message.Actuator.Command.Effort{} = c}},
-        st
-      ) do
-    {:noreply, write_command(st, Lift.effort_from_bb(c))}
+  def handle_info({:bb, _topic, %BB.Message{payload: payload}}, st) do
+    {:noreply, write_command(st, st.value_type.unlift(payload))}
   end
 
   # tick the status freshness monitor on our own beat (§04/§05)
@@ -95,8 +93,8 @@ defmodule BBMcuhub.BBHub.Actuator do
   def handle_info(_other, st), do: {:noreply, st}
 
   @impl BB.Actuator
-  def handle_cast({:command, %BB.Message{payload: %BB.Message.Actuator.Command.Effort{} = c}}, st) do
-    {:noreply, write_command(st, Lift.effort_from_bb(c))}
+  def handle_cast({:command, %BB.Message{payload: payload}}, st) do
+    {:noreply, write_command(st, st.value_type.unlift(payload))}
   end
 
   def handle_cast(_other, st), do: {:noreply, st}
@@ -145,5 +143,12 @@ defmodule BBMcuhub.BBHub.Actuator do
     LinkOwner.notify_command_slot(node_id, port_id)
   rescue
     _ -> :ok
+  end
+
+  # resolve the command port's value-type atom to its module once, at init — so the
+  # view unlifts a published BB.Message generically, never hard-coding a struct shape
+  defp command_value_type(node_id, port_id) do
+    {:ok, type} = PortIndex.type_for(node_id, port_id)
+    ValueType.resolve(type)
   end
 end

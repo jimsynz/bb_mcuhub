@@ -29,9 +29,9 @@ defmodule BBMcuhub.BBHub.Sensor do
       beat_ms: [type: :pos_integer, default: 20, doc: "sample period for this view"]
     ]
 
-  alias BBMcuhub.BBHub.Lift
   alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host.{Monitor, NodeRegistry}
+  alias BBMcuhub.ValueType
 
   @impl BB.Sensor
   def init(opts) do
@@ -50,7 +50,7 @@ defmodule BBMcuhub.BBHub.Sensor do
            bb: bb,
            node_id: node_id,
            port_id: port_id,
-           type: lookup_type(node_id, port_id),
+           value_type: lookup_value_type(node_id, port_id),
            mon: Monitor.new(node_id, port_id, fresh_for)
          }}
 
@@ -66,7 +66,9 @@ defmodule BBMcuhub.BBHub.Sensor do
 
     if Monitor.fresh?(mon) do
       {value, _seq, _t_dev} = NodeRegistry.get(st.node_id, st.port_id)
-      payload = lift(st.type, value)
+      # value-type-agnostic: the port's value-type lifts the raw slot map to a
+      # typed BB.Message payload (§09) — no per-atom clause here.
+      payload = st.value_type.lift(value)
       BB.publish(st.bb.robot, [:sensor | st.bb.path], wrap(payload, st.bb))
     end
 
@@ -74,9 +76,6 @@ defmodule BBMcuhub.BBHub.Sensor do
   end
 
   def handle_info(_other, st), do: {:noreply, st}
-
-  # slot value (a plain map) → a typed BB.Message payload struct
-  defp lift(:imu, value), do: Lift.imu_to_bb(value)
 
   # build the BB.Message envelope directly around the already-validated payload
   defp wrap(payload, bb) do
@@ -92,8 +91,9 @@ defmodule BBMcuhub.BBHub.Sensor do
     }
   end
 
-  defp lookup_type(node_id, port_id) do
+  # resolve the port's value-type atom to its module once, at init
+  defp lookup_value_type(node_id, port_id) do
     {:ok, type} = PortIndex.type_for(node_id, port_id)
-    type
+    ValueType.resolve(type)
   end
 end

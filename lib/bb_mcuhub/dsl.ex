@@ -34,7 +34,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
   use Spark.Dsl.Transformer
 
   alias BBMcuhub.Contract
-  alias BBMcuhub.Contract.Layouts
+  alias BBMcuhub.ValueType
   alias Spark.Dsl.Transformer
 
   # Run after BeamBots' topology is assembled so the view child_specs are present.
@@ -69,7 +69,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
       port_id: Contract.port_id(hub.name, port.name),
       dir: port.dir,
       type: port.type,
-      layout: Layouts.fetch!(port.type),
+      layout: ValueType.resolve(port.type).layout(),
       stamped: port.t_dev,
       rate: port.rate,
       fresh_for: fresh_for_for(views, hub.name, port),
@@ -276,9 +276,10 @@ defmodule BBMcuhub.Dsl.Verifier do
     end
   end
 
-  # header + payload + the 2-byte CRC the frame codec appends.
+  # header + payload + the 2-byte CRC the frame codec appends. The IR row already
+  # carries the resolved layout, so size it from there.
   defp frame_size(row) do
-    Contract.header_size(row.stamped) + Layouts.payload_size(row.type) + 2
+    Contract.header_size(row.stamped) + Layouts.payload_size(row.layout) + 2
   end
 
   # Every sensor/actuator view ref naming a hub port, plus actuator status_port

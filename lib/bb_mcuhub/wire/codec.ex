@@ -6,8 +6,9 @@ defmodule BBMcuhub.Wire.Codec do
 
   ## One source of truth, no drift (§06)
 
-  The byte layout is *read*, not hand-written: payload fields come from
-  `BBMcuhub.Contract.Layouts` and the header from `BBMcuhub.Contract`. The same
+  The byte layout is *read*, not hand-written: payload fields come from the port's
+  value-type (`BBMcuhub.ValueType.resolve(type).layout()`) and the header from
+  `BBMcuhub.Contract`. The same
   tables render the C header, the per-hub schedule, and the parity vectors via
   `BBMcuhub.Gen.WireGen`. Because this codec interprets those tables directly, it
   cannot drift from them within Elixir; the parity-vector fixture is the
@@ -23,6 +24,7 @@ defmodule BBMcuhub.Wire.Codec do
 
   alias BBMcuhub.Contract
   alias BBMcuhub.Contract.{Layouts, PortIndex}
+  alias BBMcuhub.ValueType
 
   # The base header read before the per-port index reveals whether t_dev follows.
   @base_header [node: :u8, port: :u8, seq: :u16]
@@ -50,7 +52,7 @@ defmodule BBMcuhub.Wire.Codec do
   def encode_body(node, port_id, seq, t_dev, type, value, stamped? \\ false) do
     hdr = %{node: node, port: port_id, seq: seq, t_dev: t_dev}
     header = encode_fields(Contract.header(stamped?), hdr)
-    payload = encode_fields(Layouts.fetch!(type), value)
+    payload = encode_fields(ValueType.resolve(type).layout(), value)
     header <> payload
   end
 
@@ -81,7 +83,7 @@ defmodule BBMcuhub.Wire.Codec do
            take_fields(@base_header, body),
          {:ok, %{type: type, stamped: stamped?}} <- PortIndex.lookup(node, port_id),
          {t_dev, after_hdr} <- take_t_dev(stamped?, rest),
-         {value, <<>>} <- take_fields(Layouts.fetch!(type), after_hdr) do
+         {value, <<>>} <- take_fields(ValueType.resolve(type).layout(), after_hdr) do
       {:ok, %{node: node, port_id: port_id, seq: seq, t_dev: t_dev, type: type, value: value}}
     else
       _ -> :error

@@ -4,10 +4,11 @@ defmodule BBMcuhub.Gen.WireGen do
   drift-tested so the C and Elixir sides physically cannot diverge.
 
   The design names four renderings of one model. In this implementation the
-  **Elixir codec is data-driven** — `BBMcuhub.Wire.Codec` reads the same
-  `BBMcuhub.Contract.Layouts` / `BBMcuhub.Contract` tables at runtime, so it
-  *cannot* drift from the model within Elixir (there is no generated Elixir file
-  to fall stale). That leaves three emitters whose output crosses a boundary the
+  **Elixir codec is data-driven** — `BBMcuhub.Wire.Codec` reads each port's
+  value-type layout (`BBMcuhub.ValueType`) and the `BBMcuhub.Contract` header at
+  runtime, so it *cannot* drift from the model within Elixir (there is no generated
+  Elixir file to fall stale). That leaves three emitters whose output crosses a
+  boundary the
   in-language guarantee can't reach, so they are emitted to disk and drift-tested:
 
     * `emit_c_header/1`   → `firmware/gen/<slug>/wire_contract.h` — port ids,
@@ -30,8 +31,8 @@ defmodule BBMcuhub.Gen.WireGen do
   """
 
   alias BBMcuhub.Contract
-  alias BBMcuhub.Contract.Layouts
   alias BBMcuhub.Robot.Info
+  alias BBMcuhub.ValueType
   alias BBMcuhub.Wire.{Codec, CRC16}
 
   # The robot whose IR every artifact is generated from in v1's slice (§09).
@@ -171,7 +172,7 @@ defmodule BBMcuhub.Gen.WireGen do
 
   defp struct_def(type) do
     fields =
-      Layouts.fetch!(type)
+      ValueType.resolve(type).layout()
       |> Enum.map_join("\n", fn {field, wt} -> "  #{c_type(wt)} #{field};" end)
 
     "typedef struct __attribute__((packed)) {\n#{fields}\n} #{c_struct_name(type)};"
@@ -356,7 +357,7 @@ defmodule BBMcuhub.Gen.WireGen do
   @doc "A deterministic representative value map for a type's parity row."
   @spec sample_value(atom()) :: map()
   def sample_value(type) do
-    Layouts.fetch!(type)
+    ValueType.resolve(type).layout()
     |> Enum.with_index()
     |> Map.new(fn {{field, wt}, idx} -> {field, sample_scalar(wt, idx)} end)
   end
