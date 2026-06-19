@@ -1,0 +1,14 @@
+# 1. Kernel messages are output via the UART pins.
+#    serial0 is magically replaced with ttyAMA0 or ttyS0 depending on the
+#    serial port configuration in config.txt.
+# 2. To output kernel messages over HDMI, add
+#    "console=tty1 fbcon=scrollback:1024k consoleblank=0"
+#    https://www.raspberrypi.org/documentation/configuration/cmdline-txt.md
+# 3. If you're experimenting with kernel commandline parameters, it's easist
+#    to modify this file on the MicroSD card via your development computer. To
+#    make changes permanent, you'll need to override the fwup.conf.
+# Thunderdome: dropped `console=serial0,115200` so the kernel doesn't grab
+# /dev/ttyAMA0 (PL011 on GPIO 14/15) for its console at 115200 baud,
+# fighting BlasterLink.Uart when we open it at 1 Mbit/s. Kept tty1 as
+# the console (HDMI framebuffer) so erlinit+iex still have a place.
+root=/dev/mmcblk0p5 rootwait console=tty1 quiet
