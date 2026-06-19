@@ -4,7 +4,8 @@
 **host** ↔ UART ↔ **Blaster** root hub (ESP32) ↔ UART backplane ↔ **Wheels** leaf
 hub (MKS Dual FOC, dual SimpleFOC). This guide brings it up in independently
 verifiable stages — do them in order; fix each before moving on. Everything below
-host-builds green; this is the half only real hardware can prove.
+host-builds green and passes the **Stage −1 pre-flight** suite; the stages here
+are the half only real hardware can prove.
 
 > Authoritative facts (from the build): backplane is **UART** (no CAN —
 > `BACKPLANE_TRANSPORT_UART 1`). Blaster = NODE `0x02` (root), Wheels = NODE `0x05`
@@ -44,30 +45,54 @@ serial console, `dtoverlay=disable-bt` (or `miniuart-bt`) so PL011 lands on 14/1
 `17/16`. No termination — it's a UART, not a CAN bus.)
 
 **3. IMU: MPU-9250 on the Blaster I²C** — SDA 21, SCL 22, VCC 3V3, GND, AD0→GND
-(addr 0x68). _(Synthetic stub today — see "What's stubbed" — wire it before
-Stage 4.)_
+(addr 0x68). The firmware reads it for real (see "Real" below); wire it before
+Stage 4.
 
-**Motors + encoders (Wheels / MKS board)** — per `main_wheels.cpp`: M0 PWM
+**Motors + encoders (Wheels / MKS board)** — per `firmware/mcu/wheels.cpp`: M0 PWM
 32/33/25, M1 PWM 26/27/14, shared enable 12; AS5600 M0 on Wire (SDA 19/SCL 18),
 M1 on Wire1 (SDA 23/SCL 5); 12 V to VIN. **Confirm against the MKS v3.2
 silkscreen** (pins are TODO-flagged in the firmware).
 
 ## Flash
 
+The toolchain is pinned in the repo's `flake.nix` — enter it first with
+`nix develop` (or `direnv allow`), then `pio` is on `PATH`:
+
 ```sh
-cd firmware
-# the toolchain is in .pio-venv / .pio-core (gitignored)
-PIO="PLATFORMIO_CORE_DIR=$PWD/../.pio-core ../.pio-venv/bin/pio"
-$PIO run -e blaster_root -t upload      # USB to the DOIT V1
-$PIO run -e wheels_leaf  -t upload      # USB to the MKS board
-$PIO device monitor -b 115200           # console (note: console=115200, links=1 Mbit/s)
+cd examples/segby_v1/firmware
+pio run -e blaster_root -t upload      # USB to the DOIT V1
+pio run -e wheels_leaf  -t upload      # USB to the MKS board
+pio device monitor -b 115200           # console (note: console=115200, links=1 Mbit/s)
 ```
+
+The firmware pulls the C chassis from the library via `lib_deps`
+(`symlink://../../../firmware`); the first `pio run` downloads the ESP32 toolchain
+into a worktree-local `.pio-core`.
 
 Host: `mix bb.tui --robot SegbyV1.Robot` (the dashboard owns the UART
 via `SegbyV1.Host`; on the Pi pass
 `transport_opts: [port: "ttyAMA0"]`).
 
 ## Stages — verify each before the next
+
+### Stage −1 — pre-flight (run BEFORE flashing anything)
+
+Catch the software-side bugs that destroy hardware, while everything is still
+safe (no boards, no motors). From `examples/segby_v1/` inside `nix develop`:
+
+```sh
+mix test test/preflight_test.exs        # sign-consistency, born-stale, floor cadence, status
+GOLDEN=print mix test test/golden_frames_test.exs   # print the golden wire bytes
+```
+
+The **golden frames** are the exact bytes the host puts on the host↔Blaster UART
+for known commands (e.g. `motor_left` effort +0.5 Nm = body `05 18 00 01 3F 00 00
+00`). Keep that table next to a logic-analyzer / `pio device monitor` capture in
+the stages below: if a real frame doesn't match, the bug is in the **wiring or the
+firmware build** (endianness, pin map, port id) — not the host. The **pre-flight**
+suite pins the host control sign-convention and the freshness/floor-cadence
+guarantees; it does NOT certify the absolute pitch→wheel sign (that closes through
+motor/encoder wiring at Stage 3/4 — see Stage 4).
 
 ### Stage 0 — both ESP32s boot, no reset loop
 
@@ -93,7 +118,9 @@ backplane TX↔RX:
 Wire link #2. With both monitors open: the Blaster should relay the Wheels'
 status frames (NODE 0x05) upward, and the host (Stage 4) drives commands down. No
 frames crossing ⇒ recheck TX↔RX crossed + common GND (the usual culprit is a
-missing ground or an unseated Dupont pin).
+missing ground or an unseated Dupont pin). Diff a captured command frame against
+the **golden frames** (Stage −1): matching bytes but no motor response ⇒ the wire
+is fine, look downstream (Stage 3); mismatched bytes ⇒ a firmware-build/pin issue.
 
 ### Stage 3 — motors (Wheels board), 12 V applied
 
@@ -106,18 +133,32 @@ the MKS silkscreen.
 
 ### Stage 4 — IMU + closed-loop balance
 
-Wire the real MPU-9250 (link #3) — the firmware reads it for real. With the host
-up:
+Wire the real MPU-9250 (link #3) — the firmware reads it for real.
+
+**The absolute-sign gate — do this with balance OFF.** The pre-flight suite pins
+the host's _internal_ sign convention, but the sign that decides "drive under the
+fall vs. amplify it" closes through the motor phase wiring + encoder direction,
+which only the bench resolves. Verify it in two safe steps before any closed loop:
 
 ```sh
-# on the Pi, confirm pose flows:
+# on the Pi, with balance DISABLED, confirm pose tracks tilt:
 BB.subscribe(SegbyV1.Robot, [:sensor, :base_link, :chassis_imu])
-# tilt the chassis → pitch should track tilt (non-zero, correct sign)
+# tilt the chassis forward → the published pitch must go one consistent way
+# (sign + magnitude track the tilt). A noisy/backwards/zero pitch ⇒ IMU wiring,
+# axis, or the complementary-filter input — fix before enabling balance.
 ```
 
-Then **enable balance**: `SegbyV1.Balance.enable(SegbyV1.Robot)`
-and confirm the wheels react to hold upright. PID gains (kp 0.5, ki 0.05, kd 0.1)
-are placeholders — **tune on the real chassis**.
+Then, still **balance OFF and chassis clamped**, command a small effort to each
+wheel (Stage 3) and note which way it drives. Mentally check: when the bot tilts
+forward, the balance loop will command the sign you saw give "negative torque" in
+pre-flight — does that drive the wheels to move _under_ the fall? If not, the fix
+is a wiring/encoder inversion (e.g. `encoder.invert`) or swapping the command
+sign at the bench — **NOT** guesswork with balance on.
+
+Only once the sign is confirmed: **enable balance**
+`SegbyV1.Balance.enable(SegbyV1.Robot)`, **chassis leashed/on a stand**, and
+confirm the wheels react to hold upright. PID gains (kp 0.5, ki 0.05, kd 0.1) are
+placeholders — **tune on the real chassis**, starting conservative.
 
 ### Stage 5 — bb_tui dashboard + teleop
 
