@@ -18,28 +18,28 @@ defmodule BBMcuhub.SliceTest do
   alias BBMcuhub.Test.LoopbackTransport
   alias BBMcuhub.Wire.Codec
 
-  @robot BBMcuhub.Robots.Follower
+  @robot BBMcuhub.Test.Fixtures.Robot
 
   setup do
     :ets.delete_all_objects(NodeRegistry.table())
-    PortIndex.build()
+    PortIndex.build(@robot)
 
-    # the BeamBots supervision tree for the follower gives us a real PubSub the
-    # views publish/subscribe on (§09)
+    # the BeamBots supervision tree for the fixture robot gives us a real PubSub
+    # the views publish/subscribe on (§09)
     start_supervised!(%{id: BB.Supervisor, start: {BB.Supervisor, :start_link, [@robot]}})
     :ok
   end
 
   describe "sensor path: a produced imu frame becomes a BB.Message.Sensor.Imu" do
     test "born-stale, then publishes a fresh lifted pose" do
-      {:ok, {imu_node, imu_port}} = PortIndex.resolve(:imu, :pose)
+      {:ok, {imu_node, imu_port}} = PortIndex.resolve(:sensor_hub, :pose)
       {:ok, owner} = LinkOwner.start_link(transport: LoopbackTransport, name: nil)
       transport = :sys.get_state(owner).transport
 
       # the Sensor view, attached to this robot/path, beating fast
       {:ok, view} =
         bb_init(BBHub.Sensor, [:base_link, :chassis_imu],
-          hub: :imu,
+          hub: :sensor_hub,
           port: :pose,
           fresh_for: 3,
           beat_ms: 5
@@ -69,7 +69,7 @@ defmodule BBMcuhub.SliceTest do
 
   describe "actuator path: a BB Effort command reaches the wire" do
     test "the view writes its command slot and the link owner drains it" do
-      {:ok, {m_node, m_port}} = PortIndex.resolve(:motor, :motor_target)
+      {:ok, {m_node, m_port}} = PortIndex.resolve(:act_hub, :effort_cmd)
 
       # Register under the DEFAULT name so the actuator view (which notifies the
       # link owner via that name, like disarm/1) reaches it — exactly as in
@@ -84,15 +84,15 @@ defmodule BBMcuhub.SliceTest do
       transport = :sys.get_state(owner).transport
 
       {:ok, view} =
-        bb_init(BBHub.Actuator, [:base_link, :left_wheel, :wheel],
-          hub: :motor,
-          port: :motor_target,
-          status_port: :motor_status
+        bb_init(BBHub.Actuator, [:base_link, :drive_joint, :drive],
+          hub: :act_hub,
+          port: :effort_cmd,
+          status_port: :act_status
         )
 
       # a BeamBots Effort command arrives at the view
       cmd = %BB.Message{payload: %BB.Message.Actuator.Command.Effort{effort: 0.42}}
-      send(view, {:bb, [:actuator, :base_link, :left_wheel, :wheel], cmd})
+      send(view, {:bb, [:actuator, :base_link, :drive_joint, :drive], cmd})
 
       # the slot was written (the view is the sole writer), then drained to wire
       assert_eventually(fn ->
@@ -114,16 +114,16 @@ defmodule BBMcuhub.SliceTest do
     end
 
     test "live/1 is freshness-gated: a stale 'not floored' status reads as unknown (§05)" do
-      {:ok, {m_node, _}} = PortIndex.resolve(:motor, :motor_target)
-      {:ok, {^m_node, status_id}} = PortIndex.resolve(:motor, :motor_status)
+      {:ok, {m_node, _}} = PortIndex.resolve(:act_hub, :effort_cmd)
+      {:ok, {^m_node, status_id}} = PortIndex.resolve(:act_hub, :act_status)
 
       # a long beat so the timer never fires during the test — we drive the
       # status monitor's beats explicitly for determinism.
       {:ok, view} =
-        bb_init(BBHub.Actuator, [:base_link, :left_wheel, :wheel],
-          hub: :motor,
-          port: :motor_target,
-          status_port: :motor_status,
+        bb_init(BBHub.Actuator, [:base_link, :drive_joint, :drive],
+          hub: :act_hub,
+          port: :effort_cmd,
+          status_port: :act_status,
           status_fresh_for: 2,
           beat_ms: 60_000
         )
@@ -155,7 +155,7 @@ defmodule BBMcuhub.SliceTest do
   end
 
   describe "the floor degrades on command silence (§05, host reference)" do
-    alias BBMcuhub.Hubs.Motor.Floor
+    alias BBMcuhub.Test.Fixtures.Floor
 
     test "born-disarmed → earns motion → floors when the command goes silent" do
       f = Floor.new(100, 0.0)

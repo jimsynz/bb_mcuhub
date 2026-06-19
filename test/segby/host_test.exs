@@ -59,7 +59,13 @@ defmodule BBMcuhub.Robots.SegbyV1.HostTest do
   end
 
   describe "the launcher resolves the segby wheel command slots" do
-    test "both wheel slots resolve from the segby IR (not the Follower's)" do
+    test "both wheel slots resolve from the segby IR (not another robot's)" do
+      # point the global index at a DIFFERENT robot (the library's fixture) first;
+      # the launcher's command_slots/0 must still resolve SEGBY's slots from
+      # segby's own IR, proving the derivation is per-robot, not whatever last
+      # built the global index.
+      PortIndex.build(BBMcuhub.Test.Fixtures.Robot)
+
       assert [{0x05, _left_id}, {0x05, _right_id}] = Host.command_slots()
       {:ok, left} = PortIndex.resolve(:wheels, :motor_left)
       {:ok, right} = PortIndex.resolve(:wheels, :motor_right)

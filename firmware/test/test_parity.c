@@ -21,20 +21,30 @@
  *     the Elixir generator used (BBMcuhub.Gen.WireGen.sample_value). The header
  *     fields (node/port/seq/t_dev) are filled from the vector by the runner. --- */
 
-static void pack_imu_pose(Frame *f) {
+/* The test FIXTURE robot's ports (ADR-0003): sensor_hub/{pose,scalar} +
+ * act_hub/{effort_cmd,act_status}. The Follower's imu/motor packers are retired
+ * with it; these match BBMcuhub.Gen.WireGen.sample_value for the fixture. */
+
+static void pack_sensor_hub_pose(Frame *f) {
   /* layout :imu — qw,qx,qy,qz, wx,wy,wz, ax,ay,az (all f32, big-endian) */
   float v[10] = {1.0f, 0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f};
   for (int i = 0; i < 10; i++) be_put_f32(&f->payload[i * 4], v[i]);
   f->payload_len = 40;
 }
 
-static void pack_motor_motor_target(Frame *f) {
+static void pack_sensor_hub_scalar(Frame *f) {
+  /* layout :fixture_scalar (the CUSTOM value-type) — v (f32) */
+  be_put_f32(&f->payload[0], 1.0f);
+  f->payload_len = 4;
+}
+
+static void pack_act_hub_effort_cmd(Frame *f) {
   /* layout :effort — nm (f32) */
   be_put_f32(&f->payload[0], 1.0f);
   f->payload_len = 4;
 }
 
-static void pack_motor_motor_status(Frame *f) {
+static void pack_act_hub_act_status(Frame *f) {
   /* layout :status — applied_seq (u16), floored (bool/u8) */
   be_put_u16(&f->payload[0], 7);
   f->payload[2] = 0; /* false */

@@ -9,7 +9,7 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
   setup do
     # NodeRegistry is started by the application supervisor; just clear it.
     :ets.delete_all_objects(NodeRegistry.table())
-    PortIndex.build()
+    PortIndex.build(BBMcuhub.Test.Fixtures.Robot)
     Stats.setup()
     :ok
   end
@@ -29,7 +29,7 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
 
   test "inbound: a received body lands in the registry by (node, port)" do
     %{transport: transport} = start_link_owner()
-    {:ok, {node, port_id}} = PortIndex.resolve(:imu, :pose)
+    {:ok, {node, port_id}} = PortIndex.resolve(:sensor_hub, :pose)
 
     value = %{
       qw: 1.0,
@@ -68,7 +68,7 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
   end
 
   test "outbound: a command slot is drained to the wire when notified after a write" do
-    {:ok, {node, port_id}} = PortIndex.resolve(:motor, :motor_target)
+    {:ok, {node, port_id}} = PortIndex.resolve(:act_hub, :effort_cmd)
     %{owner: owner, transport: transport} = start_link_owner(command_slots: [{node, port_id}])
 
     # the actuator view (here, the test) is the sole writer of the command slot:
@@ -91,7 +91,7 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
   end
 
   test "outbound: a redundant notification with no seq change is NOT re-sent (seq inequality)" do
-    {:ok, {node, port_id}} = PortIndex.resolve(:motor, :motor_target)
+    {:ok, {node, port_id}} = PortIndex.resolve(:act_hub, :effort_cmd)
     %{owner: owner, transport: transport} = start_link_owner(command_slots: [{node, port_id}])
 
     NodeRegistry.put(node, port_id, %{nm: 0.5}, 1, 100)
@@ -113,7 +113,7 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
   end
 
   test "outbound: a notification for an unwatched slot is ignored (never written by the owner)" do
-    {:ok, {node, port_id}} = PortIndex.resolve(:motor, :motor_target)
+    {:ok, {node, port_id}} = PortIndex.resolve(:act_hub, :effort_cmd)
     # start with NO command slots registered
     %{owner: owner, transport: transport} = start_link_owner()
 

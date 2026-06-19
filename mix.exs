@@ -30,13 +30,14 @@ defmodule BBMcuhub.MixProject do
   defp elixirc_paths(_), do: base_paths()
 
   defp base_paths do
+    # Follower + the imu/motor hubs are retired (ADR-0003); the library's tests
+    # are backed by the fixture robot under test/support (added by
+    # elixirc_paths(:test)). segby_v1 (blaster/wheels) stays in-tree this phase
+    # and moves to the example app in Phase 5.
     [
       "lib",
-      "hubs/imu/lib",
-      "hubs/motor/lib",
       "hubs/blaster/lib",
       "hubs/wheels/lib",
-      "robots/follower/lib",
       "robots/segby_v1/lib"
     ]
   end
@@ -59,10 +60,16 @@ defmodule BBMcuhub.MixProject do
 
   defp aliases do
     [
-      # Regenerate every artifact (Elixir codec, C header, schedules, parity
-      # vectors) from the contracts + topology — see §06. The drift test fails
-      # the build if any committed artifact differs from this output.
-      "wire.gen": ["run -e \"BBMcuhub.Gen.WireGen.write_all!()\""]
+      # Regenerate every artifact (C header, per-hub glue, parity vectors) from
+      # the contracts + topology — see §06 / ADR-0003. The drift test fails the
+      # build if any committed artifact differs from this output.
+      #
+      # The committed robots include the TEST FIXTURE (the drift/C-parity
+      # witness), which lives under test/support and is compiled only in :test.
+      # So generation must run in the test env to see it — `mix wire.gen` chains
+      # the compile+task under MIX_ENV=test for you. Implemented by
+      # `Mix.Tasks.Wire.Gen` (supports `--robot <Mod>`).
+      "wire.gen": ["cmd MIX_ENV=test mix do compile + wire.gen.run"]
     ]
   end
 

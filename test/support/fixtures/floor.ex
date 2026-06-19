@@ -1,16 +1,13 @@
-defmodule BBMcuhub.Hubs.Motor.Floor do
+defmodule BBMcuhub.Test.Fixtures.Floor do
   @moduledoc """
-  The host-side reference of the motor floor's decision (§05).
-
-  The authoritative floor lives on the actuator hub's own chip (`hubs/motor/mcu/
-  floor.c` via `firmware/src/floor.c`). This pure module mirrors its logic so the
-  born-disarmed / dead-man behaviour can be reasoned about and tested on the host,
-  and so a host-based actuator sim degrades the same way the device does.
+  The host-side reference of the fixture actuator floor's decision (§05) — a
+  test-only mirror of the on-chip floor, used to assert the born-disarmed /
+  dead-man degradation on the host (the role the retired motor hub's
+  `BBMcuhub.Hubs.Motor.Floor` filled for the Follower).
 
   Pure: `step/2` takes the floor state and an observation and returns the next
   state plus the value to drive. Born-disarmed, strict (a single command seq is a
-  baseline; a *second, distinct* seq earns motion), fail-passive on silence — the
-  same choice as `BBMcuhub.Host.Monitor` (§04).
+  baseline; a *second, distinct* seq earns motion), fail-passive on silence.
   """
 
   @enforce_keys [:window, :safe_action]

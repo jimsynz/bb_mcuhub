@@ -4,13 +4,13 @@ defmodule BBMcuhub.Wire.CodecTest do
   alias BBMcuhub.Contract.PortIndex
 
   setup_all do
-    PortIndex.build()
+    PortIndex.build(BBMcuhub.Test.Fixtures.Robot)
     :ok
   end
 
   test "encode/decode round-trips an effort value (unstamped: no t_dev)" do
-    {:ok, {node, port_id}} = PortIndex.resolve(:motor, :motor_target)
-    # motor_target is unstamped — the t_dev arg is ignored and decodes to nil (§04)
+    {:ok, {node, port_id}} = PortIndex.resolve(:act_hub, :effort_cmd)
+    # effort_cmd is unstamped — the t_dev arg is ignored and decodes to nil (§04)
     body = Codec.encode_body(node, port_id, 7, 99, :effort, %{nm: 0.25})
 
     assert {:ok, d} = Codec.decode_body(body)
@@ -23,7 +23,7 @@ defmodule BBMcuhub.Wire.CodecTest do
   end
 
   test "encode/decode round-trips a stamped imu value (carries t_dev)" do
-    {:ok, {node, port_id}} = PortIndex.resolve(:imu, :pose)
+    {:ok, {node, port_id}} = PortIndex.resolve(:sensor_hub, :pose)
 
     v = %{
       qw: 1.0,
@@ -52,7 +52,7 @@ defmodule BBMcuhub.Wire.CodecTest do
   end
 
   test "decode of a too-short payload is :error" do
-    {:ok, {node, port_id}} = PortIndex.resolve(:imu, :pose)
+    {:ok, {node, port_id}} = PortIndex.resolve(:sensor_hub, :pose)
     # an imu needs 10 floats; give it only the header + 1 float
     short =
       Codec.encode_body(node, port_id, 1, 1, :imu, all_floats(:imu), true) |> binary_part(0, 16)
@@ -61,7 +61,7 @@ defmodule BBMcuhub.Wire.CodecTest do
   end
 
   test "bool round-trips both ways through status" do
-    {:ok, {node, port_id}} = PortIndex.resolve(:motor, :motor_status)
+    {:ok, {node, port_id}} = PortIndex.resolve(:act_hub, :act_status)
 
     for floored <- [true, false] do
       body = Codec.encode_body(node, port_id, 1, 1, :status, %{applied_seq: 3, floored: floored})

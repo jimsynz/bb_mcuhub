@@ -62,8 +62,8 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     use BBMcuhub.Hub
 
     ports do
-      port :p13, dir: :out, type: :effort, rate: 50
-      port :p310, dir: :out, type: :effort, rate: 50
+      port(:p13, dir: :out, type: :effort, rate: 50)
+      port(:p310, dir: :out, type: :effort, rate: 50)
     end
   end
 
@@ -77,8 +77,8 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub :imu, BBMcuhub.Hubs.Imu, node: 0x09
-              hub :motor, BBMcuhub.Hubs.Motor, node: 0x09
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x09)
+              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub, node: 0x09)
             end
 
             topology do
@@ -101,7 +101,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub :imu, BBMcuhub.Hubs.Imu, node: 0x00
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x00)
             end
 
             topology do
@@ -124,13 +124,15 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub :imu, BBMcuhub.Hubs.Imu, node: 0x02
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02)
             end
 
             topology do
               link :base_link do
-                sensor :chassis,
-                       {BBMcuhub.Dsl.VerifierTest.LaxSensor, hub: :imu, port: :pose, fresh_for: 0}
+                sensor(
+                  :chassis,
+                  {BBMcuhub.Dsl.VerifierTest.LaxSensor, hub: :imu, port: :pose, fresh_for: 0}
+                )
               end
             end
           end
@@ -149,15 +151,17 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub :imu, BBMcuhub.Hubs.Imu, node: 0x02
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02)
             end
 
             topology do
               link :base_link do
                 # :pose exists, :nonexistent does not — reconciliation must fail
-                sensor :chassis,
-                       {BBMcuhub.BBHub.Sensor,
-                        hub: :imu, port: :nonexistent, fresh_for: 3, beat_ms: 20}
+                sensor(
+                  :chassis,
+                  {BBMcuhub.BBHub.Sensor,
+                   hub: :imu, port: :nonexistent, fresh_for: 3, beat_ms: 20}
+                )
               end
             end
           end
@@ -178,7 +182,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub :collide, BBMcuhub.Dsl.VerifierTest.CollideHub, node: 0x07
+              hub(:collide, BBMcuhub.Dsl.VerifierTest.CollideHub, node: 0x07)
             end
 
             topology do
@@ -210,14 +214,16 @@ defmodule BBMcuhub.Dsl.VerifierTest do
   end
 
   describe "the verifier accepts the good topology (positive control)" do
-    test "the real Follower robot compiles clean and projects a non-empty IR" do
-      # the canonical example robot already compiled at load — no verifier error
-      # for it, and its IR is the frozen model the generator/runtime consume.
-      ir = BBMcuhub.Robot.Info.ir(BBMcuhub.Robots.Follower)
+    test "the test fixture robot compiles clean and projects a non-empty IR" do
+      # the library's fixture robot already compiled at load — no verifier error
+      # for it, and its IR is the frozen model the generator/runtime consume
+      # (ADR-0003: the library self-tests via the fixture, no example present).
+      ir = BBMcuhub.Robot.Info.ir(BBMcuhub.Test.Fixtures.Robot)
       assert is_list(ir)
       assert ir != []
-      # one row per declared hub port: imu :pose, motor :motor_target/:motor_status
-      assert length(ir) == 3
+      # one row per declared hub port: sensor_hub :pose/:scalar, act_hub
+      # :effort_cmd/:act_status
+      assert length(ir) == 4
     end
 
     test "a minimal valid robot compiles with NO verifier error" do
@@ -226,13 +232,15 @@ defmodule BBMcuhub.Dsl.VerifierTest do
           use BB, extensions: [BBMcuhub.Dsl]
 
           hubs do
-            hub :imu, BBMcuhub.Hubs.Imu, node: 0x02
+            hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02)
           end
 
           topology do
             link :base_link do
-              sensor :chassis_imu,
-                     {BBMcuhub.BBHub.Sensor, hub: :imu, port: :pose, fresh_for: 3, beat_ms: 20}
+              sensor(
+                :chassis_imu,
+                {BBMcuhub.BBHub.Sensor, hub: :imu, port: :pose, fresh_for: 3, beat_ms: 20}
+              )
             end
           end
         end

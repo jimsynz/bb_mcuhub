@@ -18,9 +18,6 @@ defmodule BBMcuhub.Contract.PortIndex do
 
   @key {__MODULE__, :index}
 
-  # The robot whose IR the runtime index is built from in v1's slice (§09).
-  @default_robot BBMcuhub.Robots.Follower
-
   @type entry :: %{
           hub: atom(),
           port: atom(),
@@ -30,11 +27,15 @@ defmodule BBMcuhub.Contract.PortIndex do
         }
 
   @doc """
-  Build (or rebuild) the index from the active robot's contracts + topology and
-  cache it. Call once at boot. Returns the index map.
+  Build (or rebuild) the index from a robot's contracts + topology and cache it.
+
+  The robot is ALWAYS explicit (ADR-0003: generation/index is explicit-robot,
+  there is no library default). Call once at boot — the generic `BBMcuhub.Host`
+  launcher does this for the consumer's robot; tests build for their robot in
+  setup. Returns the index map.
   """
   @spec build(module()) :: %{{0..255, 0..255} => entry()}
-  def build(robot \\ @default_robot) do
+  def build(robot) do
     ir = Info.ir(robot)
 
     index =
@@ -47,12 +48,20 @@ defmodule BBMcuhub.Contract.PortIndex do
     index
   end
 
-  @doc "The cached index, building it on first use if needed."
+  @doc """
+  The cached index. Raises if it was never built — there is no robot default to
+  fall back to (ADR-0003), so a caller must `build/1` for its robot first (the
+  Host launcher and tests do).
+  """
   @spec index() :: %{{0..255, 0..255} => entry()}
   def index do
     case :persistent_term.get(@key, nil) do
-      nil -> build()
-      idx -> idx
+      nil ->
+        raise "PortIndex not built — call BBMcuhub.Contract.PortIndex.build(robot) " <>
+                "for the active robot first (the Host launcher and test setups do)"
+
+      idx ->
+        idx
     end
   end
 

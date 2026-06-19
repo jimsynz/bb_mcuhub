@@ -17,27 +17,33 @@
    COBS+CRC frames (no CAN segmentation: a wide body rides one frame); 0 =
    the default CAN/TWAI backplane. For v1 the backplane is uniform per robot:
    UART iff any non-root hub is reached over :uart. */
-#define BACKPLANE_TRANSPORT_UART 0
+#define BACKPLANE_TRANSPORT_UART 1
 
 /* Port ids — generated, stable, never hand-assigned (§06). */
-#define PORT_IMU_POSE 0xEF
-#define PORT_MOTOR_MOTOR_TARGET 0x28
-#define PORT_MOTOR_MOTOR_STATUS 0xDE
+#define PORT_SENSOR_HUB_SCALAR 0x15
+#define PORT_SENSOR_HUB_POSE 0x71
+#define PORT_ACT_HUB_ACT_STATUS 0x33
+#define PORT_ACT_HUB_EFFORT_CMD 0x7B
 
 /* Which ports carry t_dev (1) vs omit it (0) — see §04. */
-#define PORT_IMU_POSE_STAMPED 1
-#define PORT_MOTOR_MOTOR_TARGET_STAMPED 0
-#define PORT_MOTOR_MOTOR_STATUS_STAMPED 0
+#define PORT_SENSOR_HUB_SCALAR_STAMPED 0
+#define PORT_SENSOR_HUB_POSE_STAMPED 1
+#define PORT_ACT_HUB_ACT_STATUS_STAMPED 0
+#define PORT_ACT_HUB_EFFORT_CMD_STAMPED 0
 
 /* Decode-time lookup: does the frame for (node, port) carry t_dev? The
    inbound path peeks the base header for (node, port), then calls this to
    learn the header shape — exactly as the host learns it from PortIndex. */
 static inline bool wire_port_stamped(uint8_t node, uint8_t port) {
-    if (node == 0x02 && port == 0xEF) return true;
+    if (node == 0x02 && port == 0x71) return true;
   return false;
 }
 
 /* Packed value structs — field order MATCHES Contract.Layouts (§06). */
+typedef struct __attribute__((packed)) {
+  float v;
+} Scalar;
+
 typedef struct __attribute__((packed)) {
   float nm;
 } Effort;
@@ -61,10 +67,10 @@ typedef struct __attribute__((packed)) {
 } Status;
 
 /* Per-actuator floor window, derived from one number (§05). */
-#define FLOOR_MISSES_MOTOR_MOTOR_TARGET 5
-#define CMD_PERIOD_MS_MOTOR_MOTOR_TARGET 20
+#define FLOOR_MISSES_ACT_HUB_EFFORT_CMD 5
+#define CMD_PERIOD_MS_ACT_HUB_EFFORT_CMD 20
 
 /* Contract hash — the drift test compares this. */
-#define WIRE_CONTRACT_SHA "58f56de36eaf7b86"
+#define WIRE_CONTRACT_SHA "f7709f925fd6f72c"
 
 #endif /* BB_MCUHUB_WIRE_CONTRACT_H */

@@ -8,10 +8,12 @@
 CC      ?= cc
 CFLAGS  ?= -std=c11 -Wall -Wextra -Werror -O2
 ROOT    := ../..
-# The parity harness asserts the Follower's generated artifacts (its robot-scoped
-# gen dir, §09); the include path adds firmware/gen/follower so wire_contract.h +
-# parity_vectors.h resolve there (no stale firmware/include/wire_contract.h).
-GEN     := $(ROOT)/firmware/gen/follower
+# The parity harness asserts the test FIXTURE robot's generated artifacts (its
+# robot-scoped gen dir, §09); the include path adds firmware/gen/robot so
+# wire_contract.h + parity_vectors.h resolve there (no stale
+# firmware/include/wire_contract.h). The Follower is retired (ADR-0003); the
+# fixture is the library's host-only drift + C-parity witness.
+GEN     := $(ROOT)/firmware/gen/robot
 INC     := -I$(ROOT)/firmware/include -I$(GEN) -I$(ROOT)/firmware/test
 PARITY_SRC := $(ROOT)/firmware/src/crc16.c \
               $(ROOT)/firmware/src/cobs.c \

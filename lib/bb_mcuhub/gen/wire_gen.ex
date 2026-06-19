@@ -43,33 +43,59 @@ defmodule BBMcuhub.Gen.WireGen do
   alias BBMcuhub.ValueType
   alias BBMcuhub.Wire.{Codec, CRC16}
 
-  # The robot whose IR every artifact is generated from in v1's slice (§09).
-  @default_robot BBMcuhub.Robots.Follower
-
   # Representative scalar per wire type — used to build deterministic parity
   # vectors. Chosen so each field is distinguishable in the bytes.
   @sample_seq 42
   @sample_t_dev 1234
 
+  # The default output base — cwd-relative `firmware/gen` for the C headers and
+  # `test/fixtures` for the parity-vector fixture (ADR-0003: WireGen takes an
+  # explicit output-base so each app generates into its own tree; the library
+  # uses this default, Phase 5's example passes its own base). A consumer can
+  # override either via `write_all!/2`.
+  @default_base %{gen: ["firmware", "gen"], fixtures: ["test", "fixtures"]}
+
   # --- top-level ---
 
-  # Every robot whose artifacts are committed. `mix wire.gen` (no arg)
+  # The robots whose artifacts the LIBRARY commits and drift-tests (ADR-0003):
+  # its own test fixture (the drift/C-parity witness) and segby_v1 (still in-tree
+  # this phase; moves to the example in Phase 5). There is NO default-robot — the
+  # library always generates for an explicit set. `mix wire.gen` (no arg)
   # regenerates ALL of them, so a contract change anywhere is one command.
-  @robots [BBMcuhub.Robots.Follower, BBMcuhub.Robots.SegbyV1]
+  @robots [BBMcuhub.Test.Fixtures.Robot, BBMcuhub.Robots.SegbyV1]
 
-  @doc "Regenerate every artifact for every committed robot. Returns the paths written."
+  @doc "The library's committed robots (the fixture + segby_v1)."
+  @spec robots() :: [module()]
+  def robots, do: @robots
+
+  @doc "Regenerate every artifact for every committed library robot. Returns the paths written."
   @spec write_all!() :: [Path.t()]
-  def write_all!, do: Enum.flat_map(@robots, &write_all!/1)
+  def write_all!, do: Enum.flat_map(@robots, &write_all!(&1, @default_base))
 
-  @doc "Regenerate every artifact for one robot. Returns the paths written."
+  @doc """
+  Regenerate every artifact for one explicit robot into the default output base.
+  The robot is ALWAYS explicit (no library default, ADR-0003).
+  """
   @spec write_all!(module()) :: [Path.t()]
-  def write_all!(robot) do
+  def write_all!(robot), do: write_all!(robot, @default_base)
+
+  @doc """
+  Regenerate every artifact for one robot into an explicit output `base`.
+
+  `base` is `%{gen: [path, segments], fixtures: [path, segments]}` — the C headers
+  go under `base.gen/<slug>/` and the parity fixture under
+  `base.fixtures/<slug>/parity_vectors.exs`. Defaults to the library's own tree;
+  Phase 5's example passes its own base so each app generates into its own tree.
+  Returns the paths written.
+  """
+  @spec write_all!(module(), map()) :: [Path.t()]
+  def write_all!(robot, base) do
     ir = ir(robot)
     slug = slug(robot)
 
-    header = {gen_dir(slug, "wire_contract.h"), emit_c_header(ir)}
-    parity = {fixtures_path(slug), emit_parity(ir)}
-    parity_c = {gen_dir(slug, "parity_vectors.h"), emit_parity_c(ir)}
+    header = {gen_dir(base, slug, "wire_contract.h"), emit_c_header(ir)}
+    parity = {fixtures_path(base, slug), emit_parity(ir)}
+    parity_c = {gen_dir(base, slug, "parity_vectors.h"), emit_parity_c(ir)}
 
     # The per-hub glue + device-prototype headers go in the SAME robot-scoped gen
     # dir as wire_contract.h (§08, ADR-0003). The glue is fully generated and
@@ -79,8 +105,8 @@ defmodule BBMcuhub.Gen.WireGen do
     glue =
       for hub <- hubs(ir) do
         [
-          {gen_dir(slug, "#{hub}.glue.h"), emit_glue(ir, hub)},
-          {gen_dir(slug, "#{hub}.device.h"), emit_device_header(ir, hub)}
+          {gen_dir(base, slug, "#{hub}.glue.h"), emit_glue(ir, hub)},
+          {gen_dir(base, slug, "#{hub}.device.h"), emit_device_header(ir, hub)}
         ]
       end
       |> List.flatten()
@@ -104,17 +130,29 @@ defmodule BBMcuhub.Gen.WireGen do
     |> Macro.underscore()
   end
 
-  @doc "The robot-scoped generated-C dir, joined with `file` (§09)."
+  @doc "The default output base (the library's own tree)."
+  @spec default_base() :: map()
+  def default_base, do: @default_base
+
+  @doc "The robot-scoped generated-C dir under the DEFAULT base, joined with `file` (§09)."
   @spec gen_dir(String.t(), String.t()) :: Path.t()
-  def gen_dir(slug, file), do: Path.join(["firmware", "gen", slug, file])
+  def gen_dir(slug, file), do: gen_dir(@default_base, slug, file)
 
-  @doc "The robot-scoped parity-vector fixture path (§09)."
+  @doc "The robot-scoped generated-C dir under `base`, joined with `file` (§09)."
+  @spec gen_dir(map(), String.t(), String.t()) :: Path.t()
+  def gen_dir(base, slug, file), do: Path.join(base.gen ++ [slug, file])
+
+  @doc "The robot-scoped parity-vector fixture path under the DEFAULT base (§09)."
   @spec fixtures_path(String.t()) :: Path.t()
-  def fixtures_path(slug), do: Path.join(["test", "fixtures", slug, "parity_vectors.exs"])
+  def fixtures_path(slug), do: fixtures_path(@default_base, slug)
 
-  @doc "The IR for a robot — the single model the emitters render."
+  @doc "The robot-scoped parity-vector fixture path under `base` (§09)."
+  @spec fixtures_path(map(), String.t()) :: Path.t()
+  def fixtures_path(base, slug), do: Path.join(base.fixtures ++ [slug, "parity_vectors.exs"])
+
+  @doc "The IR for an explicit robot — the single model the emitters render (no default, ADR-0003)."
   @spec ir(module()) :: [Contract.ir_row()]
-  def ir(robot \\ @default_robot) do
+  def ir(robot) do
     Info.ir(robot)
   end
 
@@ -1041,7 +1079,20 @@ defmodule BBMcuhub.Gen.WireGen do
   defp c_type(:u64), do: "uint64_t"
   defp c_type(:bool), do: "bool"
 
-  defp c_struct_name(type), do: type |> Atom.to_string() |> Macro.camelize()
+  # The C struct name for a value-type ref. A stock atom (`:imu`) camelizes
+  # directly (`Imu`). A consumer's own value-type is named by MODULE
+  # (`MyApp.ValueType.Scalar`); its dotted string is not a valid C identifier, so
+  # take the module's LAST segment (`Scalar`) — the value-type is a standalone
+  # unit, so its short name uniquely names its struct.
+  defp c_struct_name(type) do
+    str = Atom.to_string(type)
+
+    if String.starts_with?(str, "Elixir.") do
+      type |> Module.split() |> List.last()
+    else
+      Macro.camelize(str)
+    end
+  end
 
   defp header_banner(file, what) do
     "/* GENERATED by BBMcuhub.Gen.WireGen — do not edit. #{file}\n   #{what} */"

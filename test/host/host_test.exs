@@ -9,7 +9,8 @@ defmodule BBMcuhub.HostTest do
 
   alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host
-  alias BBMcuhub.Robots.{Follower, SegbyV1}
+  alias BBMcuhub.Robots.SegbyV1
+  alias BBMcuhub.Test.Fixtures.Robot, as: FixtureRobot
 
   describe "command_slots/1 derives actuator command slots from the IR" do
     test "segby_v1 derives its two wheel slots (equal to the resolved wheel ids)" do
@@ -47,12 +48,12 @@ defmodule BBMcuhub.HostTest do
       assert MapSet.disjoint?(derived, non_command)
     end
 
-    test "follower derives its single motor command slot (generic, not segby-specific)" do
+    test "the fixture robot derives its single actuator command slot (generic, not segby-specific)" do
       # The same derivation applied to a DIFFERENT robot yields that robot's one
       # actuator — proving it is generic, not hardcoded to segby's wheels.
-      assert Host.command_slots(Follower) == [{0x05, 0x28}]
-      {:ok, motor} = PortIndex.resolve(:motor, :motor_target)
-      assert Host.command_slots(Follower) == [motor]
+      assert Host.command_slots(FixtureRobot) == [{0x05, 0x7B}]
+      {:ok, effort} = PortIndex.resolve(:act_hub, :effort_cmd)
+      assert Host.command_slots(FixtureRobot) == [effort]
     end
   end
 
