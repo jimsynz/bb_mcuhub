@@ -55,6 +55,13 @@
             ".pio-venv/**"
             "firmware/.pio/**"
             "docs/**/*.html" # generated design docs — leave untouched
+            # GENERATED wire artifacts — the generator's output IS canonical;
+            # formatting them breaks the drift test (committed must equal emitted).
+            # treefmt globs are project-root-relative, so list both trees.
+            "firmware/gen/**"
+            "examples/*/firmware/gen/**"
+            "test/fixtures/**/parity_vectors.exs"
+            "examples/*/test/fixtures/**/parity_vectors.exs"
             "*.lock"
             "mix.lock"
           ];

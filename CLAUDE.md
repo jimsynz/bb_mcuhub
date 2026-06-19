@@ -7,24 +7,41 @@ strata that build and test independently:
 - **Elixir host** — a Mix app (`:bb_mcuhub`, `elixir ~> 1.18`) that runs on the
   board above the hub tree, owns the UART to the root hub, and exposes the
   BeamBots seam (host control, codec, scheduler, TUI dashboard).
-- **C / ESP32 firmware** — under `firmware/`, built with PlatformIO (the
-  `pioarduino` fork of `platform-espressif32` for arduino-esp32 3.x / ESP-IDF
-  5.x). Four envs: `imu_root`, `motor_leaf`, `blaster_root`, `wheels_leaf`.
+- **C / ESP32 firmware** — `firmware/` is the C chassis, packaged as a PlatformIO
+  library (`library.json`) a consumer pulls via `lib_deps`. Built with the
+  `pioarduino` fork of `platform-espressif32` (arduino-esp32 3.x / ESP-IDF 5.x).
+  The library itself ships no deployable env; the worked example
+  (`examples/segby_v1/firmware/`) has the `blaster_root` + `wheels_leaf` envs.
 
-See `CONTEXT.md` for the domain glossary and `docs/hub-design.html` for the full
-architecture. `design_changelog.md` tracks design decisions.
+This repo is a **library + a worked example** (ADR-0003): `bb_mcuhub` at the root
+is the reusable library; `examples/segby_v1/` is a separate Mix app that depends
+on it as a downstream consumer would. See `CONTEXT.md` for the domain glossary,
+`docs/hub-design.html` for the architecture, `docs/adr/` for decisions, and
+`design_changelog.md` for history.
 
 ## Repository layout
 
-- `lib/` — the platform host code (codec, host link, scheduler, application).
-- `hubs/<imu|motor|blaster|wheels>/` — per-hub-type code; `lib/` holds the
-  Elixir hub view, `mcu/` holds the firmware sources for that hub type.
-- `robots/<follower|segby_v1>/` — robot-scoped Elixir (topology, controllers).
-- `firmware/` — PlatformIO project. `src/` shared firmware, `include/` headers,
-  `gen/<robot>/` robot-scoped generated artifacts (`wire_contract.h`,
-  `parity_vectors.h`), `platformio.ini` the 4 envs, `test/` host-compiled C
-  harnesses (built with a Makefile, no device needed).
-- `test/` — Elixir tests (`mix test`).
+Library (`bb_mcuhub`, repo root — every consumer gets this, never edits it):
+
+- `lib/bb_mcuhub/` — host platform: `wire/`, `contract/`, `value_type/` (+ the
+  `BBMcuhub.ValueType` behaviour), `dsl.ex` (the `hubs do` extension), `gen/` (the
+  generator), `hub.ex`, `host.ex` (the generic launcher) + `host/`, `bb_hub/` (the
+  value-type-agnostic BeamBots seam).
+- `firmware/` — the C chassis (`src/`, `include/`, `src/esp32/`) + `library.json`;
+  `firmware/test/` host-compiled C harnesses (Makefile, no device); `firmware/gen/robot/`
+  the fixture robot's generated artifacts. NO deployable `platformio.ini`.
+- `test/` — Elixir tests; `test/support/fixtures/` the coverage-maximizing fixture
+  robot that lets the library self-test in isolation.
+
+Example (`examples/segby_v1/`, app `:segby_v1`, namespace `SegbyV1.*`):
+
+- `lib/segby_v1/` — robot, hubs, own value-types, balance, teleop, host wrapper.
+- `firmware/mcu/` hand-authored device hooks; `firmware/gen/segby_v1/` GENERATED
+  glue + headers; `firmware/platformio.ini` (`blaster_root`, `wheels_leaf`,
+  `lib_deps` the chassis); `test/` its own suite + drift test; `BRINGUP.md`.
+
+Everything under any `gen/` is generated + drift-tested; everything under `mcu/`
+is hand-authored.
 
 ## Tooling
 
@@ -46,11 +63,12 @@ does **not** work in a fresh worktree — use the devShell instead.)
 
 ### Build & test (inside the dev shell)
 
-| Stratum        | Command                                       |
-| -------------- | --------------------------------------------- |
-| Elixir host    | `mix deps.get && mix test` (or `mix compile`) |
-| C test harness | `cd firmware/test && make`                    |
-| ESP32 firmware | `cd firmware && pio run -e imu_root` (etc.)   |
+| Stratum                | Command                                                    |
+| ---------------------- | ---------------------------------------------------------- |
+| Library (Elixir)       | `mix deps.get && mix test` (or `mix compile`)              |
+| Library C test harness | `cd firmware/test && make`                                 |
+| Example (Elixir)       | `cd examples/segby_v1 && mix deps.get && mix test`         |
+| Example ESP32 firmware | `cd examples/segby_v1/firmware && pio run -e blaster_root` |
 
 `pio run` downloads the ESP32 platform + toolchains into `PLATFORMIO_CORE_DIR`
 on first use. The devShell defaults that to a **worktree-local** `.pio-core`

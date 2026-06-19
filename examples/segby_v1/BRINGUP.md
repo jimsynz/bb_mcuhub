@@ -63,8 +63,8 @@ $PIO run -e wheels_leaf  -t upload      # USB to the MKS board
 $PIO device monitor -b 115200           # console (note: console=115200, links=1 Mbit/s)
 ```
 
-Host: `mix bb.tui --robot BBMcuhub.Robots.SegbyV1` (the dashboard owns the UART
-via `BBMcuhub.Robots.SegbyV1.Host`; on the Pi pass
+Host: `mix bb.tui --robot SegbyV1.Robot` (the dashboard owns the UART
+via `SegbyV1.Host`; on the Pi pass
 `transport_opts: [port: "ttyAMA0"]`).
 
 ## Stages — verify each before the next
@@ -111,17 +111,17 @@ up:
 
 ```sh
 # on the Pi, confirm pose flows:
-BB.subscribe(BBMcuhub.Robots.SegbyV1, [:sensor, :base_link, :chassis_imu])
+BB.subscribe(SegbyV1.Robot, [:sensor, :base_link, :chassis_imu])
 # tilt the chassis → pitch should track tilt (non-zero, correct sign)
 ```
 
-Then **enable balance**: `BBMcuhub.Segby.Balance.enable(BBMcuhub.Robots.SegbyV1)`
+Then **enable balance**: `SegbyV1.Balance.enable(SegbyV1.Robot)`
 and confirm the wheels react to hold upright. PID gains (kp 0.5, ki 0.05, kd 0.1)
 are placeholders — **tune on the real chassis**.
 
 ### Stage 5 — bb_tui dashboard + teleop
 
-`mix bb.tui --robot BBMcuhub.Robots.SegbyV1`. Confirm the panels populate (joints,
+`mix bb.tui --robot SegbyV1.Robot`. Confirm the panels populate (joints,
 safety, events). Operator drive is the declared **`teleop` command** (forward/turn)
 in bb_tui's Commands panel — running it biases the balance output (forward leans
 both wheels, turn differentials them). Arm/disarm from the safety panel; recall
