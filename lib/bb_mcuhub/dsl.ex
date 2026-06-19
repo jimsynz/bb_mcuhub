@@ -344,7 +344,11 @@ defmodule BBMcuhub.Dsl do
     schema: [
       name: [type: :atom, required: true, doc: "the symbolic hub name"],
       module: [type: :module, required: true, doc: "the hub module (use BBMcuhub.Hub)"],
-      node: [type: {:in, 0..255}, required: true, doc: "the flat, whole-tree-unique NODE id (§03)"],
+      node: [
+        type: {:in, 0..255},
+        required: true,
+        doc: "the flat, whole-tree-unique NODE id (§03)"
+      ],
       transport: [
         type: {:in, [:can, :uart]},
         default: :can,

@@ -52,7 +52,7 @@ defmodule BBMcuhub.Host do
       BBMcuhub.Host.start_link(robot: MyRobot, transport_opts: [port: "ttyAMA0"])
 
   A consumer's robot-specific launcher can shrink to a thin wrapper that forwards
-  to this one (see `BBMcuhub.Robots.SegbyV1.Host`).
+  to this one (see the worked example's `SegbyV1.Host` in `examples/segby_v1`).
   """
   use Supervisor
 

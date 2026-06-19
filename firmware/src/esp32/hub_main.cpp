@@ -8,12 +8,12 @@
  * mcu/*.c and schedule.gen.h and defines hub_setup()/the task table. */
 #if defined(ARDUINO)
 
-#include <Arduino.h>
 #include "esp_task_wdt.h"
+#include <Arduino.h>
 extern "C" {
 #include "frame.h"
-#include "scheduler.h"
 #include "link.h" /* link_* and the board's hub_* — all C linkage */
+#include "scheduler.h"
 }
 
 #ifndef WDT_TIMEOUT_MS
@@ -25,13 +25,15 @@ static size_t g_n_tasks = 0;
 
 void setup() {
   /* ESP-IDF 5.x watchdog API: config struct, not (timeout, panic). A wedged
-   * tick that misses the feed resets the chip → it comes up born-disarmed (§05). */
+   * tick that misses the feed resets the chip → it comes up born-disarmed
+   * (§05). */
   esp_task_wdt_config_t wdt = {
       .timeout_ms = WDT_TIMEOUT_MS,
       .idle_core_mask = 0,
       .trigger_panic = true,
   };
-  esp_task_wdt_reconfigure(&wdt); /* the TWDT is already inited by Arduino; reconfigure it */
+  esp_task_wdt_reconfigure(
+      &wdt); /* the TWDT is already inited by Arduino; reconfigure it */
   esp_task_wdt_add(NULL);
 
   link_begin();
@@ -41,10 +43,10 @@ void setup() {
 }
 
 void loop() {
-  esp_task_wdt_reset();          /* fed at the TOP, never from inside a tick (§08) */
+  esp_task_wdt_reset(); /* fed at the TOP, never from inside a tick (§08) */
   uint32_t now_us = micros();
 
-  link_pump();                   /* drain inbound; dispatch via hub_on_body → router */
+  link_pump(); /* drain inbound; dispatch via hub_on_body → router */
   scheduler_run(g_tasks, g_n_tasks, now_us);
 }
 

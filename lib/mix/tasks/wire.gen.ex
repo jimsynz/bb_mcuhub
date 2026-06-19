@@ -16,11 +16,23 @@ defmodule Mix.Tasks.Wire.Gen.Run do
   Generation is ALWAYS explicit-robot (ADR-0003: no library default):
 
       mix wire.gen                       # all committed library robots
-                                         #   (the test fixture + segby_v1)
-      mix wire.gen --robot BBMcuhub.Robots.SegbyV1   # just one robot
+                                         #   (the test fixture)
+      mix wire.gen --robot BBMcuhub.Test.Fixtures.Robot   # just one robot
 
-  A consumer of the library runs `mix wire.gen --robot MyApp.MyRobot` to generate
-  its own robot's artifacts without authoring any generator plumbing.
+  ## Output base (ADR-0003: each app generates into its OWN tree)
+
+  By default the artifacts land cwd-relative under `firmware/gen/<slug>/` (the C
+  headers + glue) and `test/fixtures/<slug>/parity_vectors.exs` (the parity
+  fixture) — the library's own tree. A downstream consumer overrides the base so
+  generation lands in ITS tree, not the library's:
+
+      mix wire.gen.run --robot MyApp.MyRobot \\
+        --gen-dir firmware/gen --fixtures-dir test/fixtures
+
+  `--gen-dir` / `--fixtures-dir` are resolved relative to the cwd the task runs in
+  (i.e. the consumer app's root), so a consumer's `mix.exs` can add a `wire.gen`
+  alias wrapping this with its own robot + base (see `examples/segby_v1/mix.exs`).
+  A consumer thus runs generation without authoring any generator plumbing.
   """
   use Mix.Task
 
@@ -30,20 +42,50 @@ defmodule Mix.Tasks.Wire.Gen.Run do
   def run(args) do
     Mix.Task.run("app.config")
 
-    {opts, _rest, _invalid} = OptionParser.parse(args, strict: [robot: :string])
+    {opts, _rest, _invalid} =
+      OptionParser.parse(args,
+        strict: [robot: :string, gen_dir: :string, fixtures_dir: :string, slug: :string]
+      )
+
+    base = base_from(opts)
 
     paths =
       case opts[:robot] do
         nil ->
+          # No explicit robot: generate every committed LIBRARY robot into the
+          # default (library) tree. The base flags are consumer-only, so they are
+          # ignored on this path (the library has its own fixed tree).
           WireGen.write_all!()
 
         robot_str ->
           robot = Module.concat([robot_str])
           Code.ensure_loaded!(robot)
-          WireGen.write_all!(robot)
+          WireGen.write_all!(robot, base)
       end
 
     Mix.shell().info("wire.gen: wrote #{length(paths)} artifact(s)")
     Enum.each(paths, &Mix.shell().info("  #{&1}"))
   end
+
+  # Build the output-base from the flags, defaulting each leg to the library's own
+  # tree (so `--robot` alone behaves exactly as before). A path like "firmware/gen"
+  # splits into the segment list WireGen joins with the slug.
+  defp base_from(opts) do
+    default = WireGen.default_base()
+
+    base = %{
+      gen: split_or(opts[:gen_dir], default.gen),
+      fixtures: split_or(opts[:fixtures_dir], default.fixtures)
+    }
+
+    # An optional pinned slug (the per-robot artifact dir name) for a consumer
+    # whose robot module's last segment is generic (e.g. SegbyV1.Robot → "robot").
+    case opts[:slug] do
+      nil -> base
+      slug -> Map.put(base, :slug, slug)
+    end
+  end
+
+  defp split_or(nil, default), do: default
+  defp split_or(path, _default), do: Path.split(path)
 end

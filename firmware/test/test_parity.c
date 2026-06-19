@@ -2,24 +2,25 @@
  *
  * It rebuilds each parity row's body from the representative value using the C
  * codec (frame.c) and asserts the bytes AND the CRC match the generated vectors
- * byte-for-byte — the same rows the Elixir suite asserts. If either codec drifts
- * (a wrong offset, a different CRC init, a byte-order slip) a row fails and the
- * build is red. The wire literally cannot drift past this.
+ * byte-for-byte — the same rows the Elixir suite asserts. If either codec
+ * drifts (a wrong offset, a different CRC init, a byte-order slip) a row fails
+ * and the build is red. The wire literally cannot drift past this.
  *
  * Build + run on the host (no device): see firmware/test/Makefile. */
+#include <stdbool.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <stdint.h>
-#include <stdbool.h>
 
-#include "frame.h"
-#include "crc16.h"
 #include "cobs.h"
+#include "crc16.h"
+#include "frame.h"
 #include "transport.h"
 
 /* --- per-(hub,port) packers: fill a Frame with the SAME representative value
  *     the Elixir generator used (BBMcuhub.Gen.WireGen.sample_value). The header
- *     fields (node/port/seq/t_dev) are filled from the vector by the runner. --- */
+ *     fields (node/port/seq/t_dev) are filled from the vector by the runner.
+ * --- */
 
 /* The test FIXTURE robot's ports (ADR-0003): sensor_hub/{pose,scalar} +
  * act_hub/{effort_cmd,act_status}. The Follower's imu/motor packers are retired
@@ -28,7 +29,8 @@
 static void pack_sensor_hub_pose(Frame *f) {
   /* layout :imu — qw,qx,qy,qz, wx,wy,wz, ax,ay,az (all f32, big-endian) */
   float v[10] = {1.0f, 0.5f, 1.0f, 1.5f, 2.0f, 2.5f, 3.0f, 3.5f, 4.0f, 4.5f};
-  for (int i = 0; i < 10; i++) be_put_f32(&f->payload[i * 4], v[i]);
+  for (int i = 0; i < 10; i++)
+    be_put_f32(&f->payload[i * 4], v[i]);
   f->payload_len = 40;
 }
 
@@ -61,30 +63,36 @@ static void check_row(const ParityVector *pv) {
   f.node = pv->node;
   f.port = pv->port_id;
   f.seq = pv->seq;
-  f.stamped = pv->stamped;             /* per-port t_dev (§04) */
+  f.stamped = pv->stamped; /* per-port t_dev (§04) */
   f.t_dev = pv->stamped ? pv->t_dev : 0;
   pv->pack(&f);
 
   uint8_t body[FRAME_MAX_BODY];
   size_t body_len = frame_encode_body(&f, body, sizeof(body));
 
-  bool ok = (body_len == pv->body_len) && (memcmp(body, pv->body, body_len) == 0);
+  bool ok =
+      (body_len == pv->body_len) && (memcmp(body, pv->body, body_len) == 0);
   uint16_t crc = crc16_ccitt_false(body, body_len);
   bool crc_ok = (crc == pv->crc);
 
   if (ok && crc_ok) {
-    printf("  ok   %s/%s  (%zu bytes, crc 0x%04X)\n", pv->hub, pv->port, body_len, crc);
+    printf("  ok   %s/%s  (%zu bytes, crc 0x%04X)\n", pv->hub, pv->port,
+           body_len, crc);
   } else {
     g_fail++;
     printf("  FAIL %s/%s\n", pv->hub, pv->port);
     if (!ok) {
-      printf("    body mismatch (got %zu, want %zu)\n    got: ", body_len, pv->body_len);
-      for (size_t i = 0; i < body_len; i++) printf("%02X ", body[i]);
+      printf("    body mismatch (got %zu, want %zu)\n    got: ", body_len,
+             pv->body_len);
+      for (size_t i = 0; i < body_len; i++)
+        printf("%02X ", body[i]);
       printf("\n    want:");
-      for (size_t i = 0; i < pv->body_len; i++) printf("%02X ", pv->body[i]);
+      for (size_t i = 0; i < pv->body_len; i++)
+        printf("%02X ", pv->body[i]);
       printf("\n");
     }
-    if (!crc_ok) printf("    crc mismatch: got 0x%04X want 0x%04X\n", crc, pv->crc);
+    if (!crc_ok)
+      printf("    crc mismatch: got 0x%04X want 0x%04X\n", crc, pv->crc);
   }
 
   /* Also exercise decode and a full transport round-trip while we are here. */
@@ -100,7 +108,8 @@ static void check_row(const ParityVector *pv) {
   }
 }
 
-/* The pinned CRC check value (§03) — the single guard against a wrong variant. */
+/* The pinned CRC check value (§03) — the single guard against a wrong variant.
+ */
 static void check_crc_pinned(void) {
   uint16_t c = crc16_ccitt_false((const uint8_t *)"123456789", 9);
   if (c == 0x29B1) {
@@ -132,7 +141,8 @@ static void check_cobs(void) {
       printf("  FAIL COBS round-trip case %d\n", i);
     }
   }
-  if (g_fail == 0) printf("  ok   COBS round-trip (embedded zero, zero-run, boundary)\n");
+  if (g_fail == 0)
+    printf("  ok   COBS round-trip (embedded zero, zero-run, boundary)\n");
 }
 
 /* The full transport seam: encode a body to the wire and decode it back. */
@@ -169,7 +179,8 @@ int main(void) {
   check_crc_pinned();
   check_cobs();
   printf("-- parity vectors --\n");
-  for (size_t i = 0; i < N_PARITY_VECTORS; i++) check_row(&PARITY_VECTORS[i]);
+  for (size_t i = 0; i < N_PARITY_VECTORS; i++)
+    check_row(&PARITY_VECTORS[i]);
   check_transport_roundtrip();
 
   if (g_fail == 0) {

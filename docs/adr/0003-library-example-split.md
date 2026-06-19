@@ -8,7 +8,7 @@ firmware side. The example owns its own root namespace (`SegbyV1.*`) and only
 references `BBMcuhub.*` for library seams. The library carries the machinery (wire,
 floor, freshness, segmentation, the DSL, the generator, the host runtime, the C
 chassis); the consumer supplies only device-specific logic. The boundary is the
-product: if the example can't be built cleanly *as a consumer*, the library has
+product: if the example can't be built cleanly _as a consumer_, the library has
 failed its purpose.
 
 Two design choices give the boundary teeth, and are the reason this is recorded:
@@ -16,7 +16,7 @@ Two design choices give the boundary teeth, and are the reason this is recorded:
 **A value-type is the extensibility spine (`use BBMcuhub.ValueType`).** A kind of
 wire value (`imu`, `effort`, …) is a standalone, cross-bot-reusable module owning
 its `layout` (the ordered `{field, wire_type}` list), its host `lift`/`unlift`
-(raw field-map ↔ `BB.Message`), *and* the firmware-hook signature for ports of its
+(raw field-map ↔ `BB.Message`), _and_ the firmware-hook signature for ports of its
 shape. A port names its value-type by module; the IR carries the resolved layout,
 so the C struct, the Elixir codec, and the parity bytes all derive from one
 declaration. The library ships a lean stock set — `imu`, `effort`, `status` — and a
@@ -33,8 +33,8 @@ plumbing, the schedule + `hub_tasks` — into `<app>/firmware/gen/<slug>/`. The 
 implements only `<hub>_device_setup()` plus per-port `<hub>_<port>_read`/`_drive`
 hooks (signatures owned by the value-type) under `<app>/firmware/mcu/`, giving a
 clean on-disk split: everything under `gen/` is generated and drift-tested,
-everything under `mcu/` is hand-authored. Because the glue is generated *from the
-IR*, a user-defined hub is wired identically to a stock one — a device hook is
+everything under `mcu/` is hand-authored. Because the glue is generated _from the
+IR_, a user-defined hub is wired identically to a stock one — a device hook is
 never hand-glued, and the safety-critical seq/floor plumbing cannot be miswired
 per hub.
 
@@ -78,7 +78,7 @@ per hub.
   removed; `WireGen` takes an explicit output-base so each app generates into its
   own tree (the library's fixture into the library's test area, the example into
   `examples/segby_v1/firmware/gen/`). The library ships `mix wire.gen --robot
-  <Mod>` so a consumer runs generation without authoring generator plumbing.
+<Mod>` so a consumer runs generation without authoring generator plumbing.
 - **The host view becomes value-type-agnostic.** The hard-coded per-atom lift
   dispatch (`lift(:imu, …)` → `BBHub.Lift`) is replaced by delegation to the
   port's value-type module (`type_module.lift/unlift`); `BBHub.Lift`'s functions

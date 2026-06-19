@@ -13,9 +13,9 @@ small, robust core that does four things well:
 - **A correct frame** — `NODE · PORT · SEQ · T_DEV · PAYLOAD`, COBS-framed with a
   real, pinned **CRC-16/CCITT-FALSE** (check value `0x29B1`).
 - **Clock-free freshness** — trust is a counter (`seq` advance), not a clock;
-  consumers are *born stale*.
+  consumers are _born stale_.
 - **A fail-passive floor** — each actuator hub de-energises on command-`seq`
-  silence, on its own chip; *born disarmed*, motion is earned.
+  silence, on its own chip; _born disarmed_, motion is earned.
 - **A generated contract** — one model renders the C header, the per-hub
   schedule, and the parity vectors; a drift test fails the build if the C and
   Elixir sides could disagree.
@@ -26,17 +26,17 @@ A tracer bullet runs end-to-end through both languages: an IMU sense port and a
 motor effort port, with the real wire, the real floor, the real generated
 contract, and the two BeamBots views. Everything below is verified:
 
-| Layer | What | Verified by |
-|-------|------|-------------|
-| Wire (Elixir) | CRC-16, COBS, framing seam | `test/wire/` (incl. property test) |
-| Wire (C) | byte-identical codec + floor | `firmware/test/` host harnesses |
-| Contract | generator + drift + parity | `test/gen/` |
-| Host | registry, monitor (born-stale), link owner | `test/host/` |
-| BeamBots | `BB.Sensor` / `BB.Actuator` views | `test/slice_test.exs` |
-| Firmware | ESP32 images (`imu_root`, `motor_leaf`) | `pio run` (both build) |
+| Layer         | What                                       | Verified by                        |
+| ------------- | ------------------------------------------ | ---------------------------------- |
+| Wire (Elixir) | CRC-16, COBS, framing seam                 | `test/wire/` (incl. property test) |
+| Wire (C)      | byte-identical codec + floor               | `firmware/test/` host harnesses    |
+| Contract      | generator + drift + parity                 | `test/gen/`                        |
+| Host          | registry, monitor (born-stale), link owner | `test/host/`                       |
+| BeamBots      | `BB.Sensor` / `BB.Actuator` views          | `test/slice_test.exs`              |
+| Firmware      | ESP32 images (`imu_root`, `motor_leaf`)    | `pio run` (both build)             |
 
 The **cross-language witness**: `mix test` builds and runs the C harness, which
-asserts the C codec produces the *same* bytes and CRC as the Elixir parity
+asserts the C codec produces the _same_ bytes and CRC as the Elixir parity
 vectors. The wire cannot drift past it.
 
 Deferred items (arm-nonce, `fw_id`/board-identity, conflation/backpressure,

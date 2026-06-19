@@ -24,22 +24,19 @@ defmodule BBMcuhub.MixProject do
     ]
   end
 
-  # The platform lives in lib/; hubs/ and robots/ keep their Elixir beside their
-  # contracts and firmware (the design's strata, §10).
+  # The platform lives in lib/; the library's own tests are backed by the fixture
+  # robot under test/support (the design's strata, §10). The worked example
+  # (segby_v1, blaster/wheels) now lives in its own Mix app under examples/ and
+  # depends on this library as a downstream consumer (ADR-0003 / Phase 5).
   defp elixirc_paths(:test), do: base_paths() ++ ["test/support"]
   defp elixirc_paths(_), do: base_paths()
 
   defp base_paths do
-    # Follower + the imu/motor hubs are retired (ADR-0003); the library's tests
-    # are backed by the fixture robot under test/support (added by
-    # elixirc_paths(:test)). segby_v1 (blaster/wheels) stays in-tree this phase
-    # and moves to the example app in Phase 5.
-    [
-      "lib",
-      "hubs/blaster/lib",
-      "hubs/wheels/lib",
-      "robots/segby_v1/lib"
-    ]
+    # Follower + the imu/motor hubs are retired (ADR-0003); segby_v1 moved out to
+    # examples/segby_v1/. The library is a self-contained chassis: all its code is
+    # in lib/, and its tests are backed by the fixture robot under test/support
+    # (added by elixirc_paths(:test)).
+    ["lib"]
   end
 
   defp deps do
@@ -47,12 +44,12 @@ defmodule BBMcuhub.MixProject do
       # The BeamBots framework — the seam the hub views sit on (§09).
       {:bb, "~> 0.20"},
       # The host owns a UART to the root hub (§07); Circuits.UART provides the
-      # framing behaviour our COBS+CRC framer implements (§03).
+      # framing behaviour our COBS+CRC framer implements (§03). A consumer pulls
+      # this in transitively (Host.Transport.UART uses it).
       {:circuits_uart, "~> 1.5"},
-      # The terminal dashboard over the BeamBots seam (§09): subscribes to the
-      # standard BB PubSub paths and renders safety/joints/events/commands. Wired
-      # to segby via the host launcher; launched foreground (it owns stdin/stdout).
-      {:bb_tui, "~> 0.1.0"},
+      # NOTE: bb_tui moved to the example app (ADR-0003 / Phase 5) — only the
+      # worked example (segby_v1) uses the dashboard, so the library no longer
+      # depends on it.
       {:stream_data, "~> 1.0", only: [:dev, :test]},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
@@ -64,11 +61,14 @@ defmodule BBMcuhub.MixProject do
       # the contracts + topology — see §06 / ADR-0003. The drift test fails the
       # build if any committed artifact differs from this output.
       #
-      # The committed robots include the TEST FIXTURE (the drift/C-parity
-      # witness), which lives under test/support and is compiled only in :test.
-      # So generation must run in the test env to see it — `mix wire.gen` chains
-      # the compile+task under MIX_ENV=test for you. Implemented by
-      # `Mix.Tasks.Wire.Gen` (supports `--robot <Mod>`).
+      # The library's committed robot is its TEST FIXTURE (the drift/C-parity
+      # witness), which lives under test/support and is compiled only in :test. So
+      # generation must run in the test env to see it — `mix wire.gen` chains the
+      # compile+task under MIX_ENV=test for you. The worked example (segby_v1)
+      # generates its OWN artifacts from its own app (it passes its own output
+      # base; see examples/segby_v1/mix.exs). Implemented by
+      # `Mix.Tasks.Wire.Gen.Run` (supports `--robot <Mod>` + `--gen-dir`/
+      # `--fixtures-dir`).
       "wire.gen": ["cmd MIX_ENV=test mix do compile + wire.gen.run"]
     ]
   end

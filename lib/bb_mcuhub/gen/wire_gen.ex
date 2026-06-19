@@ -27,15 +27,16 @@ defmodule BBMcuhub.Gen.WireGen do
 
   Artifacts are **robot-scoped** (§09): each robot owns a `firmware/gen/<slug>/`
   dir (now holding wire_contract.h + the per-hub glue/device headers) and a
-  `test/fixtures/<slug>/` dir, so two robots (e.g. the Follower and segby_v1) can
-  coexist without one clobbering the other's artifacts. `<slug>` is the robot
-  module's last segment, underscored (`Follower` → `follower`, `SegbyV1` →
-  `segby_v1`). Each hub appears in exactly one robot, so `<hub>.glue.h` never
-  collides across robots.
+  `test/fixtures/<slug>/` dir, so robots can coexist without one clobbering the
+  other's artifacts. `<slug>` is the robot module's last segment, underscored
+  (`Robot` → `robot`, `SegbyV1` → `segby_v1`). Each hub appears in exactly one
+  robot, so `<hub>.glue.h` never collides across robots.
 
-  `write_all!/0` regenerates everything for every committed robot (the `mix
-  wire.gen` alias). The drift test asserts each file on disk equals what these
-  emitters produce *now*, per robot.
+  `write_all!/0` regenerates everything for every committed LIBRARY robot — now
+  just the library's own test fixture (the `mix wire.gen` alias). A consumer app
+  (e.g. `examples/segby_v1`) generates ITS robot itself via `write_all!/2` with
+  its own output base (ADR-0003 / Phase 5). The drift test asserts each file on
+  disk equals what these emitters produce *now*, per robot.
   """
 
   alias BBMcuhub.Contract
@@ -58,13 +59,13 @@ defmodule BBMcuhub.Gen.WireGen do
   # --- top-level ---
 
   # The robots whose artifacts the LIBRARY commits and drift-tests (ADR-0003):
-  # its own test fixture (the drift/C-parity witness) and segby_v1 (still in-tree
-  # this phase; moves to the example in Phase 5). There is NO default-robot — the
-  # library always generates for an explicit set. `mix wire.gen` (no arg)
-  # regenerates ALL of them, so a contract change anywhere is one command.
-  @robots [BBMcuhub.Test.Fixtures.Robot, BBMcuhub.Robots.SegbyV1]
+  # its own test fixture (the drift/C-parity witness). segby_v1 moved to the
+  # example app (Phase 5), which generates its own artifacts. There is NO
+  # default-robot — the library always generates for an explicit set. `mix
+  # wire.gen` (no arg) regenerates ALL of them.
+  @robots [BBMcuhub.Test.Fixtures.Robot]
 
-  @doc "The library's committed robots (the fixture + segby_v1)."
+  @doc "The library's committed robots (just the test fixture)."
   @spec robots() :: [module()]
   def robots, do: @robots
 
@@ -85,13 +86,18 @@ defmodule BBMcuhub.Gen.WireGen do
   `base` is `%{gen: [path, segments], fixtures: [path, segments]}` — the C headers
   go under `base.gen/<slug>/` and the parity fixture under
   `base.fixtures/<slug>/parity_vectors.exs`. Defaults to the library's own tree;
-  Phase 5's example passes its own base so each app generates into its own tree.
-  Returns the paths written.
+  a consumer app passes its own base so each app generates into its own tree.
+
+  The `<slug>` defaults to `slug(robot)` (the robot module's last segment,
+  underscored). A consumer whose robot module's last segment is generic (e.g.
+  `SegbyV1.Robot` → `robot`) can PIN a meaningful slug by putting `:slug` in the
+  `base` map (e.g. `%{... , slug: "segby_v1"}`) — the example does this so its
+  artifacts land in `firmware/gen/segby_v1/`. Returns the paths written.
   """
   @spec write_all!(module(), map()) :: [Path.t()]
   def write_all!(robot, base) do
     ir = ir(robot)
-    slug = slug(robot)
+    slug = Map.get(base, :slug) || slug(robot)
 
     header = {gen_dir(base, slug, "wire_contract.h"), emit_c_header(ir)}
     parity = {fixtures_path(base, slug), emit_parity(ir)}

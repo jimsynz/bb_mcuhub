@@ -14,11 +14,14 @@ extern "C" {
 
 /* Encode `in_len` bytes into `out` (capacity `out_cap`). Returns the encoded
  * length, or 0 if it would not fit. Worst case is in_len + in_len/254 + 1. */
-size_t cobs_encode(const uint8_t *in, size_t in_len, uint8_t *out, size_t out_cap);
+size_t cobs_encode(const uint8_t *in, size_t in_len, uint8_t *out,
+                   size_t out_cap);
 
 /* Decode `in_len` COBS bytes (the bytes BETWEEN delimiters) into `out`. Returns
- * the decoded length, or 0 on a truncated/corrupt run or insufficient capacity. */
-size_t cobs_decode(const uint8_t *in, size_t in_len, uint8_t *out, size_t out_cap);
+ * the decoded length, or 0 on a truncated/corrupt run or insufficient capacity.
+ */
+size_t cobs_decode(const uint8_t *in, size_t in_len, uint8_t *out,
+                   size_t out_cap);
 
 #ifdef __cplusplus
 }

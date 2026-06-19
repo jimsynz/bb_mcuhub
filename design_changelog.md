@@ -3,7 +3,7 @@
 Decision history and rationale for the hub-gateway design. The design doc
 (`docs/hub-design.html`) is kept **stateless** — it always describes the current
 intended design with no history or "we changed X" framing. This file is where the
-*why* and the *when* live: each entry says what changed in the design and the
+_why_ and the _when_ live: each entry says what changed in the design and the
 reason it changed.
 
 Format: newest first. Dates are absolute.
@@ -45,7 +45,7 @@ The design now draws a real consumer boundary, with two load-bearing seams.
   (robot + imu/motor hubs + their artifacts) is removed; a fresh,
   coverage-maximizing **fixture robot** under `test/support/` backs the drift +
   C-parity witnesses (both transports, stamped/unstamped, the actuator floor, and
-  a custom value-type), so the library proves the wire *and* the extension seam in
+  a custom value-type), so the library proves the wire _and_ the extension seam in
   isolation. The example adds its own drift test over its own artifacts.
 - **Consumer ergonomics.** `@default_robot` defaults (which pointed at the
   now-external Follower) are removed — generation is always explicit-robot;
@@ -108,6 +108,7 @@ hubs, place them, and wire their ports — focusing on structure/config, while t
 library owns the communication logic (wire, floor, freshness, segmentation).
 
 ### What changes
+
 - **Hub modules.** A hub is a reusable module (`use BBMcuhub.Hub`, a small Spark
   DSL) declaring its ports' **intrinsic wire facts** — `dir`, `type`, `rate`,
   `t_dev`, `safe_action`, and the pure `sample`/`step` core. Everything true about
@@ -136,12 +137,13 @@ library owns the communication logic (wire, floor, freshness, segmentation).
   `(hub, port)` has exactly one producer), node-id uniqueness + reserved ids (host
   0, broadcast `0x00`) unclaimed, `fresh_for` ≥ one writer period, no
   `(node, port_id)` collision, and the frame-size ceiling (`header + payload +
-  CRC` ≤ **512 B**, one named constant matching the C `SEG_MAX_BODY`). A violation
+CRC` ≤ **512 B**, one named constant matching the C `SEG_MAX_BODY`). A violation
   raises `Spark.Error.DslError` naming the offending pair — **the bug cannot
   compile, never mind reach the bus.** This is a strict strengthening of the
   design (earlier = ship-then-refuse-at-boot).
 
 ### Why
+
 - One authored model: a fact is stated once, in the DSL, so the producer and
   reader sides cannot fall out of sync (the failure the two-file scheme invited).
 - Reuses the BeamBots ecosystem instead of paralleling it: Spark `dsl_patches` +
@@ -166,9 +168,10 @@ it"). Before implementing, the encoding was pinned in a grilling session and the
 doc was sharpened **in-place** to describe the now-fixed design. The decisions:
 
 ### 1. The end-to-end CRC-16 is present and checked on the CAN path — always
+
 - **Was (code):** single-frame CAN RX handed the raw CAN data field straight up
   as a "verified body," trusting only CAN's own per-frame hardware CRC. (The doc
-  always *claimed* the CRC guards the body across the re-framing boundary; the
+  always _claimed_ the CRC guards the body across the re-framing boundary; the
   code did not honour it on CAN.)
 - **Now:** our CRC-16 rides the body across CAN as its 2-byte trailer and is
   checked at **every** CAN receive, single- and multi-frame alike — the same
@@ -180,6 +183,7 @@ doc was sharpened **in-place** to describe the now-fixed design. The decisions:
   (§04), so the gate must hold on CAN too.
 
 ### 2. Fragment metadata rides the 13 reserved id bits, not the data field
+
 - **Layout pinned:** `[NODE:8][PORT:8][FIRST:1][LAST:1][SEQLO:5][FRAG_IDX:6]`.
   6-bit index → **≤ 64 fragments → 512-byte body ceiling**; FIRST on index 0; LAST
   on the final fragment; the body `seq`'s low 5 bits bind every fragment to its
@@ -189,11 +193,12 @@ doc was sharpened **in-place** to describe the now-fixed design. The decisions:
   value, so the parity vectors (§06) — the cross-language drift witness — hold
   across both transports unchanged. A data-field sub-header would have forked the
   vectors per transport. The reserved bits were already earmarked for exactly this
-  ("deeper-CAN-segment id / priority band"). Fragment bits sit *below* NODE/PORT,
+  ("deeper-CAN-segment id / priority band"). Fragment bits sit _below_ NODE/PORT,
   so they never disturb the `(NODE,PORT)` hardware filter and never outrank
   arbitration — `NODE 0x00` (e-stop) still wins the bus.
 
 ### 3. Reassembly is fail-closed, FIRST-seeded, strictly sequential, no timeout
+
 - One in-flight buffer per `(node,port)`. A buffer is **seeded only by a FIRST
   fragment**; a non-first fragment with no open buffer is dropped+counted
   (`rx_frag_orphan`) — a stray/garbage fragment can never seed a body.
@@ -205,10 +210,11 @@ doc was sharpened **in-place** to describe the now-fixed design. The decisions:
   the next FIRST for that key (a timeout is a conflation-era refinement, SAFeD).
 - **Why:** losing one fragment loses the **whole body** (no ARQ, no partial). A
   lost body is a stale-making non-event the freshness/born-stale machinery (§04)
-  already tolerates; a *partial* body reaching a slot would be silent corruption.
+  already tolerates; a _partial_ body reaching a slot would be silent corruption.
   Fail-closed is the only safe choice, and the structural reclaim avoids a timer.
 
 ### 4. `tx_oversize` re-aimed at the 512-byte ceiling
+
 - **Was:** `tx_oversize` counted any classic-CAN body > 8 B (the refuse-don't-
   truncate stopgap). The 54-byte IMU was on the reject path.
 - **Now:** segmentation **is** the > 8 B path; `tx_oversize` is re-aimed at the
@@ -217,6 +223,7 @@ doc was sharpened **in-place** to describe the now-fixed design. The decisions:
   `rx_frag_drop`, `rx_crc_fail`.
 
 ### Doc reconciliation (in-place, stateless)
+
 §03's "the one transport detail" callout, its byte diagram (reserved → segment),
 and the §06 boot-check bullet were rewritten to describe the pinned encoding as
 the current design. `CONTEXT.md` gained a **Segment** term and had **The frame**
@@ -234,6 +241,7 @@ contradicted. All five were folded **in-place** into `docs/hub-design.html` so t
 doc still reads as a single stateless source of truth. The changes:
 
 ### 1. CAN-FD is a hardware requirement; frame size is a real v1 constraint (§03, §06)
+
 - **Was:** "use CAN FD … v1 sizes every value type to fit one frame, so
   segmentation is SAFeD and the common path never needs it."
 - **Now:** CAN FD is stated as a hardware dependency on the MCU + transceiver.
@@ -251,6 +259,7 @@ doc still reads as a single stateless source of truth. The changes:
   so refuse-and-count is the only safe v1 behaviour on a classic-CAN board.
 
 ### 2. `t_dev` is opt-in per port (§04, §03)
+
 - **Was:** `t_dev` (8 bytes) is carried on every frame; "costs 8 bytes and zero
   gate complexity."
 - **Now:** `t_dev` is a **per-port** contract flag. Sensors that feed
@@ -262,18 +271,20 @@ doc still reads as a single stateless source of truth. The changes:
   `seq` was always the only trust stamp.
 
 ### 3. The Elixir codec is data-driven, not generated — "three artifacts" (§06)
+
 - **Was:** the generator emits "four renderings of one model," one of them the
   Elixir codec (`codec.ex`, GENERATED).
 - **Now:** the host Elixir codec is **data-driven** (reads the layout/header
   tables at runtime); the generator emits **three** artifacts — the C header, the
   per-hub schedule, and the parity vectors — and drift-tests them.
 - **Why:** a codec that interprets the single source of truth cannot drift from it
-  *within* Elixir, so there is no generated `.ex` to fall stale. The drift surface
+  _within_ Elixir, so there is no generated `.ex` to fall stale. The drift surface
   collapses to exactly the cross-language boundary the in-language guarantee can't
   reach, which the parity vectors witness directly. Same guarantee, smaller
   surface.
 
 ### 4. §09 rewritten against the real `bb` 0.20.3 API
+
 - **Was:** an invented `HubView.Sensor`/`HubView.Actuator` API: a `path:` option,
   `BB.publish/3` by path, manual `BB.subscribe` + `BB.Safety.register` in `init`
   described as "REQUIRED — silent no-op if forgotten," `live?/1` reading the raw
@@ -282,21 +293,22 @@ doc still reads as a single stateless source of truth. The changes:
   **callback modules** (not GenServers) with `options_schema:`; `:bb`
   (`%{robot:, path:}`) and `:motor_profile` **auto-injected**; **no built-in poll
   loop** (the view drives its own beat); `BB.publish(robot, [:sensor | path],
-  msg)`; the actuator **server auto-subscribes** the command topic and
+msg)`; the actuator **server auto-subscribes** the command topic and
   auto-registers `disarm/1`, so the "forgotten subscribe" gotcha is gone;
   messages are concrete `BB.Message.Sensor.Imu` / `BB.Message.Actuator.Command.
-  Effort` with Nx-tensor-backed `Quaternion`/`Vec3`.
+Effort` with Nx-tensor-backed `Quaternion`/`Vec3`.
 - **Why:** the doc's §09 was illustrative pseudo-code written before the real
   dependency was pinned. Coding against `bb` 0.20.3 showed the real shape, which
   is in several ways simpler (no manual subscribe to forget) and in one way
   different that matters (callback module, not GenServer).
 
 ### 5. Born-stale resolved strict, with its cost stated (§04, §05)
+
 - **Was:** "born stale … until it personally sees `seq` advance since its own
   boot" — left implicit how a consumer tells a pre-boot leftover value from the
   producer's first post-boot value, which look identical on first observation.
 - **Now:** the **strict** rule is explicit: the first observed `seq` is only a
-  baseline; trust begins on the first *change* from it. A leftover value is never
+  baseline; trust begins on the first _change_ from it. A leftover value is never
   trusted, at the cost of up to one extra producer period of first-trust latency.
   The monitor code block (§04) and the firmware floor (§05) both reflect this.
 - **Why:** it is the literal reading of "advance since its own boot" and the safe
@@ -305,8 +317,10 @@ doc still reads as a single stateless source of truth. The changes:
   since it only ever removes latency, never adds trust.
 
 ### Implementation bugs fixed alongside (code, not design)
+
 These were defects in the reference implementation relative to the (correct)
 design, fixed in the same pass:
+
 - **`Actuator.live/1` was not freshness-gated** — a stale "not floored" status
   read as `:driving` (the "confident green while floored" failure §05 warns
   against). Now gated by a born-stale status monitor on the view's own beat.
@@ -316,6 +330,7 @@ design, fixed in the same pass:
   `seq`/`t_dev`/payload verbatim, meaning-blind), which had no end-to-end test.
 
 ### Per-port `t_dev` (item 2) — now implemented
+
 The code was brought in line with the design: `t_dev` is a per-port contract flag
 (`t_dev: true`), and the header is one of two shapes. The change rippled through
 the Elixir contract/codec/`PortIndex`, the generator (a `wire_port_stamped`
@@ -329,21 +344,22 @@ header, so an unstamped frame is never misread. The cross-language parity witnes
 confirms the new byte layouts agree C↔Elixir.
 
 ### Known gaps recorded (not yet built, beyond the design's own SAFeD list)
+
 - **Frame-size check / segmentation (item 1):** the design moves these into v1;
   the code currently refuses-and-counts oversized classic-CAN frames (the safe
-  half) but does not yet segment or run the boot-time size check. *(Segmentation +
+  half) but does not yet segment or run the boot-time size check. _(Segmentation +
   reassembly now built — see the 2026-06-18 segmentation entry above. The boot-time
-  size check rides with the topology-validation gap below, still open.)*
+  size check rides with the topology-validation gap below, still open.)_
 - No on-hardware run yet; `imu_read`/`drive` are synthetic stand-ins.
 - Inbound CAN multi-frame **reassembly** is unbuilt (waits on the segmentation
   work, item 1); undersized stray frames are safely rejected by the codec's
-  header-size check. *(Now built — see the 2026-06-18 segmentation entry above.)*
+  header-size check. _(Now built — see the 2026-06-18 segmentation entry above.)_
 - Boot-time **topology validation** (§06: one producer per `(node,port)`, unique
   ids, `fresh_for` ≥ one period, frame-size check) is specified but not yet
   implemented as a runtime boot check.
 - The host command **drain is a 5 ms poll**, not event-driven — fine for v1 rates;
-  revisit with conflation (SAFeD). *(Now event-driven — see the 2026-06-18 command-
-  drain entry above.)*
+  revisit with conflation (SAFeD). _(Now event-driven — see the 2026-06-18 command-
+  drain entry above.)_
 
 ---
 

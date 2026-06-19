@@ -8,20 +8,23 @@
 #ifndef BB_MCUHUB_TRANSPORT_H
 #define BB_MCUHUB_TRANSPORT_H
 
+#include "frame.h"
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <stdbool.h>
-#include "frame.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* Frame a body for the wire. Returns the wire length, or 0 if it would not fit. */
-size_t transport_encode(const uint8_t *body, size_t body_len, uint8_t *out, size_t out_cap);
+/* Frame a body for the wire. Returns the wire length, or 0 if it would not fit.
+ */
+size_t transport_encode(const uint8_t *body, size_t body_len, uint8_t *out,
+                        size_t out_cap);
 
 /* A callback invoked with each verified body the decoder peels off. */
-typedef void (*transport_on_body_fn)(const uint8_t *body, size_t body_len, void *ctx);
+typedef void (*transport_on_body_fn)(const uint8_t *body, size_t body_len,
+                                     void *ctx);
 
 typedef struct {
   uint8_t buf[FRAME_MAX_WIRE];

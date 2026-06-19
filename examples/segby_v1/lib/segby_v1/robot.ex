@@ -1,0 +1,143 @@
+defmodule SegbyV1.Robot do
+  @moduledoc """
+  The segby_v1 robot (§09) — a two-wheel self-balancing bot, defined in the
+  BeamBots DSL over a UART backplane (no CAN transceiver on hand).
+
+  BeamBots sees ordinary components; it never sees the root hub or the wire tree
+  below it. Each hub port surfaces as a thin `BBMcuhub.BBHub.Sensor` /
+  `BBMcuhub.BBHub.Actuator` view; below that seam runs our COBS+CRC frame over
+  UART, carrying `seq` and (for the IMU) `t_dev`, with the floor on the wheels
+  hub's own chip.
+
+  Two hubs, both on a `:uart` backplane (§03/ADR-0002):
+
+    * the **Blaster** (NODE 0x02) is the root comms hub — it senses pose (the
+      MPU-9250 IMU) and a forward range (the HC-SR04), and drives a decorative
+      WS2812 status strip. Its children-facing backplane to the wheels is UART.
+    * the **Wheels** (NODE 0x05) is the leaf — ONE MKS Dual FOC board driving
+      both wheels, so it takes two effort commands (left/right) and reports two
+      statuses. Its parent link is UART.
+
+  The host control pipeline lives in `SegbyV1.Balance` — a robot-level
+  `BB.Controller` placed in the `controllers do` block below. It consumes the
+  `chassis_imu` pose and produces per-wheel effort commands (it is a pure
+  consumer+producer across the BeamBots seam; the actuator views remain the
+  single writers of the command slots, §04). It starts DISABLED.
+
+  The hub-gateway DSL (`BBMcuhub.Dsl`) composes alongside BeamBots' own: the
+  `hubs do` block places each hub on a NODE id and the views in `topology` name
+  the hub+port they read.
+  """
+  use BB, extensions: [BBMcuhub.Dsl]
+
+  hubs do
+    hub(:blaster, SegbyV1.Hubs.Blaster, node: 0x02, transport: :uart)
+    hub(:wheels, SegbyV1.Hubs.Wheels, node: 0x05, transport: :uart)
+  end
+
+  controllers do
+    # The host balance loop (§09). It subscribes to the chassis-IMU pose topic
+    # and publishes Effort to BOTH wheel actuator topics — so it needs the two
+    # wheel actuator paths, which are the topology nesting (link → joint →
+    # actuator). Starts DISABLED; enable live via `SegbyV1.Balance.enable/1`.
+    controller(
+      :balance,
+      {SegbyV1.Balance,
+       pose_topic: [:sensor, :base_link, :chassis_imu],
+       left_actuator_path: [:base_link, :left_wheel, :left_drive],
+       right_actuator_path: [:base_link, :right_wheel, :right_drive],
+       kp: 0.5,
+       ki: 0.05,
+       kd: 0.1,
+       target_pitch: 0.0,
+       integral_clamp: 1.0,
+       output_clamp: 1.0,
+       max_forward: 0.5,
+       max_turn: 0.3,
+       enabled: false}
+    )
+  end
+
+  commands do
+    # Operator teleop from the dashboard (§09). bb_tui's Commands panel runs this
+    # via the runtime; its handler publishes a Twist onto the balance
+    # controller's teleop topic, which biases the per-wheel effort. `allowed_states
+    # [:*]` so an operator can teleop in any non-disarmed state.
+    command :teleop do
+      handler(SegbyV1.Teleop)
+      allowed_states([:*])
+
+      argument :forward, :float do
+        default(0.0)
+        doc("forward bias in [-1.0, 1.0] (mixed onto BOTH wheels)")
+      end
+
+      argument :turn, :float do
+        default(0.0)
+        doc("turn differential in [-1.0, 1.0] (right +, left -)")
+      end
+    end
+  end
+
+  topology do
+    link :base_link do
+      # the chassis IMU — a BB.Sensor view over the blaster hub's pose port
+      sensor(
+        :chassis_imu,
+        {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :pose, fresh_for: 3, beat_ms: 10}
+      )
+
+      # the forward rangefinder — a BB.Sensor view over the blaster's range port
+      sensor(
+        :range_front,
+        {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :range_front, fresh_for: 3, beat_ms: 50}
+      )
+
+      # left wheel — a BB.Actuator view over the wheels hub's left command port,
+      # reading its left status slot for liveness (§05). fresh_for is the
+      # command's consumer window (§04); the hub's own floor is the safe state.
+      joint :left_wheel do
+        type(:continuous)
+
+        axis do
+        end
+
+        limit do
+          effort(~u(10 newton_meter))
+          velocity(~u(20 radian_per_second))
+        end
+
+        actuator(
+          :left_drive,
+          {BBMcuhub.BBHub.Actuator,
+           hub: :wheels, port: :motor_left, status_port: :status_left, fresh_for: 5}
+        )
+
+        link :left_wheel_link do
+        end
+      end
+
+      # right wheel — the mirror of the left
+      joint :right_wheel do
+        type(:continuous)
+
+        axis do
+        end
+
+        limit do
+          effort(~u(10 newton_meter))
+          velocity(~u(20 radian_per_second))
+        end
+
+        actuator(
+          :right_drive,
+          {BBMcuhub.BBHub.Actuator,
+           hub: :wheels, port: :motor_right, status_port: :status_right, fresh_for: 5}
+        )
+
+        link :right_wheel_link do
+        end
+      end
+    end
+  end
+end

@@ -4,8 +4,9 @@ defmodule BBMcuhub.Gen.WireDriftTest do
   or if the Elixir codec disagrees with the committed parity bytes (§06).
 
   Artifacts are robot-scoped (§09): each robot owns `firmware/gen/<slug>/` and
-  `test/fixtures/<slug>/`, so the drift check runs PER ROBOT — the test fixture
-  robot and segby_v1 each regenerated + compared against their own dir.
+  `test/fixtures/<slug>/`, so the drift check runs PER ROBOT. The library's
+  committed robot is its test FIXTURE (segby_v1 moved to the example app, which
+  has its own drift test).
   """
   # Not async: the decode round-trip builds the global PortIndex per robot
   # (:persistent_term), so two robots' decode tests must not race on it.
@@ -15,10 +16,11 @@ defmodule BBMcuhub.Gen.WireDriftTest do
   alias BBMcuhub.Gen.WireGen
   alias BBMcuhub.Wire.{Codec, CRC16}
 
-  # Every robot whose artifacts are committed (§09). Adding a robot here makes the
-  # drift test guard its generated dir too. The library's drift/C-parity witness
-  # is the test FIXTURE robot (ADR-0003); segby_v1 stays in-tree until Phase 5.
-  @robots [BBMcuhub.Test.Fixtures.Robot, BBMcuhub.Robots.SegbyV1]
+  # Every robot whose artifacts the LIBRARY commits (§09). Adding a robot here
+  # makes the drift test guard its generated dir too. The library's drift/C-parity
+  # witness is the test FIXTURE robot (ADR-0003); segby_v1 moved to the example
+  # app (Phase 5), which has its own drift test.
+  @robots [BBMcuhub.Test.Fixtures.Robot]
 
   describe "generated artifacts are not stale (a hand-edit or stale checkout fails here)" do
     for robot <- @robots do

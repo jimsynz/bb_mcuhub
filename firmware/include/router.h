@@ -1,18 +1,19 @@
 /* Meaning-blind flat-NODE routing (§03/§04/§08).
  *
  * NODE is a whole-tree-unique id, never a path. A branch hub forwards a frame
- * toward the local link that reaches the dest node — a child link is NOT a port.
- * The router does NOT decode the payload and does NOT touch seq/t_dev. On the
- * root hub, UP is UART (to the host) and DOWN is CAN; deeper, both are CAN.
+ * toward the local link that reaches the dest node — a child link is NOT a
+ * port. The router does NOT decode the payload and does NOT touch seq/t_dev. On
+ * the root hub, UP is UART (to the host) and DOWN is CAN; deeper, both are CAN.
  *
  * Forwarding is strict FIFO, in arrival order, re-framing for the destination
  * transport and re-CRCing the SAME body — never reorder/hold/dedup. That
- * in-order guarantee is what makes the floor's seq!=last_seq test sound (§04). */
+ * in-order guarantee is what makes the floor's seq!=last_seq test sound (§04).
+ */
 #ifndef BB_MCUHUB_ROUTER_H
 #define BB_MCUHUB_ROUTER_H
 
-#include <stdint.h>
 #include "frame.h"
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -31,9 +32,10 @@ typedef struct {
 
 /* Callbacks the firmware supplies to actually move bytes on each link. */
 typedef struct {
-  void (*deliver_local)(const Frame *f, void *ctx); /* an endpoint port on THIS hub */
-  void (*forward_up)(const Frame *f, void *ctx);     /* toward parent/host */
-  void (*forward_down)(const Frame *f, void *ctx);   /* toward a child link */
+  void (*deliver_local)(const Frame *f,
+                        void *ctx); /* an endpoint port on THIS hub */
+  void (*forward_up)(const Frame *f, void *ctx);   /* toward parent/host */
+  void (*forward_down)(const Frame *f, void *ctx); /* toward a child link */
   void *ctx;
 } RouterSinks;
 

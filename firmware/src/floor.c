@@ -22,7 +22,8 @@ float floor_tick(Floor *f, uint32_t now_ms) {
    * command seq we ever see only records a baseline; trust begins on a later,
    * DIFFERENT seq — so a stale command sitting in a buffer at boot cannot
    * energise us. "Advanced?" is a plain inequality, sound because every path to
-   * this chip is in-order (§04); no magnitude test ⇒ counter wrap is harmless. */
+   * this chip is in-order (§04); no magnitude test ⇒ counter wrap is harmless.
+   */
   if (!f->have_baseline) {
     f->have_baseline = true;
     f->last_seq = f->cmd_seq;
@@ -32,7 +33,8 @@ float floor_tick(Floor *f, uint32_t now_ms) {
     f->last_advance_ms = now_ms;
   }
 
-  bool fresh = f->seen_advance && (uint32_t)(now_ms - f->last_advance_ms) < f->window_ms;
+  bool fresh =
+      f->seen_advance && (uint32_t)(now_ms - f->last_advance_ms) < f->window_ms;
 
   if (!fresh) {
     f->armed = false; /* silence (or not-yet-earned) → safe, latched */

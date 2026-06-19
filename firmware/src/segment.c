@@ -14,8 +14,10 @@
 uint32_t seg_id_pack(uint8_t node, uint8_t port, bool first, bool last,
                      uint8_t seqlo, uint8_t frag_idx) {
   uint32_t id = ((uint32_t)node << 21) | ((uint32_t)port << 13);
-  if (first) id |= (1u << SEG_FIRST_BIT);
-  if (last) id |= (1u << SEG_LAST_BIT);
+  if (first)
+    id |= (1u << SEG_FIRST_BIT);
+  if (last)
+    id |= (1u << SEG_LAST_BIT);
   id |= (uint32_t)(seqlo & SEG_SEQLO_MASK) << SEG_SEQLO_SHIFT;
   id |= (uint32_t)(frag_idx & SEG_FRAG_MASK);
   return id;
@@ -25,7 +27,9 @@ uint8_t seg_id_node(uint32_t id) { return (uint8_t)(id >> 21); }
 uint8_t seg_id_port(uint32_t id) { return (uint8_t)(id >> 13); }
 bool seg_id_first(uint32_t id) { return (id >> SEG_FIRST_BIT) & 1u; }
 bool seg_id_last(uint32_t id) { return (id >> SEG_LAST_BIT) & 1u; }
-uint8_t seg_id_seqlo(uint32_t id) { return (uint8_t)((id >> SEG_SEQLO_SHIFT) & SEG_SEQLO_MASK); }
+uint8_t seg_id_seqlo(uint32_t id) {
+  return (uint8_t)((id >> SEG_SEQLO_SHIFT) & SEG_SEQLO_MASK);
+}
 uint8_t seg_id_frag_idx(uint32_t id) { return (uint8_t)(id & SEG_FRAG_MASK); }
 
 /* --- TX --- */
@@ -37,21 +41,25 @@ bool seg_split(uint8_t node, uint8_t port, uint16_t seq, const uint8_t *body,
   /* body || CRC16(body) — the CRC rides as the body's trailer, over the whole
    * body, never per-fragment (§03). */
   size_t total = body_len + 2;
-  if (total > SEG_MAX_BODY) return false; /* over the 512-byte ceiling: tx_oversize */
+  if (total > SEG_MAX_BODY)
+    return false; /* over the 512-byte ceiling: tx_oversize */
 
   uint8_t framed[SEG_MAX_BODY];
   memcpy(framed, body, body_len);
   be_put_u16(&framed[body_len], crc16_ccitt_false(body, body_len));
 
   size_t n_frags = (total + SEG_CAN_DATA - 1) / SEG_CAN_DATA;
-  if (n_frags > out_cap || n_frags > SEG_MAX_FRAGS) return false;
+  if (n_frags > out_cap || n_frags > SEG_MAX_FRAGS)
+    return false;
 
   uint8_t seqlo = (uint8_t)(seq & SEG_SEQLO_MASK);
   for (size_t i = 0; i < n_frags; i++) {
     size_t off = i * SEG_CAN_DATA;
     size_t chunk = total - off;
-    if (chunk > SEG_CAN_DATA) chunk = SEG_CAN_DATA;
-    out[i].id = seg_id_pack(node, port, i == 0, i == n_frags - 1, seqlo, (uint8_t)i);
+    if (chunk > SEG_CAN_DATA)
+      chunk = SEG_CAN_DATA;
+    out[i].id =
+        seg_id_pack(node, port, i == 0, i == n_frags - 1, seqlo, (uint8_t)i);
     memcpy(out[i].data, &framed[off], chunk);
     out[i].len = (uint8_t)chunk;
   }
@@ -76,7 +84,8 @@ void seg_reasm_feed(SegReasm *r, const CanFrame *f,
   /* find the slot bound to this (node,port), or a free one for a FIRST */
   SegBuffer *slot = NULL;
   for (size_t i = 0; i < SEG_MAX_SLOTS; i++) {
-    if (r->slots[i].active && r->slots[i].node == node && r->slots[i].port == port) {
+    if (r->slots[i].active && r->slots[i].node == node &&
+        r->slots[i].port == port) {
       slot = &r->slots[i];
       break;
     }
@@ -86,9 +95,15 @@ void seg_reasm_feed(SegReasm *r, const CanFrame *f,
     /* a FIRST seeds (or re-seeds) a buffer */
     if (!slot) {
       for (size_t i = 0; i < SEG_MAX_SLOTS; i++) {
-        if (!r->slots[i].active) { slot = &r->slots[i]; break; }
+        if (!r->slots[i].active) {
+          slot = &r->slots[i];
+          break;
+        }
       }
-      if (!slot) { r->rx_frag_drop++; return; } /* all slots busy: drop new, fail-closed */
+      if (!slot) {
+        r->rx_frag_drop++;
+        return;
+      } /* all slots busy: drop new, fail-closed */
     }
     slot->active = true;
     slot->node = node;
@@ -105,7 +120,8 @@ void seg_reasm_feed(SegReasm *r, const CanFrame *f,
   if (idx != slot->next_idx || seqlo != slot->seqlo ||
       slot->len + f->len > SEG_MAX_BODY) {
     r->rx_frag_drop++;
-    slot->active = false; /* abandon the partial (only a future FIRST may re-seed) */
+    slot->active =
+        false; /* abandon the partial (only a future FIRST may re-seed) */
     return;
   }
 
@@ -113,15 +129,23 @@ void seg_reasm_feed(SegReasm *r, const CanFrame *f,
   slot->len += f->len;
   slot->next_idx++;
 
-  if (!last) return;
+  if (!last)
+    return;
 
-  /* LAST: the buffer holds body || CRC. Verify CRC over the body before delivery. */
+  /* LAST: the buffer holds body || CRC. Verify CRC over the body before
+   * delivery. */
   slot->active = false;
-  if (slot->len < 2) { r->rx_frag_drop++; return; }
+  if (slot->len < 2) {
+    r->rx_frag_drop++;
+    return;
+  }
   size_t body_len = slot->len - 2;
   uint16_t want = be_get_u16(&slot->buf[body_len]);
   uint16_t have = crc16_ccitt_false(slot->buf, body_len);
-  if (want != have) { r->rx_crc_fail++; return; }
+  if (want != have) {
+    r->rx_crc_fail++;
+    return;
+  }
 
   on_body(slot->buf, body_len, ctx);
 }

@@ -1,0 +1,22 @@
+{
+  "name": "bb_mcuhub",
+  "version": "0.1.0",
+  "description": "The bb_mcuhub C chassis (§08): the communication logic a hub gateway needs on the MCU — COBS+CRC framing, the transport seam, the meaning-blind router, the cooperative scheduler, the born-disarmed/fail-passive floor, CAN segmentation, and the ESP32/arduino-esp32 link layer (UART host link + UART/TWAI backplane) plus the generic hub main loop. A consumer pulls this via lib_deps and adds ONLY its robot's generated per-hub glue (-Igen/<slug>) and its hand-authored device hooks (mcu/<hub>.cpp). The arduino-esp32 glue under src/esp32 is #if defined(ARDUINO)-guarded, so the same sources compile in the host C harnesses (built via firmware/test/Makefile, not PlatformIO).",
+  "keywords": [
+    "thunderdome",
+    "bb_mcuhub",
+    "hub",
+    "esp32",
+    "can",
+    "twai",
+    "uart",
+    "framing",
+    "floor"
+  ],
+  "frameworks": ["arduino"],
+  "platforms": ["espressif32"],
+  "build": {
+    "srcDir": "src",
+    "includeDir": "include"
+  }
+}

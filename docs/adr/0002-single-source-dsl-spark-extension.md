@@ -6,7 +6,7 @@ and authors **one model**: hubs are reusable modules (`use BBMcuhub.Hub`) that
 declare their ports' intrinsic wire facts (`type`, `rate`, `t_dev`, `safe_action`,
 the pure `sample`/`step`); the robot declares a sibling `hubs do` block (a top-level section our extension
 owns, composed via `use BB, extensions: [BBMcuhub.Dsl]` — no `bb` fork) that
-*places* each hub on a `NODE`, and the existing `topology do` wires its ports to
+_places_ each hub on a `NODE`, and the existing `topology do` wires its ports to
 components. A
 Spark **transformer** projects that assembled model into the IR row shape and
 persists it; a Spark **verifier** validates it at compile time (reader↔producer
@@ -32,12 +32,12 @@ the `Source` loader, and `Contract.build_ir/2` are dissolved.
 ## Consequences
 
 - **The IR row shape is kept as a stable internal seam.** `WireGen`, `PortIndex`,
-  and the parity/drift tests consume it unchanged; only its *source* moves from
+  and the parity/drift tests consume it unchanged; only its _source_ moves from
   `build_ir(contracts, topology)` to a DSL projection. The C/firmware/parity side
   is untouched.
 - **The library now depends on Spark's extension surface** (a top-level section,
   transformers, verifiers, InfoGenerators) composed onto `use BB` via the
-  `extensions:` option. Hub *placement* is a sibling `hubs do` block rather than
+  `extensions:` option. Hub _placement_ is a sibling `hubs do` block rather than
   interleaved into BeamBots' `topology do`, because `bb` 0.20.3's `topology`
   section is not `patchable?` — `Spark.Dsl.Patch.AddEntity` into it is silently
   dropped, and making it patchable would mean forking `bb`. This couples the

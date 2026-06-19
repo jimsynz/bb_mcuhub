@@ -55,22 +55,21 @@ defmodule BBMcuhub.ValueType do
   @callback unlift(struct() | map()) :: map()
 
   # The stock value-types the library ships (ADR-0003: imu, effort, status).
+  # Anything else is a CONSUMER-defined value-type, named by MODULE (the example's
+  # SegbyV1.ValueTypes.{Range,Led}, the fixture's Scalar) — resolved by the
+  # module-passthrough clause below, no stock entry needed.
   @stock %{
     imu: BBMcuhub.ValueType.Imu,
     effort: BBMcuhub.ValueType.Effort,
-    status: BBMcuhub.ValueType.Status,
-    # TEMP: moves to the example in the library/example split (Phase 5).
-    range: BBMcuhub.ValueType.Range,
-    # TEMP: moves to the example in the library/example split (Phase 5).
-    led: BBMcuhub.ValueType.Led
+    status: BBMcuhub.ValueType.Status
   }
 
   @doc """
   Resolve a value-type reference to its module.
 
-  A stock atom (`:imu`, `:effort`, `:status`, and — until Phase 5 — `:range`,
-  `:led`) maps to its value-type module; a module is passed through unchanged, so a
-  consumer can name their own value-type module directly.
+  A stock atom (`:imu`, `:effort`, `:status`) maps to its value-type module; a
+  module is passed through unchanged, so a consumer can name their own value-type
+  module directly.
   """
   @spec resolve(atom() | module()) :: module()
   def resolve(ref) when is_map_key(@stock, ref), do: Map.fetch!(@stock, ref)

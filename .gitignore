@@ -39,3 +39,11 @@ bb_mcuhub-*.tar
 
 # direnv / nix devShell
 .direnv/
+
+# Example apps (downstream consumers under examples/) — their Mix build/dep dirs.
+# The root /_build and /deps above are anchored to the library root, so the
+# example's own ones need their own (unanchored) entries.
+examples/*/_build/
+examples/*/deps/
+examples/*/cover/
+examples/*/doc/
