@@ -55,8 +55,16 @@ defmodule SegbyV1Nerves.Application do
     opts = [strategy: :one_for_one, name: SegbyV1Nerves.Supervisor]
 
     case Supervisor.start_link(children, opts) do
-      {:ok, _pid} = ok ->
+      {:ok, sup} = ok ->
+        # The firmware is healthy once the HOST stack is up — validate (stops the
+        # OTA auto-revert) BEFORE touching the optional TUI, so a dashboard
+        # problem can never roll back a working robot.
         validate_firmware()
+        # The TUI dashboard is best-effort and NON-CRITICAL: start it as a child
+        # of the running supervisor, and if it fails to start just log it — never
+        # abort the boot (a dead dashboard must not take down SegbyV1.Host or
+        # trigger a firmware rollback).
+        start_tui(sup)
         ok
 
       other ->
@@ -71,6 +79,59 @@ defmodule SegbyV1Nerves.Application do
       nil
     else
       {SegbyV1.Host, [transport_opts: [port: "ttyAMA0", baud: 115_200]]}
+    end
+  end
+
+  # Start the bb_tui dashboard as its OWN SSH daemon on port 2222 — a SEPARATE
+  # listener from the nerves_ssh IEx console (port 22), so connecting to the
+  # dashboard never takes over or kills the IEx session. (`BB.TUI.run/1` from the
+  # IEx console is NOT viable here — it grabs the nerves_ssh console's I/O and
+  # drops the whole session.) Connect with:
+  #
+  #     ssh tui@segby-v1-<serial>.local -p 2222     (password: segby)
+  #
+  # Best-effort + non-critical: a start failure is logged, never propagated, so a
+  # dashboard problem can't roll back a working robot. Started under the running
+  # supervisor as a :temporary child (BB.TUI.child_spec is already :temporary).
+  # Host-gated like host_child/0 (no SSH daemon under `iex -S mix`).
+  defp start_tui(sup) do
+    if @target != :host do
+      # The SSH host key must live on a WRITABLE path. `auto_host_key: true` writes
+      # under the app's priv dir, which on Nerves is the read-only squashfs rootfs
+      # → the daemon fails to start. Use an explicit system_dir on /data (the
+      # persistent writable app partition) and ensure a host key there ourselves.
+      system_dir = ensure_tui_host_key()
+
+      spec =
+        {BB.TUI,
+         [
+           robot: SegbyV1.Robot,
+           transport: :ssh,
+           port: 2222,
+           system_dir: system_dir,
+           auth_methods: ~c"password",
+           user_passwords: [{~c"tui", ~c"segby"}]
+         ]}
+
+      case Supervisor.start_child(sup, spec) do
+        {:ok, _} -> Logger.info("bb_tui dashboard on ssh port 2222 (user tui)")
+        {:error, reason} -> Logger.warning("bb_tui dashboard not started: #{inspect(reason)}")
+      end
+    end
+
+    :ok
+  end
+
+  # Generate/locate the dashboard SSH daemon's host key on a writable partition.
+  # Prefers /data (Nerves persistent app data); falls back to /tmp (ephemeral —
+  # a fresh host key each boot, which only means clients re-accept the key).
+  defp ensure_tui_host_key do
+    base = if File.dir?("/data"), do: "/data", else: System.tmp_dir!()
+    dir = Path.join(base, "segby_tui_ssh")
+
+    case ExRatatui.SSH.Daemon.ensure_host_key!(dir) do
+      charlist when is_list(charlist) -> to_string(charlist)
+      _ -> dir
     end
   end
 
