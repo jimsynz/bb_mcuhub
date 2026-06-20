@@ -271,8 +271,8 @@ defmodule BBMcuhub.Gen.WireGen do
   #   * ROOT hub  — the lowest-NODE hub in the robot (`Enum.min` on node), matching
   #     `backplane_transport_uart/1`'s root rule. A root's route table defaults to
   #     LINK_UP (toward host), MY_NODE → LINK_LOCAL, and every OTHER hub's node →
-  #     LINK_DOWN. Its hub_on_body forwards (fwd_up/fwd_down, both `link_send_up`,
-  #     matching the hand-written root hubs). A LEAF defaults route_table[*] =
+  #     LINK_DOWN. Its hub_on_body forwards up via `link_send_up` (host) and down
+  #     via `link_send_down` (backplane → child). A LEAF defaults route_table[*] =
   #     LINK_LOCAL and passes nullptr,nullptr (local-only) — matching motor/wheels.
   #
   #   * FLOORED command port — `dir: :in` AND `safe_action != nil`. Gets a Floor,
@@ -691,7 +691,7 @@ defmodule BBMcuhub.Gen.WireGen do
         {
           """
           static void fwd_up(const Frame *f, void *) { link_send_up(f); }
-          static void fwd_down(const Frame *f, void *) { link_send_up(f); /* link re-frames onto the backplane */ }
+          static void fwd_down(const Frame *f, void *) { link_send_down(f); /* re-frames onto the backplane to a child */ }
           """,
           "RouterSinks sinks = {deliver_local, fwd_up, fwd_down, nullptr};"
         }

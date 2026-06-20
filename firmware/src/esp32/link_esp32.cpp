@@ -241,6 +241,53 @@ void link_send_up(const Frame *f) {
 #endif
 }
 
+/* Send a frame DOWN to a child over the backplane. Only a root hub bridges
+ * host→child: it re-frames the SAME body onto its backplane (Serial2 for a UART
+ * backplane, segmented CAN otherwise) — the mirror of a leaf's link_send_up
+ * over the backplane. A non-root hub has no children, so this is a no-op there.
+ * The router calls this for a frame addressed to a node reached via LINK_DOWN.
+ */
+void link_send_down(const Frame *f) {
+#if defined(ROOT_HUB)
+  uint8_t body[FRAME_MAX_BODY];
+  size_t body_len = frame_encode_body(f, body, sizeof(body));
+  if (body_len == 0)
+    return;
+
+#if BACKPLANE_TRANSPORT_UART
+  /* DOWN over a UART backplane: COBS+CRC the whole body into one frame (no
+   * segmentation), exactly like a leaf's up-send (transport.c). */
+  uint8_t wire[FRAME_MAX_WIRE];
+  size_t w = transport_encode(body, body_len, wire, sizeof(wire));
+  Serial2.write(wire, w);
+#else
+  /* DOWN over a CAN backplane is segmented (§03), same as the leaf's up-send.
+   */
+  CanFrame frags[SEG_MAX_FRAGS];
+  size_t n_frags = 0;
+  if (!seg_split(f->node, f->port, f->seq, body, body_len, frags, SEG_MAX_FRAGS,
+                 &n_frags)) {
+    g_tx_oversize_drop++;
+    return;
+  }
+  for (size_t i = 0; i < n_frags; i++) {
+    twai_message_t m = {};
+    m.identifier = frags[i].id;
+    m.extd = 1;
+    m.data_length_code = frags[i].len;
+    for (size_t j = 0; j < frags[i].len; j++)
+      m.data[j] = frags[i].data[j];
+    if (twai_transmit(&m, pdMS_TO_TICKS(1)) != ESP_OK) {
+      g_tx_oversize_drop++;
+      return;
+    }
+  }
+#endif
+#else
+  (void)f; /* a leaf has no children — nothing to send down */
+#endif
+}
+
 /* Pump inbound bytes/frames toward g_on_body. Call every loop. */
 void link_pump(void) {
 #if defined(ROOT_HUB)

@@ -93,7 +93,7 @@ static void deliver_local(const Frame *f, void *) {
   (void)f; /* sense-only hub: no local command ports */
 }
 static void fwd_up(const Frame *f, void *) { link_send_up(f); }
-static void fwd_down(const Frame *f, void *) { link_send_up(f); /* link re-frames onto the backplane */ }
+static void fwd_down(const Frame *f, void *) { link_send_down(f); /* re-frames onto the backplane to a child */ }
 
 
 /* Meaning-blind inbound (§04): decode the body (CRC-clean at the seam), learn

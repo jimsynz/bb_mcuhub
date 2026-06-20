@@ -22,6 +22,8 @@ void link_pump(void);
 void link_set_on_body(void (*cb)(const uint8_t *body, size_t len));
 void link_send_up(
     const Frame *f); /* toward parent/host; bridge re-frames UART/CAN */
+void link_send_down(const Frame *f); /* toward a child over the backplane (root
+                                        hub only); re-frames onto Serial2/CAN */
 
 /* Legible CAN-seam failure counters (§03), for telemetry / a future status
  * port. tx_oversize: a body over the 512-byte ceiling, or a TWAI TX abandoned
