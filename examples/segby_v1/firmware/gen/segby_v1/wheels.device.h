@@ -11,7 +11,10 @@ extern "C" {
 #endif
 
 /* Implemented by the hand-authored mcu/wheels.{c,cpp}; the generated glue calls these. */
-void wheels_device_setup(void); /* init pins/peripherals at boot */
+void wheels_device_setup(void); /* one-time bring-up (pins, peripherals,
+                                    FOC/encoder init). May take as long as it
+                                    needs: the task watchdog is armed AFTER this
+                                    returns, so a slow initFOC/i2c settle is safe. */
 
 void wheels_motor_left_drive(float); /* apply to the plant */
 void wheels_motor_right_drive(float); /* apply to the plant */

@@ -11,7 +11,10 @@ extern "C" {
 #endif
 
 /* Implemented by the hand-authored mcu/act_hub.{c,cpp}; the generated glue calls these. */
-void act_hub_device_setup(void); /* init pins/peripherals at boot */
+void act_hub_device_setup(void); /* one-time bring-up (pins, peripherals,
+                                    FOC/encoder init). May take as long as it
+                                    needs: the task watchdog is armed AFTER this
+                                    returns, so a slow initFOC/i2c settle is safe. */
 
 void act_hub_effort_cmd_drive(float); /* apply to the plant */
 void act_hub_post_control(void); /* OPTIONAL: per-loop telemetry. To provide one, `#define ACT_HUB_POST_CONTROL_OVERRIDE` before #include'ing act_hub.glue.h; else a no-op default is used. */

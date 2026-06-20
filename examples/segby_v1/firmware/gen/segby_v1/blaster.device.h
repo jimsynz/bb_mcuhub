@@ -11,7 +11,10 @@ extern "C" {
 #endif
 
 /* Implemented by the hand-authored mcu/blaster.{c,cpp}; the generated glue calls these. */
-void blaster_device_setup(void); /* init pins/peripherals at boot */
+void blaster_device_setup(void); /* one-time bring-up (pins, peripherals,
+                                    FOC/encoder init). May take as long as it
+                                    needs: the task watchdog is armed AFTER this
+                                    returns, so a slow initFOC/i2c settle is safe. */
 bool blaster_range_front_read(Range *out); /* bounded read; false on timeout */
 bool blaster_pose_read(Imu *out); /* bounded read; false on timeout */
 void blaster_status_led_drive(const Led *v); /* apply to the plant */

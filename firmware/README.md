@@ -19,3 +19,37 @@ env of its own — it is consumed, not flashed.
   PlatformIO): it cross-validates the C codec against the fixture's generated
   parity vectors, plus the floor / router / segment / UART-backplane behaviour.
   Build it with `cd firmware/test && make` (or it runs inside `mix test`).
+
+## Writing device hooks (the only firmware you author)
+
+Everything mechanical — router, dispatch, floor plumbing, schedule, the host↔root
+and backplane links — is **generated** into `gen/<slug>/<hub>.glue.h` from your
+contract. You implement only a small set of hooks per hub, declared in the
+generated `gen/<slug>/<hub>.device.h`:
+
+- `void <hub>_device_setup(void)` — one-time hardware bring-up (pins, peripherals,
+  FOC/encoder init).
+- per sense port: `bool <hub>_<port>_read(<ValueStruct> *out)` — fill the value,
+  return `false` to skip this sample.
+- per command port: `void <hub>_<port>_drive(float v)` (single-field value) or
+  `void <hub>_<port>_drive(const <ValueStruct> *v)` (multi-field).
+
+Two rules to know, both already enforced by the chassis:
+
+1. **`_device_setup()` may take as long as it needs.** A SimpleFOC `initFOC()`
+   alignment spins the motor for seconds; an i2c-ng bus needs a settle delay; a
+   sensor wants a calibration pass — all fine. The task watchdog is subscribed
+   **after** setup completes, so it guards the steady-state loop, not bring-up.
+   (Watchdogging setup is the classic FOC boot-loop: the chip resets
+   mid-alignment, before the loop can ever feed the timer, and never finishes
+   initialising — symptom: the ESP32 ROM banner repeating with
+   `task_wdt … did not reset … Rebooting`. The chassis avoids it by construction;
+   you need no watchdog code.)
+2. **Every `_read`/`_drive` tick must be bounded** — no spin, no unbounded wait.
+   Use a device-read timeout (e.g. `Wire.setTimeOut`) and return promptly; a read
+   that can't complete returns `false` and writes nothing (its `seq` stalls, the
+   reader goes stale — legible, not a hang). This is what keeps the cooperative
+   scheduler and the on-chip floor timely.
+
+See `examples/segby_v1/firmware/mcu/{blaster,wheels}.cpp` for worked hooks (real
+MPU-9250, HC-SR04, and dual-FOC bring-up).

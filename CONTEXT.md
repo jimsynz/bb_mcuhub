@@ -238,7 +238,11 @@ from the IR (never hand-written, so safety-critical seq/floor wiring cannot be m
 per hub). The generator emits the hook prototypes into a `<hub>.device.h` so the contract
 a user owes is legible, resolved at link time. Generating from the IR means a user-defined
 hub gets its glue generated identically to a stock one — a device hook is _never_
-hand-glued.
+hand-glued. Two rules the chassis enforces for the hooks: `<hub>_device_setup()` may
+run as long as it needs (the task watchdog is armed **after** setup, so a slow FOC
+`initFOC`/i2c settle never boot-loops the chip — §08), and every `_read`/`_drive`
+tick must be **bounded** (no spin/blocking; a read that can't complete returns
+nothing and goes stale, legible).
 _Avoid_: hand-written `main_*.cpp` (the pre-generation baseline).
 
 ### SAFeD (Safe-by-Default, elaborate later)

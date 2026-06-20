@@ -2636,6 +2636,23 @@ topology <span class="k">do</span>
             timely — a late or dead scheduler resolves to command-silence, which
             is exactly what the floor already handles.
           </p>
+          <p style="margin: 0.6em 0 0">
+            <b>The watchdog guards the loop, not bring-up.</b> The task
+            subscribes to the watchdog <em>after</em>
+            <code>hub_setup()</code> returns — never before. A device's one-time
+            bring-up (<code>&lt;hub&gt;_device_setup()</code>) is allowed to
+            take as long as it needs: a SimpleFOC
+            <code>initFOC()</code> sensor-alignment spins the motor for seconds,
+            an i2c-ng bus needs a settle delay, a sensor wants a calibration
+            pass. Watchdogging <em>setup</em> would reset the chip
+            mid-alignment, before the loop can ever feed the timer — a boot loop
+            that never finishes initialising (the recognisable symptom: the ROM
+            banner repeating with
+            <code>task_wdt … did not reset … Rebooting</code>). So the bound
+            applies to ticks; bring-up is deliberately outside it. A consumer
+            writing a slow <code>_device_setup</code> needs no watchdog ceremony
+            — the chassis already orders it correctly.
+          </p>
         </div>
 
         <div class="codewrap">

@@ -369,7 +369,11 @@ defmodule BBMcuhub.Gen.WireGen do
     senses = Enum.filter(rows, &sense_port?/1)
     guard = "BB_MCUHUB_#{up(hub)}_DEVICE_H"
 
-    setup_proto = "void #{hub}_device_setup(void); /* init pins/peripherals at boot */"
+    setup_proto =
+      "void #{hub}_device_setup(void); /* one-time bring-up (pins, peripherals,\n" <>
+        "                                    FOC/encoder init). May take as long as it\n" <>
+        "                                    needs: the task watchdog is armed AFTER this\n" <>
+        "                                    returns, so a slow initFOC/i2c settle is safe. */"
 
     read_protos =
       Enum.map(senses, fn row ->
