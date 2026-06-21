@@ -1,4 +1,4 @@
-# Observability is a separate plane: observers are pure registry-sampling readers
+# Observability is a separate plane: observers sample the slots, decoupled from the control loop
 
 Monitoring, logging, and dashboards form an **observability plane** that is
 architecturally separate from the **control plane** (the Components/views, the
@@ -20,31 +20,53 @@ observer that _pulls the latest from a slot_ at its own timer is, by constructio
 unable to apply backpressure to or slow the producer/control plane. N observers are
 N independent readers; adding one costs the others nothing.
 
-**Two modes, matching what a slot already is.** A slot is simultaneously a
-latest-value and a monotonic advance-counter, so an observer reads one of two ways:
+**Two modes — two DIFFERENT mechanisms, not one.** A slot is two things at once (a
+latest-value and a monotonic advance-counter), but observing each correctly takes a
+different mechanism — they are not the same reader:
 
-- **sample-state** (level) — read the latest _value_ at the observer's rate;
-  dropping skipped values is correct. For "what is it now?" (pose, status, effort).
-- **stream-events** (edge) — follow the slot's `seq` and emit one event per advance,
-  catching **every** selected edge (the Advance invariant guarantees none are lost).
-  For "what happened?" (every command, a floor firing, an arm/disarm) — an event
-  database or disk log that must not miss one.
+- **sample-state** (level) — a **pure registry poll**: read the slot's latest _value_
+  on the observer's own timer. Dropping the values skipped between polls is _correct_
+  (the slot is overwrite-only-latest; you want "now"). For "what is it now?" (pose,
+  status, effort). **This is the registry-direct pure reader, and it is all of v1.**
+- **stream-events** (edge) — must catch **every** advance, with none lost. A polling
+  reader **cannot** do this: between two polls the slot's `seq` can jump 1→5 and the
+  overwrite-only slot has already discarded values 2–4 — the Advance invariant
+  guarantees the _producer_ emits every edge, not that a _sampler_ sees them. So
+  stream-events is **not** registry-sampling; it requires tapping the one place every
+  decoded advance lands — the `LinkOwner` decode path (and, for commands, the
+  outbound drain). The design: the `LinkOwner` publishes an **unconditional decode
+  fan-out** (it always emits "a body for (node,port) was decoded," whether or not
+  anyone listens); a stream-events observer subscribes to that fan-out. This keeps
+  the dependency direction intact — the `LinkOwner` depends on "a fan-out exists,"
+  never on "an observer exists." For "what happened?" (every command, a floor firing,
+  an arm/disarm) — an event database or disk log that must not miss one.
 
-The concept _discovers_ this duality already present in the slot rather than adding
-machinery.
+`stream-events` is **deferred (SAFeD)**: v1 ships **sample-state only** (the pure
+registry poll), with the decode-fan-out mechanism named here so the v1 observer API
+is not shaped around a lossless guarantee a poller cannot keep.
 
 **Four reduction axes; v1 does two.** An observer is a declarative reduction of the
 firehose: **sample** (rate decimation; state mode), **select** (which slots / which
 edges), **filter** (a value/event predicate), **project** (which fields). v1
-implements **sample + select**; **filter** and **project** are designed and
-documented as extensions of the same shape, so they slot in without rework.
+implements **sample + select**; **filter** and **project** are designed as extensions
+of the same shape. Crucially, `filter` and `project` operate on a value's _fields_,
+which only the **value-type** knows (ADR-0003) — so they MUST resolve the slot's
+value-type via `PortIndex.type_for` + `BBMcuhub.ValueType` exactly as the Component
+view does (`sensor.ex`), never duplicate field knowledge. The v1 `sample + select`
+API leaves room for this (a per-slot value-type handle), so adding `filter`/`project`
+is additive, not a breaking change.
 
-**The protecting invariant — an observer is a PURE READER.** It never writes a slot,
-never issues a command, and nothing in the control plane may depend on an observer
-existing. This is what makes observability purely additive (a new observer touches
-no producer, view, controller, or other observer) and what makes "observers cannot
-perturb the control plane" structural rather than aspirational. An observer that
-writes, or that the loop depends on, is a control-plane actor in disguise — forbidden.
+**The protecting invariant — an observer is a PURE READER, enforced structurally.**
+It never writes a slot, never issues a command, and nothing in the control plane may
+depend on an observer existing. This is not merely forbidden by convention: an
+observer is handed a **read-only registry capability** (a `Reader` exposing only
+`get`/`dump`, with `put` not in scope), so "an observer writes a slot" is
+_unrepresentable_, not just discouraged — the registry being `:public` ETS means the
+comment "exactly one writer per slot" is otherwise unenforced. The control-plane↔
+observer dependency direction is enforced by the wiring (observers depend on the
+registry + the LinkOwner's fan-out; never the reverse). An observer that writes, or
+that the loop depends on, is a control-plane actor in disguise — forbidden, and made
+structurally hard to build by accident.
 
 ## Considered Options
 
@@ -82,6 +104,30 @@ writes, or that the loop depends on, is a control-plane actor in disguise — fo
   topic), a disk log, an event database, and a UI feed are all just sinks. The same
   born-stale **monitor** an observer holds per slot makes `fresh_for` relative to the
   observer's beats, so it never reports a leftover value.
+- **An observer's freshness is NOT the control plane's freshness.** Because
+  `fresh_for` is relative to the observer's own (slower) beats, a 10 Hz observer with
+  `fresh_for: 3` (a 300 ms window) can legitimately report `:fresh` for a slot the
+  100 Hz control plane already floored (its 30 ms window expired). This is correct —
+  the observer answers "is what I'm showing recent by _my_ cadence" — but it means a
+  dashboard must **read the Status slot's authoritative `floored?`** for "is the hub
+  actually driving," never infer liveness from its own observer freshness (a green
+  "FRESH" over a floored wheel would be dangerously misleading).
+- **"Cannot slow the loop" is about backpressure, not robustness or CPU.** The
+  registry read is a direct `:ets.lookup` on a `:public, read_concurrency: true`
+  table, so an observer cannot block a producer's write or apply backpressure — that
+  isolation is structural. But (a) the **sink runs in the observer's own process**: a
+  slow/blocking sink (fsync, DB insert, socket) degrades _that observer_ (it falls
+  behind its timer; a stream-events observer's mailbox can grow) — it must be bounded
+  / non-blocking, with an explicit drop policy, and a failure degrades only that
+  observer; and (b) N high-rate observers still **share the BEAM scheduler** with the
+  loop — isolation is from backpressure, not CPU contention, so a pathological fleet
+  of fast observers competes for cores like any other process. Each observer is its
+  own supervised child (`:temporary`/`:transient`), so one crashing never takes down a
+  view or another observer.
+- **An observer resolves its `select` at start and fails loud on an unknown slot.**
+  Mirror the Component view (`sensor.ex` stops on `{:unknown_port, …}`): a typo'd
+  `(node, port)` must fail at startup, not silently observe `nil` forever
+  (indistinguishable from a real-but-never-written slot).
 - **The library owns the observer plane; the example demonstrates adoption.**
   `BBMcuhub.Observer` (imperative core; a declarative `observers do` section is later
   sugar over it) lives in the library. Wiring `bb_tui` onto an observer's slow topic —

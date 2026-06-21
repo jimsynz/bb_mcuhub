@@ -53,8 +53,21 @@ observability cadence was tied to the main loop. Resolved by making observabilit
   holds the truth; would muddy the recursive-hub model). CONTEXT.md gains the terms
   Observer + Control plane · observability plane.
 - **Deferred to implementation:** this is the design pass (ADR-0004 + §09 +
-  CONTEXT.md). The `BBMcuhub.Observer` core (sample-state + stream-events, sink
-  model) and the example's bb_tui-onto-observer use case are the build.
+  CONTEXT.md). The `BBMcuhub.Observer` core (sample-state, sink model) and the
+  example's bb_tui-onto-observer use case are the build.
+- **Refined after an architecture review** (five-lens, against the real code): the
+  original framing claimed both modes were one pure registry-sampling reader — false,
+  because the overwrite-only slot loses edges between polls, so **stream-events cannot
+  be a poller**. Split honestly: **sample-state** = the pure registry poll (all of
+  v1); **stream-events** = a deferred, distinct mechanism that taps the LinkOwner's
+  unconditional decode fan-out (lossless, dependency-direction preserved). Five further
+  sharpenings folded in: the pure-reader invariant is **enforced structurally** (a
+  read-only registry capability, since the registry is `:public` ETS), not just
+  documented; `filter`/`project` must **reuse the value-type** (ADR-0003) for field
+  access, not duplicate it; a slow observer's freshness ≠ the control plane's, so read
+  the **Status slot** for liveness; "can't slow the loop" is backpressure-isolation
+  only (a slow sink degrades that observer; fast observers share the scheduler); and an
+  observer **resolves its select at start and fails loud** on an unknown slot.
 
 ---
 

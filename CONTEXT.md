@@ -240,30 +240,51 @@ reads the host registry directly — it never rides the control-plane PubSub). I
 own born-stale **monitor** per slot, so `fresh_for` is relative to _its_ beats and it never
 reports a leftover value.
 
-An observer has **two modes**, matching the two things a **slot** already is:
+An observer has **two modes** — two _different mechanisms_, not one reader:
 
-- **sample-state** (level) — read the slot's latest _value_ at your own rate; dropping
-  skipped values is correct (the slot is overwrite-only-latest by design). For "what is
-  it now?" — a UI monitor of pose/status/effort.
-- **stream-events** (edge) — follow the slot's _`seq`_ and emit one event per advance,
-  catching **every** selected edge (the Advance invariant — `seq` +1 per real value,
-  in-order, never skipped — guarantees none are lost). For "what happened?" — every
-  command, a floor firing, an arm/disarm; an event database or disk log that must not
-  miss one.
+- **sample-state** (level) — a **pure registry poll**: read the slot's latest _value_ on
+  your own timer; dropping the values skipped between polls is correct (the slot is
+  overwrite-only-latest). For "what is it now?" — a UI monitor of pose/status/effort.
+  **This is the registry-direct pure reader, and it is all of v1.**
+- **stream-events** (edge) — must catch **every** advance with none lost, which a poller
+  **cannot** do: between polls the slot's `seq` can jump 1→5 and the overwrite-only slot
+  has discarded the in-between values (the Advance invariant guarantees the _producer_
+  emits every edge, not that a _sampler_ sees them). So stream-events is **not**
+  registry-sampling — it taps the **LinkOwner**'s unconditional decode fan-out (the one
+  place every decoded advance lands), so no edge is dropped, while the LinkOwner depends
+  only on "a fan-out exists," never on "an observer exists." For "what happened?" — every
+  command, a floor firing, an arm/disarm; an event database or disk log that must not miss
+  one. **Deferred (SAFeD); v1 is sample-state only.** Naming the mechanism keeps the v1
+  API from being shaped around a lossless guarantee a poller can't keep.
 
 An observer is a declarative **reduction** of the firehose to just what it needs, along
 four optional axes — **sample** (rate/time decimation; state mode only), **select** (which
 `(node, port)` slots / which edges), **filter** (a value/event predicate), and **project**
 (which fields). v1 implements **sample + select**; **filter** and **project** are named
-extensions of the same concept (the design covers all four). Many observers run at once,
-each on its own flow and cadence.
+extensions of the same concept. Because `filter`/`project` act on a value's _fields_ —
+which only the **value-type** knows — they resolve the slot's value-type (via `PortIndex` +
+`BBMcuhub.ValueType`, exactly as a Component does), never duplicating field knowledge. Many
+observers run at once, each on its own flow and cadence.
 
-**The invariant that keeps the concept clean: an observer is a PURE READER.** It never
-writes a slot, never issues a command, and **nothing in the control plane may depend on an
-observer existing**. This makes adding observability purely additive (a new observer
-touches no producer, view, controller, or other observer) and makes "observers can never
-perturb the control plane" structural, not aspirational. An observer that writes — or that
-the loop depends on — is a control-plane actor in disguise, and is forbidden.
+A slow observer's freshness is **not** the control plane's: `fresh_for` is relative to its
+own slower beats, so a 10 Hz observer may report `:fresh` for a slot the 100 Hz loop already
+floored. That is correct for "is what I'm showing recent" — but for "is the hub actually
+driving," read the authoritative **Status slot** (`floored?`), never an observer's own
+freshness verdict.
+
+**The invariant that keeps the concept clean: an observer is a PURE READER — enforced
+structurally, not by convention.** It is handed a read-only registry capability (only
+`get`/`dump`; `put` not in scope), so "an observer writes a slot" is _unrepresentable_, not
+merely forbidden (the registry is `:public` ETS, so the "one writer per slot" rule is
+otherwise unenforced). **Nothing in the control plane may depend on an observer existing**
+(enforced by the dependency direction in the wiring). This makes adding observability purely
+additive — a new observer touches no producer, view, controller, or other observer — and
+makes "observers can never perturb the control plane" structural. Note the isolation is from
+_backpressure_ (a direct `:ets.lookup` on a read-concurrent table can't block a producer),
+not from CPU: many fast observers still share the BEAM scheduler, and a slow **sink** (it
+runs in the observer's own process) degrades only _that_ observer, never the loop. An
+observer that writes — or that the loop depends on — is a control-plane actor in disguise,
+and is forbidden.
 
 An observer is **not part of the wire contract** — it is pure host-side runtime, generates
 no firmware and no wire artifacts, and is drift-test-neutral, so it can be added or removed

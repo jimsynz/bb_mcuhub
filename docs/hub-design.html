@@ -3090,31 +3090,36 @@ topology <span class="k">do</span>
         <div class="callout note">
           <div class="ct">
             <span class="t-val"
-              >two modes — because a slot is two things at once</span
+              >two modes — two different mechanisms, not one reader</span
             >
           </div>
           <div class="grid2" style="margin-top: 0.4em">
             <div>
-              <b style="color: var(--teal)">sample-state (level)</b>
+              <b style="color: var(--teal)">sample-state (level) — v1</b>
               <p
                 style="margin: 0.3em 0 0; font-size: 0.9rem; color: var(--mute)"
               >
-                Read the slot's latest <em>value</em> at your rate; dropping
-                skipped values is correct (the slot is overwrite-only-latest by
-                design). For "what is it now?" — a UI monitor of pose, status,
-                effort.
+                A <b>pure registry poll</b>: read the slot's latest
+                <em>value</em> on your own timer; dropping the values skipped
+                between polls is correct (overwrite-only-latest). For "what is
+                it now?" — a UI monitor of pose, status, effort. This is the
+                registry-direct pure reader, and it is all of v1.
               </p>
             </div>
             <div>
-              <b style="color: var(--teal)">stream-events (edge)</b>
+              <b style="color: var(--teal)">stream-events (edge) — deferred</b>
               <p
                 style="margin: 0.3em 0 0; font-size: 0.9rem; color: var(--mute)"
               >
-                Follow the slot's <code>seq</code> and emit one event per
-                advance, catching <em>every</em> selected edge (the Advance
-                invariant — §04 — guarantees none are lost). For "what
-                happened?" — every command, a floor firing, an arm/disarm; an
-                event DB or log that must not miss one.
+                Must catch <em>every</em> advance — which a poller
+                <em>cannot</em>: between polls <code>seq</code> can jump 1→5 and
+                the overwrite-only slot has discarded 2–4 (Advance, §04,
+                guarantees the <em>producer</em> emits every edge, not that a
+                sampler sees them). So it is <em>not</em> registry-sampling — it
+                taps the <code>LinkOwner</code>'s unconditional decode fan-out
+                (the one place every decoded advance lands). For every command /
+                floor-fired / arm-disarm; an event DB or log that must not miss
+                one. <span class="tag t-bad">SAFeD</span>.
               </p>
             </div>
           </div>
@@ -3127,12 +3132,32 @@ topology <span class="k">do</span>
           value/event predicate), and <b>project</b> (which fields). v1
           implements <b>sample&nbsp;+&nbsp;select</b>; <b>filter</b> and
           <b>project</b> are extensions of the same shape (designed, not yet
-          built). The observer's one job is
-          <em>sample → reduce → hand to a sink</em>; what to <em>do</em>
+          built) — and because they act on a value's <em>fields</em>, which only
+          the <b>value-type</b> knows, they resolve the slot's value-type (via
+          <code>PortIndex</code> + <code>BBMcuhub.ValueType</code>, exactly as a
+          view does), never duplicating field knowledge. The observer's one job
+          is <em>sample → reduce → hand to a sink</em>; what to <em>do</em>
           with the value/event lives in the sink — a PubSub republish on the
           observer's own slow topic, a disk log, an event database, a UI feed
-          are all just sinks.
+          are all just sinks (the sink runs in the observer's own process, so a
+          slow sink degrades only that observer, never the loop).
         </p>
+
+        <div class="callout note">
+          <div class="ct">
+            <span class="t-val"
+              >an observer's freshness is not the control plane's</span
+            >
+          </div>
+          <p style="margin: 0.3em 0 0">
+            <code>fresh_for</code> is relative to the observer's own (slower)
+            beats, so a 10&nbsp;Hz observer can report <code>:fresh</code> for a
+            slot the 100&nbsp;Hz loop already floored — correct for "is what I'm
+            showing recent," but for "is the hub actually driving" read the
+            authoritative <b>status slot</b> (<code>floored?</code>, §05), never
+            an observer's own freshness verdict.
+          </p>
+        </div>
 
         <div class="callout bad">
           <div class="ct">
@@ -3144,10 +3169,17 @@ topology <span class="k">do</span>
             <b
               >nothing in the control plane may depend on an observer
               existing</b
-            >. This is what makes observability purely additive — a new observer
-            touches no producer, view, controller, or other observer — and what
-            makes "observers cannot perturb the control plane" structural rather
-            than aspirational. An observer is also
+            >. This is enforced <em>structurally</em>, not by convention: an
+            observer is handed a <b>read-only registry capability</b> (only
+            <code>get</code>/<code>dump</code>; <code>put</code> not in scope),
+            so "an observer writes a slot" is <em>unrepresentable</em> — the
+            registry is <code>:public</code> ETS, so the "one writer per slot"
+            rule is otherwise just a comment. This is what makes observability
+            purely additive — a new observer touches no producer, view,
+            controller, or other observer — and the isolation is from
+            <em>backpressure</em> (a direct <code>:ets.lookup</code> on a
+            read-concurrent table cannot block a producer), not from CPU: many
+            fast observers still share the BEAM scheduler. An observer is also
             <b>not part of the wire contract</b>: pure host runtime, no
             firmware, no generated artifact, drift-neutral, so it is added or
             removed without regenerating anything. An observer that writes — or
