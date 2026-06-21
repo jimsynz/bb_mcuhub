@@ -3058,6 +3058,103 @@ topology <span class="k">do</span>
           modules to get the BeamBots round-trip working, holding to the rules
           above: value-type-agnostic lift, born-stale, single-writer, no socket.
         </p>
+
+        <h3>Two planes over the slots — control and observability</h3>
+        <p>
+          Everything above is the <b>control plane</b>: the views, the
+          controllers and laws, the command path, the floor — all acting on the
+          robot's truth at control rate. Watching that truth — a dashboard, a
+          disk log, an event database — is a separate
+          <b>observability plane</b>. The two share the host's
+          <code>(node, port)</code> registry slots and <em>nothing else</em>.
+          The reason to keep them apart is concrete: the loop may run at
+          100&nbsp;Hz, but a human dashboard wants ~10&nbsp;Hz and a logger may
+          want full fidelity — each consumer must pick its own rate, and none
+          may slow the loop or each other.
+        </p>
+
+        <p>
+          An <b>observer</b> is the observability plane's consumer: a host-side
+          <b>pure reader</b> that samples a slot
+          <em>directly from the registry</em> at its own cadence and hands the
+          result to a pluggable <b>sink</b>. It does not ride the control-plane
+          PubSub. Because the slot is overwrite-only and reads return the
+          latest, an observer pulling the latest at its own timer is
+          <em>structurally</em> unable to apply backpressure to or slow the
+          producer — N observers are N independent readers, and adding one costs
+          the others nothing. Each observer carries its own born-stale monitor
+          per slot, so <code>fresh_for</code> is relative to <em>its</em> beats
+          and it never reports a leftover value.
+        </p>
+
+        <div class="callout note">
+          <div class="ct">
+            <span class="t-val"
+              >two modes — because a slot is two things at once</span
+            >
+          </div>
+          <div class="grid2" style="margin-top: 0.4em">
+            <div>
+              <b style="color: var(--teal)">sample-state (level)</b>
+              <p
+                style="margin: 0.3em 0 0; font-size: 0.9rem; color: var(--mute)"
+              >
+                Read the slot's latest <em>value</em> at your rate; dropping
+                skipped values is correct (the slot is overwrite-only-latest by
+                design). For "what is it now?" — a UI monitor of pose, status,
+                effort.
+              </p>
+            </div>
+            <div>
+              <b style="color: var(--teal)">stream-events (edge)</b>
+              <p
+                style="margin: 0.3em 0 0; font-size: 0.9rem; color: var(--mute)"
+              >
+                Follow the slot's <code>seq</code> and emit one event per
+                advance, catching <em>every</em> selected edge (the Advance
+                invariant — §04 — guarantees none are lost). For "what
+                happened?" — every command, a floor firing, an arm/disarm; an
+                event DB or log that must not miss one.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <p>
+          An observer is a declarative <b>reduction</b> of the firehose to just
+          what it needs, along four axes: <b>sample</b> (rate decimation; state
+          mode), <b>select</b> (which slots / which edges), <b>filter</b> (a
+          value/event predicate), and <b>project</b> (which fields). v1
+          implements <b>sample&nbsp;+&nbsp;select</b>; <b>filter</b> and
+          <b>project</b> are extensions of the same shape (designed, not yet
+          built). The observer's one job is
+          <em>sample → reduce → hand to a sink</em>; what to <em>do</em>
+          with the value/event lives in the sink — a PubSub republish on the
+          observer's own slow topic, a disk log, an event database, a UI feed
+          are all just sinks.
+        </p>
+
+        <div class="callout bad">
+          <div class="ct">
+            <span class="t-bad">an observer is a PURE READER</span> the
+            invariant that keeps the concept clean
+          </div>
+          <p style="margin: 0.3em 0 0">
+            An observer never writes a slot, never issues a command, and
+            <b
+              >nothing in the control plane may depend on an observer
+              existing</b
+            >. This is what makes observability purely additive — a new observer
+            touches no producer, view, controller, or other observer — and what
+            makes "observers cannot perturb the control plane" structural rather
+            than aspirational. An observer is also
+            <b>not part of the wire contract</b>: pure host runtime, no
+            firmware, no generated artifact, drift-neutral, so it is added or
+            removed without regenerating anything. An observer that writes — or
+            that the loop depends on — is a control-plane actor in disguise, and
+            is forbidden.
+          </p>
+        </div>
       </section>
 
       <!-- ===================== 10 ===================== -->

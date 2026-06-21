@@ -10,6 +10,54 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-21 — Observability is a separate plane: the observer (§09; ADR-0004)
+
+First real on-hardware use of the architecture surfaced a coupling: the dashboard
+(bb_tui) consumed the same PubSub topics at the same rate as the control loop, so
+the 100 Hz pose + the controller's command cascade made the TUI sluggish — the
+observability cadence was tied to the main loop. Resolved by making observability a
+**separate plane** with its own consumer concept.
+
+- **Observer** (a new domain term, host-side, pure reader): samples a
+  `(node, port)` **slot** directly from the registry at its **own cadence** (fast or
+  slow, its choice) and hands the result to a pluggable **sink**. It does not ride
+  the control-plane PubSub. Because the slot is overwrite-only-latest, an observer
+  pulling the latest at its own timer is _structurally_ unable to slow the
+  producer/control plane or any other observer.
+- **Two modes**, matching the two things a slot already is: **sample-state** (level
+  — read the latest value, dropping is correct) and **stream-events** (edge — follow
+  `seq`, catch every advance, none lost per the §04 Advance invariant). The former is
+  for "what is it now?" (a UI monitor), the latter for "what happened?" (every
+  command / floor-fired / arm-disarm — an event DB or disk log).
+- **Four reduction axes**: sample · select · filter · project. v1 builds
+  **sample + select**; filter + project are designed and documented as extensions of
+  the same shape.
+- **Protecting invariant — an observer is a PURE READER**: never writes, never
+  commands, and nothing in the control plane may depend on one. This makes
+  observability purely additive and "can't perturb the loop" structural.
+- **Not part of the wire contract** — pure host runtime, no firmware/artifact/drift
+  impact, freely additive. One job: sample → reduce → hand to a sink (PubSub
+  republish / disk log / event DB / UI feed are all sinks). Authored imperatively
+  (`BBMcuhub.Observer`); a declarative `observers do` section is later sugar over it.
+- **Library owns the observer plane; the example demonstrates adoption** — wiring
+  bb_tui onto an observer's slow topic (instead of the broad `[:sensor]` firehose it
+  subscribes to) is a consumer use case in the worked example, not a constraint the
+  framework's observer design bends around.
+- **Why:** the overwrite-only slot was already a rate-decoupling buffer; the gap was
+  that the only consumer was a control-plane view whose publish rate every PubSub
+  subscriber shared. The observer makes "each consumer owns its cadence, decoupled
+  from the loop and from each other" a structural property. Rejected: PubSub-side
+  downsampling (still pays delivery + keeps the rate coupling), lowering the control
+  publish rate to suit the dashboard (degrades the loop for an observer), observer as
+  a Component variant (keeps the coupling), a wire/firmware-level observer (the host
+  holds the truth; would muddy the recursive-hub model). CONTEXT.md gains the terms
+  Observer + Control plane · observability plane.
+- **Deferred to implementation:** this is the design pass (ADR-0004 + §09 +
+  CONTEXT.md). The `BBMcuhub.Observer` core (sample-state + stream-events, sink
+  model) and the example's bb_tui-onto-observer use case are the build.
+
+---
+
 ## 2026-06-18 — `bb_mcuhub` becomes a reusable library + a `segby_v1` consumer example (§06, §08, §09, §10; ADR-0003)
 
 The system was one Mix app with the example tangled into the library namespace

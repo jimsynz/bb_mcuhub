@@ -225,6 +225,76 @@ and names no transport, so it runs unchanged whether the port is on the root hub
 or a CAN leaf three hops down. A sensor view publishes only when born-stale freshness
 passes; an **actuator view is the single writer of its command slot**.
 
+### Observer (the observability plane)
+
+A **host-side** consumer that **samples** a **slot**'s latest value at its **own
+independent cadence** for the observability plane (a UI monitor, an event/metrics
+database, a disk log) — never on the producer's or control plane's rate. The cadence is
+the observer's own choice and may be **high or low**: a UI monitor samples slowly (~10 Hz,
+human eyes), while a logger or event database may sample fast to capture full fidelity —
+each picks its rate independently, and none affects the control loop or any other observer.
+Categorically distinct from a **Component**: a view _pushes_ every beat into the control
+plane; an observer _pulls the latest_ at the reader's rate, so it **structurally cannot
+slow the control plane** (the overwrite-only slot absorbs the rate gap, and the observer
+reads the host registry directly — it never rides the control-plane PubSub). It carries its
+own born-stale **monitor** per slot, so `fresh_for` is relative to _its_ beats and it never
+reports a leftover value.
+
+An observer has **two modes**, matching the two things a **slot** already is:
+
+- **sample-state** (level) — read the slot's latest _value_ at your own rate; dropping
+  skipped values is correct (the slot is overwrite-only-latest by design). For "what is
+  it now?" — a UI monitor of pose/status/effort.
+- **stream-events** (edge) — follow the slot's _`seq`_ and emit one event per advance,
+  catching **every** selected edge (the Advance invariant — `seq` +1 per real value,
+  in-order, never skipped — guarantees none are lost). For "what happened?" — every
+  command, a floor firing, an arm/disarm; an event database or disk log that must not
+  miss one.
+
+An observer is a declarative **reduction** of the firehose to just what it needs, along
+four optional axes — **sample** (rate/time decimation; state mode only), **select** (which
+`(node, port)` slots / which edges), **filter** (a value/event predicate), and **project**
+(which fields). v1 implements **sample + select**; **filter** and **project** are named
+extensions of the same concept (the design covers all four). Many observers run at once,
+each on its own flow and cadence.
+
+**The invariant that keeps the concept clean: an observer is a PURE READER.** It never
+writes a slot, never issues a command, and **nothing in the control plane may depend on an
+observer existing**. This makes adding observability purely additive (a new observer
+touches no producer, view, controller, or other observer) and makes "observers can never
+perturb the control plane" structural, not aspirational. An observer that writes — or that
+the loop depends on — is a control-plane actor in disguise, and is forbidden.
+
+An observer is **not part of the wire contract** — it is pure host-side runtime, generates
+no firmware and no wire artifacts, and is drift-test-neutral, so it can be added or removed
+without regenerating anything (this is what makes it freely additive). Its one job is
+**sample + reduce + hand to a sink**: the observer mechanism is type-agnostic; what to _do_
+with the sampled value/event lives in a pluggable **sink** (republish to PubSub on the
+observer's own topic, append to a disk log, insert into an event database, feed a UI). A
+robot starts observers imperatively (`BBMcuhub.Observer`); a declarative `observers do`
+section is later sugar over the same core — still host-runtime, never contract.
+
+The observer plane is a **library** concept (general and dep-agnostic — it serves any sink:
+a disk log, an event database, a metrics exporter, a custom UI). Wiring a _specific_
+dashboard onto it — e.g. pointing `bb_tui` at an observer's slow republish topic instead of
+the broad `[:sensor]`/`[:actuator]` firehose it subscribes to by default — is a **consumer
+use case**, demonstrated in the worked example, not something the framework's observer
+design bends around.
+_Avoid_: calling an observer a "view" or a "Component" (the control-plane counterpart);
+assuming an observer is always low-frequency (it owns its rate, fast or slow).
+
+### Control plane · observability plane
+
+Two planes over the same **slots**. The **control plane** is everything that acts on the
+robot's truth at control rate — the **Components** (views), the BeamBots controllers/laws,
+the command path, the floor. The **observability plane** is everything that _watches_ —
+**observers** feeding UI monitors, event/metrics databases, and disk logs. They share the
+slots (the overwrite-only registry) but nothing else: an observability-plane consumer
+samples at its own chosen rate and can never apply backpressure to or slow the control
+plane. Keeping them separate is why a slow dashboard — or a high-frequency logger — neither
+perturbs the loop nor is throttled by it; each observer's cadence is decoupled from the
+main loop and from every other observer.
+
 ### Firmware hook
 
 The thin device-specific seam a user implements on the MCU: a small set of well-known C
