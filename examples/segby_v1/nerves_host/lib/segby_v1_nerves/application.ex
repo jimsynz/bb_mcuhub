@@ -60,10 +60,12 @@ defmodule SegbyV1Nerves.Application do
         # OTA auto-revert) BEFORE touching the optional TUI, so a dashboard
         # problem can never roll back a working robot.
         validate_firmware()
-        # The TUI dashboard is best-effort and NON-CRITICAL: start it as a child
-        # of the running supervisor, and if it fails to start just log it — never
-        # abort the boot (a dead dashboard must not take down SegbyV1.Host or
-        # trigger a firmware rollback).
+        # Both below are best-effort / NON-CRITICAL — started under the running
+        # supervisor AFTER the host stack is up and the firmware is validated, so a
+        # failure is logged and never rolls back a working robot. The observer feeds
+        # the dashboard (it must start before/with the TUI so its [:observe] topic
+        # is live); the TUI then subscribes to that slow topic, not the firehose.
+        start_observer(sup)
         start_tui(sup)
         ok
 
@@ -110,12 +112,59 @@ defmodule SegbyV1Nerves.Application do
            port: 2222,
            system_dir: system_dir,
            auth_methods: ~c"password",
-           user_passwords: [{~c"tui", ~c"segby"}]
+           user_passwords: [{~c"tui", ~c"segby"}],
+           # Feed the dashboard from the SLOW observer topic (ADR-0004), not the
+           # high-rate control firehose. Dropping [:sensor]/[:actuator] from the
+           # subscription is what fixes the lag: the 100 Hz pose + the controller's
+           # ~200 Hz effort cascade no longer reach the TUI; the observer republishes
+           # the dashboard slots on [:observe] at 10 Hz instead. Keep the
+           # low-rate/important paths (safety, commands, params, state machine).
+           subscribe_paths: [
+             [:observe],
+             [:state_machine],
+             [:param],
+             [:command],
+             [:safety]
+           ]
          ]}
 
       case Supervisor.start_child(sup, spec) do
         {:ok, _} -> Logger.info("bb_tui dashboard on ssh port 2222 (user tui)")
         {:error, reason} -> Logger.warning("bb_tui dashboard not started: #{inspect(reason)}")
+      end
+    end
+
+    :ok
+  end
+
+  # Start a sample-state observer for the dashboard (ADR-0004): it samples segby's
+  # produced slots at 10 Hz and republishes them on the slow [:observe] topic via a
+  # PubSub sink — so the TUI (subscribed to [:observe]) renders at 10 Hz and never
+  # touches the control firehose. Best-effort / non-critical, host-gated, started
+  # after the host stack so PortIndex is built and the slots fill.
+  defp start_observer(sup) do
+    if @target != :host do
+      spec =
+        {BBMcuhub.Observer,
+         [
+           id: :dashboard_observer,
+           name: SegbyV1.DashboardObserver,
+           robot: SegbyV1.Robot,
+           # the slots the dashboard shows: chassis pose, forward range, both wheel
+           # statuses (the produced/:out ports — not the command slots).
+           slots: [
+             {:blaster, :pose},
+             {:blaster, :range_front},
+             {:wheels, :status_left},
+             {:wheels, :status_right}
+           ],
+           sample_ms: 100,
+           sink: BBMcuhub.Observer.Sink.PubSub.new(robot: SegbyV1.Robot, topic: [:observe])
+         ]}
+
+      case Supervisor.start_child(sup, spec) do
+        {:ok, _} -> Logger.info("dashboard observer sampling [:observe] @ 10 Hz")
+        {:error, reason} -> Logger.warning("dashboard observer not started: #{inspect(reason)}")
       end
     end
 
