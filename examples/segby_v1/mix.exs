@@ -42,11 +42,13 @@ defmodule SegbyV1.MixProject do
       {:bb, "~> 0.20"},
       # The terminal dashboard over the BeamBots seam (§09). ONLY segby uses it, so
       # it lives here (the library no longer depends on bb_tui — ADR-0003). Pinned
-      # to a fork (feat/observer-topic): adds configurable `:subscribe_paths` + an
-      # observer-plane readout, so the dashboard is fed from the slow `[:observe]`
-      # observer topic instead of the high-rate control firehose (ADR-0004). The
-      # subscribe_paths change is upstreamable; see lostbean/bb_tui.
-      {:bb_tui, github: "lostbean/bb_tui", branch: "feat/observer-topic"},
+      # to a fork (feat/consumer-renderers) that adds two GENERIC, upstreamable
+      # extensions: configurable `:subscribe_paths` (feed the dashboard from the slow
+      # `[:observe]` topic, not the control firehose) and a `:renderers` seam (a
+      # consumer teaches the dashboard how to render its own payload — here
+      # SegbyV1.ObserveRenderer renders our Observer.Sample; bb_tui stays generic).
+      # ADR-0004. Both changes are upstreamable; see lostbean/bb_tui.
+      {:bb_tui, github: "lostbean/bb_tui", branch: "feat/consumer-renderers"},
       {:stream_data, "~> 1.0", only: [:dev, :test]}
     ]
   end

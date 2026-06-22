@@ -125,7 +125,11 @@ defmodule SegbyV1Nerves.Application do
              [:param],
              [:command],
              [:safety]
-           ]
+           ],
+           # Teach the (generic) dashboard how to render OUR observer samples
+           # (ADR-0004): bb_tui knows nothing of BBMcuhub.Observer.Sample; our
+           # renderer — which owns that shape — plugs into the [:observe] prefix.
+           renderers: %{[:observe] => SegbyV1.ObserveRenderer}
          ]}
 
       case Supervisor.start_child(sup, spec) do
