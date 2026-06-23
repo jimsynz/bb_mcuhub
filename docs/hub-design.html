@@ -692,10 +692,11 @@
               <b style="color: var(--gold)">01 · One shape, composed.</b> A hub
               is the only MCU node type — it senses, actuates, and routes to
               child hubs, in any combination. The <b>root hub</b> is the one
-              that talks to the host (the Elixir node) over serial and to
-              downstream hubs over CAN; every other hub hangs below it. Power
-              comes from composing this one shape into a tree, not from many
-              special node kinds.
+              that declares <code>parent: :host</code>: it talks to the host
+              (the Elixir node) over UART and reaches its children over their
+              links — a shared CAN bus, point-to-point UART, or a mix; every
+              other hub hangs below it. Power comes from composing this one
+              shape into a tree, not from many special node kinds.
             </li>
             <li>
               <b style="color: var(--gold)">02 · Simple beats complete.</b> v1
@@ -941,12 +942,13 @@
           <b>host</b> — the Raspberry&nbsp;Pi running Elixir and the BeamBots
           application — sits <em>above</em> the hub tree, not inside it; it is
           not a hub. The hub at the top of the MCU tree is the <b>root hub</b>:
-          it speaks <b>serial (UART) upward to the host</b> and
-          <b>CAN downward to its child hubs</b>, so it is the one board that
-          bridges the host link to the CAN backplane. It is still an ordinary
-          hub — it may read its own I²C sensor or drive its own actuator while
-          it bridges — it is just the hub that happens to own the host
-          connection.
+          it is the hub that declares <code>parent: :host</code>, so it speaks
+          <b>serial (UART) upward to the host</b> and bridges
+          <b>downward to its child hubs over their links</b> — a shared CAN bus,
+          a point-to-point UART, or a mix, each link's transport declared by the
+          child it reaches. It is still an ordinary hub — it may read its own
+          I²C sensor or drive its own actuator while it bridges — it is just the
+          hub that owns the host connection.
         </p>
 
         <figure>
@@ -964,13 +966,15 @@
           </div>
           <figcaption>
             The host sits above the tree and talks <b>UART</b> to one board —
-            the <b>root hub</b>, which bridges that serial link to the
-            <b>CAN</b> backplane below. The root hub also senses its own IMU.
-            Every link carries the same COBS+CRC frame, so the host reaches a
-            leaf three hops away exactly as it reaches the root — the routing
-            hubs between are meaning-blind. Link transport is fixed by position:
-            <b>UART host↔root, CAN everywhere below</b>. (A deeper CAN segment
-            behind a branch hub for more multidrop is the same shape —
+            the <b>root hub</b>, which bridges that serial link down to its
+            children's links (here a <b>CAN</b> bus). The root hub also senses
+            its own IMU. Every link carries the same COBS+CRC frame, so the host
+            reaches a leaf three hops away exactly as it reaches the root — the
+            routing hubs between are meaning-blind. Each link's transport is
+            <b>declared by the child it reaches</b>, not fixed by position: the
+            host→root link is always UART, and a parent's downlinks are per-link
+            CAN or UART — a parent may own a mix. (A deeper segment behind a
+            branch hub for more multidrop is the same shape —
             <span class="tag t-bad">SAFeD</span>.)
           </figcaption>
         </figure>
@@ -982,14 +986,15 @@
           <p style="margin: 0.3em 0 0">
             Because a hub can be a parent, you never need a separate "gateway
             type," a "leaf type," and a "router type" — those are just hubs with
-            different jobs switched on. The root hub is simply the hub that owns
-            the host link; it is not a fourth kind. Adding a limb to the robot
-            is adding a child hub. Moving a sensor deeper is re-parenting it.
-            The tree can be shallow (root hub + a few CAN leaves) or deep (root
-            hub → spine → limb → joint), and the host's view does not change: it
-            names a <em>node</em> and a <em>port</em> on that node, and the
-            framework finds the path. This is the single idea the rest of the
-            document equips with a wire, a freshness rule, and a floor.
+            different jobs switched on. The root hub is simply the hub that
+            declares <code>parent: :host</code> — the one that owns the host
+            link; it is not a fourth kind. Adding a limb to the robot is adding
+            a child hub. Moving a sensor deeper is re-parenting it. The tree can
+            be shallow (root hub + a few CAN leaves) or deep (root hub → spine →
+            limb → joint), and the host's view does not change: it names a
+            <em>node</em> and a <em>port</em> on that node, and the framework
+            finds the path. This is the single idea the rest of the document
+            equips with a wire, a freshness rule, and a floor.
           </p>
         </div>
 
@@ -998,10 +1003,14 @@
           A hub author writes only the pure core for the jobs that hub does — a
           <code>sample</code> for a sensor, a <code>step</code>/safe-action for
           an actuator — plus a small <b>contract</b> (§06) declaring its ports
-          and types. The framework supplies the scheduler, the link, the
-          framing, the routing table, the floor, and the freshness monitor.
-          Routing needs <em>no</em> author code at all: a hub routes because the
-          generated topology says it has children.
+          and types. Placement also declares each hub's <code>parent:</code> and
+          its <code>uplink:</code> transport (the root declares
+          <code>parent: :host</code>), so the <em>tree</em> is stated by parent
+          pointers. The framework supplies the scheduler, the link, the framing,
+          the routing table, the floor, and the freshness monitor. Routing needs
+          <em>no</em> per-hub author code at all: the route table is generated
+          from the declared tree, so a hub routes because the topology says it
+          has children below it.
         </p>
       </section>
 
@@ -1110,24 +1119,25 @@
           <b>NODE is a flat, whole-tree-unique address — never a path</b>, and a
           child link is <em>not</em> a port: ports name sense/act endpoints
           only, and a downstream hub is reached by addressing its own NODE,
-          which the parent's route table maps to the down-link. Routing is
-          therefore a flat table lookup on NODE through the generated topology —
-          <code>route_table[node] → local link</code> — a branch hub forwards a
-          frame toward the link that reaches that node, never a peer-name
-          dispatch and never a port on the parent. <b>SEQ</b> is the producing
-          hub's own write counter, bumped by one on every real new value; a
-          relay hub copies it verbatim. <b>T_DEV</b> is the producing hub's own
-          64-bit monotonic microseconds at the write — carried for same-device
-          use only (§04), 64-bit so a hub's clock never wraps in the field; it
-          is <b>present only on ports that declare it</b> (stamped ports), so a
-          command or status frame omits it entirely. The decoder learns whether
-          a frame carries it from the <code>(NODE, PORT)</code> it just read, so
-          the optional field is never ambiguous. The CRC covers the whole
-          decoded body (NODE…PAYLOAD), so it guards the routing header across
-          every hop — the UART above the root hub and the CAN below it alike —
-          not just the payload. The same frame rides both transports; the root
-          hub re-frames it from one to the other without touching NODE, SEQ,
-          T_DEV, or PAYLOAD.
+          which the parent's route table maps to the <em>specific link</em> that
+          reaches it. Routing is therefore a flat table lookup on NODE through
+          the generated topology — <code>route_table[node] → link</code>, where
+          the host link is link 0 — a branch hub forwards a frame onto the one
+          link (of possibly several downlinks) that reaches that node, never a
+          peer-name dispatch and never a port on the parent. <b>SEQ</b> is the
+          producing hub's own write counter, bumped by one on every real new
+          value; a relay hub copies it verbatim. <b>T_DEV</b> is the producing
+          hub's own 64-bit monotonic microseconds at the write — carried for
+          same-device use only (§04), 64-bit so a hub's clock never wraps in the
+          field; it is <b>present only on ports that declare it</b> (stamped
+          ports), so a command or status frame omits it entirely. The decoder
+          learns whether a frame carries it from the
+          <code>(NODE, PORT)</code> it just read, so the optional field is never
+          ambiguous. The CRC covers the whole decoded body (NODE…PAYLOAD), so it
+          guards the routing header across every hop — the UART above the root
+          hub and the CAN below it alike — not just the payload. The same frame
+          rides both transports; the root hub re-frames it from one to the other
+          without touching NODE, SEQ, T_DEV, or PAYLOAD.
         </p>
 
         <div class="callout bad">
@@ -1768,10 +1778,16 @@
               An actuator hub watches the <code>seq</code> of
               <em>its own</em> command against a compiled-in window, on its own
               monotonic clock. If the <code>seq</code> stops advancing for the
-              window, it drives the plant to its safe action (zero torque,
-              brakes, PWM-safe) and latches disarmed. Because this runs on the
-              actuator's chip and needs no inbound frame, it fires even if the
-              parent hub, the whole tree above it, or the host is entirely gone.
+              window, it drives the plant to its <b>safe action</b> — a value of
+              the command port's own value-type (zero torque for an effort port,
+              a neutral position plus brake for a servo) — and latches disarmed.
+              The floor is <em>value-type-agnostic</em>: it holds two opaque
+              packed values (the commanded one and the safe one) and swaps
+              between them on the <code>seq</code>, never interpreting their
+              bytes — it does not know a torque from a position. Because this
+              runs on the actuator's chip and needs no inbound frame, it fires
+              even if the parent hub, the whole tree above it, or the host is
+              entirely gone.
             </p>
           </div>
           <div class="panel tight">
@@ -1820,7 +1836,10 @@
           <pre
             class="code"
           ><span class="c">/* The floor lives on THIS chip. The window is compiled in from the contract.</span>
-<span class="c">   Nothing here waits on a frame to ARRIVE — it watches a seq for SILENCE.   */</span>
+<span class="c">   Nothing here waits on a frame to ARRIVE — it watches a seq for SILENCE.</span>
+<span class="c">   SAFE_ACTION and target are opaque packed bytes (uint8_t[SAFE_N]) of the port's</span>
+<span class="c">   value-type — the generator packed SAFE_ACTION with the SAME codec as the wire;</span>
+<span class="c">   the floor swaps the two buffers, never reading them as a float (§05/ADR-0005). */</span>
 <span class="t">#ifndef</span> FLOOR_MISSES
 <span class="t">#define</span> FLOOR_MISSES 5            <span class="c">/* tolerate 5 missed commands — generated, not hand-set */</span>
 <span class="t">#endif</span>
@@ -1828,7 +1847,7 @@
 <span class="f">static bool</span>     armed;             <span class="c">/* false at every boot — born disarmed */</span>
 
 <span class="f">void</span> on_command(<span class="f">const</span> Frame *c) {   <span class="c">/* a command frame for this hub's actuator port */</span>
-  target = c-&gt;payload.setpoint;
+  memcpy(target, c-&gt;payload, SAFE_N);  <span class="c">/* opaque packed bytes — the floor never decodes them */</span>
   cmd_seq = c-&gt;seq;                  <span class="c">/* watch the seq, not the value */</span>
 }
 
@@ -1963,7 +1982,7 @@
 
   ports <span class="k">do</span>
     port :motor_target, dir: :in, type: <span class="t">BBMcuhub.ValueType.Effort</span>, rate: 50,
-      safe_action: :zero_torque, step: {<span class="t">Hubs.Motor.Floor</span>, :step}
+      safe_action: %{nm: <span class="n">0.0</span>}, step: {<span class="t">Hubs.Motor.Floor</span>, :step}  <span class="c"># a value of the port's value-type</span>
     port :motor_status, dir: :out, type: <span class="t">BBMcuhub.ValueType.Status</span>, rate: 50  <span class="c"># reports its own truth (§05)</span>
   <span class="k">end</span>
 <span class="k">end</span></pre>
@@ -1984,8 +2003,8 @@
 <span class="k">use</span> <span class="t">BB</span>, extensions: [<span class="t">BBMcuhub.Dsl</span>]
 
 hubs <span class="k">do</span>
-  hub :imu,   <span class="t">Hubs.Imu</span>,   node: <span class="n">0x02</span>     <span class="c"># place the hub module on a whole-tree-unique node</span>
-  hub :motor, <span class="t">Hubs.Motor</span>, node: <span class="n">0x05</span>
+  hub :imu,   <span class="t">Hubs.Imu</span>,   node: <span class="n">0x02</span>, parent: :host                 <span class="c"># the ROOT: declares parent: :host, owns the host UART</span>
+  hub :motor, <span class="t">Hubs.Motor</span>, node: <span class="n">0x05</span>, parent: :imu, uplink: :can   <span class="c"># hangs off :imu over a CAN link</span>
 <span class="k">end</span>
 
 topology <span class="k">do</span>
@@ -2025,13 +2044,14 @@ topology <span class="k">do</span>
           <div class="mermaid">
             flowchart LR C1["hub modules (use BBMcuhub.Hub)<br />ports · wire
             facts: dir·type·rate·t_dev·safe_action"]:::in --> TR C2["topology
-            do<br />hub placement (node id) + view wiring (fresh_for)"]:::in -->
-            TR TY["value-type modules (use BBMcuhub.ValueType)<br />layout +
-            lift/unlift + hook sig"]:::in --> TR TR["Spark transformer<br />projects
-            the assembled DSL → IR (compile time)"]:::ir --> IR IR["wire model
-            (IR)<br />per port: {node, port_id, type, layout, rate, fresh_for,
-            safe_action}"]:::ir IR --> E["lib/bb_mcuhub/wire/codec.ex<br />encode/decode
-            — DATA-DRIVEN (reads the IR)"]:::live IR -->
+            do<br />hub placement (node id · parent · uplink) + view wiring
+            (fresh_for)"]:::in --> TR TY["value-type modules (use
+            BBMcuhub.ValueType)<br />layout + lift/unlift + hook sig"]:::in -->
+            TR TR["Spark transformer<br />projects the assembled DSL → IR
+            (compile time)"]:::ir --> IR IR["wire model (IR)<br />per port:
+            {node, port_id, type, layout, rate, fresh_for, safe_action}"]:::ir
+            IR --> E["lib/bb_mcuhub/wire/codec.ex<br />encode/decode —
+            DATA-DRIVEN (reads the IR)"]:::live IR -->
             H["firmware/gen/&lt;slug&gt;/wire_contract.h<br />ids · structs ·
             FLOOR_MISSES · CMD_PERIOD_MS · hash · EMITTED"]:::out IR -->
             S["firmware/gen/&lt;slug&gt;/&lt;hub&gt;.glue.h (+
@@ -2116,13 +2136,14 @@ topology <span class="k">do</span>
   <span class="c"># The model is the IR persisted at compile time (one row per port):</span>
   <span class="c">#   %{node:, port_id:, type:, layout:, rate:, dir:, fresh_for:, safe_action:}</span>
   <span class="c"># sorted by {node, port_id}. Each row's :layout came from the port's value-type</span>
-  <span class="c"># module (§06). The transformer projected it; we just render. base = out dir.</span>
+  <span class="c"># module (§06); :safe_action is a VALUE of that value-type (a field-map, not an</span>
+  <span class="c"># atom) we pack to bytes through the SAME codec as the wire. We just render. base = out dir.</span>
   <span class="k">def</span> model(robot), <span class="k">do:</span> <span class="t">BBMcuhub.Robot.Info</span>.ir(robot)
 
   <span class="c"># The host codec is DATA-DRIVEN: it reads the IR layouts at runtime, so it</span>
   <span class="c"># can't drift from the model within Elixir — nothing to emit, nothing to stale.</span>
   <span class="c"># FOUR emitted artifacts cross the boundary the in-language guarantee can't reach:</span>
-  <span class="k">def</span> emit_c(base, model),       <span class="k">do:</span> render_header(base, model)        <span class="c"># gen/&lt;slug&gt;/wire_contract.h: ids · structs · floor consts · hash</span>
+  <span class="k">def</span> emit_c(base, model),       <span class="k">do:</span> render_header(base, model)        <span class="c"># gen/&lt;slug&gt;/wire_contract.h: ids · structs · floor consts · safe_action bytes (packed by the codec) · hash</span>
   <span class="k">def</span> emit_glue(base, model),    <span class="k">do:</span> render_glue(base, model)          <span class="c"># gen/&lt;slug&gt;/&lt;hub&gt;.glue.h + .device.h: router · dispatch · floor · schedule · hub_tasks</span>
   <span class="k">def</span> emit_vectors(base, model), <span class="k">do:</span> render_parity_vectors(base, model) <span class="c"># the parity-vector fixture</span>
   <span class="c"># (the host Elixir codec is NOT emitted — it reads the IR directly)</span>
@@ -2664,9 +2685,10 @@ topology <span class="k">do</span>
           <pre
             class="code"
           ><span class="c">/* Flat addressing (§03): NODE is a whole-tree-unique id, never a path. A branch</span>
-<span class="c">   hub forwards a frame toward the local link that reaches the dest node — a child</span>
+<span class="c">   hub forwards a frame onto the SPECIFIC link that reaches the dest node — a child</span>
 <span class="c">   link is NOT a port. It does NOT decode the payload and does NOT touch seq/t_dev.</span>
-<span class="c">   On the root hub, UP is UART (to the host) and DOWN is CAN; deeper, both are CAN. */</span>
+<span class="c">   The host link is link 0; each link's transport (UART or CAN) is per-link, declared,</span>
+<span class="c">   so a parent may pick the right one of several downlinks (CAN bus + N UARTs). */</span>
 <span class="f">void</span> route_frame(<span class="f">const</span> Frame *f) {
   <span class="k">if</span> (f-&gt;node == MY_NODE) { deliver_local(f); <span class="k">return</span>; }   <span class="c">/* an endpoint port on THIS hub */</span>
   <span class="f">int</span> link = route_table[f-&gt;node];     <span class="c">/* generated: which local link reaches this NODE */</span>
@@ -3289,11 +3311,12 @@ topology <span class="k">do</span>
               <em>not</em> preclude adding this later.
             </li>
             <li>
-              <b>Health fold across scopes</b>, <b>self-heal</b>,
-              <b>A/B firmware</b>, and a branch hub
-              <b>bridging to a second, deeper CAN segment</b> (a sub-backplane
-              below a limb) — the root hub's UART↔CAN bridge generalised one
-              level down.
+              <b>Health fold across scopes</b>, <b>self-heal</b>, and
+              <b>A/B firmware</b>. (A branch hub bridging to a deeper sub-bus
+              below a limb is already part of the model — every hub reaches its
+              children over declared <b>links</b>, and the route table maps each
+              node to the specific link — so a multi-hop tree is first-class,
+              not a future generalisation.)
             </li>
           </ol>
         </div>
