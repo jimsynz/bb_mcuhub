@@ -51,12 +51,21 @@ typedef struct {
 /* Initialise born-disarmed with the safe action already selected. `safe` is the
  * packed safe-action value (`n` bytes); it is copied into both `safe` and
  * `target`, so a born-disarmed floor drives the safe value before any command.
- */
+ *
+ * Fail-closed on width: `n` must be <= FLOOR_MAX_VALUE (the compile-time frame
+ * ceilings guarantee it). An over-wide `n` is NOT copied — the floor sets n = 0
+ * and stays disarmed (drives nothing), rather than overrunning its own buffers
+ * and corrupting the dead-man's state. */
 void floor_init(Floor *f, uint32_t window_ms, const uint8_t *safe, uint8_t n);
 
 /* A new command frame for this hub's actuator port: record the packed value
  * (`n` bytes) as the target + its seq. The floor watches the SEQ, not the
- * value. */
+ * value.
+ *
+ * Fail-closed on width: an over-wide `n` (> FLOOR_MAX_VALUE) is IGNORED —
+ * neither the target nor the seq is updated, so a malformed command can neither
+ * overrun the buffer nor count as a seq advance; the dead-man then floors on
+ * silence. */
 void floor_on_command(Floor *f, uint16_t seq, const uint8_t *value, uint8_t n);
 
 /* Run one control tick at monotonic time `now_ms`. Writes the value to DRIVE

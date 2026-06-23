@@ -9,12 +9,31 @@ void floor_init(Floor *f, uint32_t window_ms, const uint8_t *safe, uint8_t n) {
   f->armed = false;         /* born disarmed */
   f->have_baseline = false; /* no first seq recorded yet */
   f->seen_advance = false;  /* nothing witnessed yet */
+
+  /* Fail-closed on an over-wide value (defence-in-depth): the §06 frame-size
+   * check + the FLOOR_MAX_VALUE payload ceiling already bound `n` at compile
+   * time, so `n > FLOOR_MAX_VALUE` is a should-never-happen (a generator/layout
+   * drift, or a future device-mocked path). Rather than memcpy past `safe[]`/
+   * `target[]` and corrupt the dead-man's own state, we drive NOTHING (n = 0)
+   * and stay disarmed — born-disarmed already, so the safe behaviour is to
+   * energise nothing. */
+  if (n > FLOOR_MAX_VALUE) {
+    f->n = 0;
+    return;
+  }
   f->n = n;
   memcpy(f->safe, safe, n);
   memcpy(f->target, safe, n); /* born-disarmed → safe value selected */
 }
 
 void floor_on_command(Floor *f, uint16_t seq, const uint8_t *value, uint8_t n) {
+  /* Fail-closed (see floor_init): an over-wide command is ignored entirely —
+   * neither the target nor the seq is updated, so it cannot overrun the buffer
+   * and cannot count as an advance. The dead-man then floors on silence, since
+   * a bad command never refreshes it. */
+  if (n > FLOOR_MAX_VALUE)
+    return;
+
   f->cmd_seq = seq; /* watch the seq, not the value */
   f->n = n;
   memcpy(f->target, value, n);

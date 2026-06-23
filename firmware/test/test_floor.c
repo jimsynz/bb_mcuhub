@@ -142,6 +142,62 @@ int main(void) {
           "armed drives the commanded value verbatim (byte-generic)");
   }
 
+  /* Fail-closed on an over-wide value (defence-in-depth, candidate 2). The
+   * compile-time ceilings (the §06 512-byte frame check + FLOOR_MAX_VALUE=64
+   * payload bound) already keep `n` in range, so an `n > FLOOR_MAX_VALUE` here
+   * is a should-never-happen (a generator/layout drift, or a future
+   * device-mocked path). The floor MUST NOT memcpy past its `safe`/`target`
+   * buffers onto the dead-man's own state — it stays disarmed and drives
+   * nothing instead. We sentinel the bytes straddling the buffer boundary and
+   * assert they are untouched. */
+  {
+    /* A struct laid out exactly like Floor so we can place a guard field right
+     * after the two value buffers and detect a memcpy that runs past them. */
+    struct {
+      Floor f;
+      uint8_t guard[16];
+    } box;
+    memset(&box, 0xA5, sizeof(box)); /* sentinel everything */
+    uint8_t want_guard[16];
+    memset(want_guard, 0xA5, sizeof(want_guard));
+
+    /* init with an over-wide safe value: must clamp to nothing, stay disarmed,
+     * and never write past safe[FLOOR_MAX_VALUE]. The `over` source is larger
+     * than the buffers so an unchecked memcpy would smash `box.guard`. */
+    uint8_t over[FLOOR_MAX_VALUE + 16];
+    memset(over, 0x5A, sizeof(over));
+    floor_init(&box.f, WINDOW, over, FLOOR_MAX_VALUE + 16);
+    CHECK(memcmp(box.guard, want_guard, sizeof(want_guard)) == 0,
+          "over-wide safe value does not overrun the floor buffers (init)");
+    CHECK(!box.f.armed, "over-wide init stays disarmed (fail-closed)");
+
+    uint8_t n = floor_tick(&box.f, 0, out);
+    CHECK(n == 0 && !box.f.armed,
+          "over-wide init drives nothing, latched disarmed");
+
+    /* A valid floor that is then handed an over-wide command must ignore it:
+     * no overrun, no spurious arm (the bad command never advances the seq). */
+    Floor g;
+    floor_init(&g, WINDOW, safe, N);
+    floor_on_command(&g, 1, target, N);
+    floor_tick(&g, 0, out); /* baseline */
+    floor_on_command(&g, 2, target, N);
+    floor_tick(&g, 20, out); /* armed on a good command */
+    CHECK(out_is(out, target, N) && g.armed, "armed on a good command (setup)");
+
+    uint8_t bigger[FLOOR_MAX_VALUE + 16];
+    memset(bigger, 0x33, sizeof(bigger));
+    floor_on_command(&g, 3, bigger, FLOOR_MAX_VALUE + 16); /* must be ignored */
+    floor_tick(&g, 40, out);
+    CHECK(out_is(out, target, N),
+          "over-wide command is ignored → still drives the last good target");
+    /* and silence past the window still floors it (the bad command was inert)
+     */
+    floor_tick(&g, 40 + WINDOW + 1, out);
+    CHECK(out_is(out, safe, N) && !g.armed,
+          "over-wide command did not refresh the dead-man → floors on silence");
+  }
+
   if (g_fail == 0) {
     printf("\nALL C FLOOR CHECKS PASSED\n");
     return 0;
