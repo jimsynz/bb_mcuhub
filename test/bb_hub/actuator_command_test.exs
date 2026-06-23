@@ -35,7 +35,7 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
   alias BBMcuhub.BBHub
   alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
-  alias BBMcuhub.Test.LoopbackTransport
+  alias BBMcuhub.Host.Transport.Loopback, as: LoopbackTransport
   alias BBMcuhub.Wire.Codec
 
   # --- a REAL multi-field, non-Effort command value-type ---------------------

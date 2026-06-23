@@ -15,7 +15,7 @@ defmodule BBMcuhub.SliceTest do
   alias BBMcuhub.BBHub
   alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
-  alias BBMcuhub.Test.LoopbackTransport
+  alias BBMcuhub.Host.Transport.Loopback, as: LoopbackTransport
   alias BBMcuhub.Wire.Codec
 
   @robot BBMcuhub.Test.Fixtures.Robot

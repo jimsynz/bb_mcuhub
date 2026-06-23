@@ -5,11 +5,13 @@ defmodule BBMcuhub.Wire.FramingCOBS do
 
   This is the one place a byte stream becomes *whole, CRC-clean* frames. It
   accumulates bytes, splits on the `0x00` delimiter, COBS-decodes each piece,
-  checks the trailing CRC-16, and passes up **only** the bodies that survive. A
-  bad CRC, a truncated COBS run, or noise is dropped and counted here
-  (`BBMcuhub.Wire.Stats`), so nothing above the seam ever sees a corrupt frame —
-  the codec (§06/§07) never has to defend against garbage, and a corrupted `seq`
-  can never fake an advance (§04).
+  checks the trailing CRC-16, and passes up **only** the bodies that survive. Each
+  failure mode is dropped and counted *distinctly* in `BBMcuhub.Wire.Stats` — a
+  CRC mismatch as `crc_fail`, a truncated COBS run as `cobs_truncated`, any other
+  structural break as `rx_drop` — so nothing above the seam ever sees a corrupt
+  frame (the codec, §06/§07, never has to defend against garbage and a corrupted
+  `seq` can never fake an advance, §04), and the *kind* of corruption stays
+  legible in the counters.
 
   Wire shape per frame: `COBS(body <> CRC16(body)) <> 0x00`.
   """
@@ -64,10 +66,21 @@ defmodule BBMcuhub.Wire.FramingCOBS do
   defp verify(frame) do
     with {:ok, decoded} <- cobs_decode(frame),
          true <- byte_size(decoded) >= 2,
-         <<body::binary-size(byte_size(decoded) - 2), crc::16>> <- decoded,
-         true <- crc == CRC16.crc(body) do
-      {:ok, body}
+         <<body::binary-size(byte_size(decoded) - 2), crc::16>> <- decoded do
+      # The frame decoded into a well-formed body+CRC pair; the only remaining
+      # question is integrity. A CRC mismatch is a DISTINCT failure from a
+      # structurally-broken frame — count it as `crc_fail` so a corrupted-but-
+      # well-framed body is legible apart from generic noise (`rx_drop`).
+      if crc == CRC16.crc(body) do
+        {:ok, body}
+      else
+        Stats.bump(:crc_fail)
+        :error
+      end
     else
+      # COBS decoded but the run is too short to even hold a CRC, or some other
+      # structural break — generic drop. (A COBS-truncated run is already counted
+      # as `cobs_truncated` in `cobs_decode/1` and never reaches here.)
       _ ->
         Stats.bump(:rx_drop)
         :error

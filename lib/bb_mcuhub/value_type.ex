@@ -9,7 +9,12 @@ defmodule BBMcuhub.ValueType do
     1. an ordered `[{field, wire_type}]` **layout** (the bytes on the wire);
     2. a host-side `lift/1` (raw `%{field => number}` map → a typed `BB.Message`
        payload struct) and its inverse `unlift/1`;
-    3. (the firmware-hook signature — Phase 3, not yet).
+    3. the **firmware-hook shape**: the same `layout/0` drives the generator's C
+       side — it emits the packed value struct (`wire_contract.h`) and, from that
+       layout, the device-hook parameter (a single numeric field → the scalar by
+       value, a multi-field value → a `const <Struct> *`; see the generator's
+       `drive_param`). The value-type owns this contract; the generator realises
+       it. Hand-written hooks live in `mcu/<hub>.{c,cpp}` against those prototypes.
 
   It names no node, pin, rate, or bot, so the **same** value-type composes across
   many hubs and robots. A port references its value-type; the library ships a lean

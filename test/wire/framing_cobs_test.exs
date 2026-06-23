@@ -33,17 +33,42 @@ defmodule BBMcuhub.Wire.FramingCOBSTest do
       assert {:ok, [^body], _st} = FramingCOBS.remove_framing(second, st)
     end
 
-    test "a corrupted CRC frame is dropped and counted, never delivered", %{st: st} do
+    test "a structurally-broken frame is dropped and counted (rx_drop), never delivered",
+         %{st: st} do
       body = <<0x02, 0x10, 0x00, 0x2A>>
       {:ok, frame, st} = FramingCOBS.add_framing(body, st)
 
-      # flip a byte in the COBS run (not the delimiter) → CRC must fail
+      # Flip the leading COBS *code* byte: this corrupts the run structure (the
+      # block length no longer matches the bytes), so the frame never decodes into
+      # a well-formed body+CRC pair — a generic drop, not a CRC mismatch.
       <<h, rest::binary>> = frame
       corrupt = <<bxor_one(h), rest::binary>>
 
       before = Stats.get(:rx_drop)
       assert {:ok, [], _st} = FramingCOBS.remove_framing(corrupt, st)
       assert Stats.get(:rx_drop) == before + 1
+    end
+
+    test "a COBS-valid frame with a corrupted body is counted as crc_fail, never delivered",
+         %{st: st} do
+      # A body with NO 0x00 bytes encodes to a single COBS block, so flipping a
+      # *data* byte keeps the run well-formed: COBS decodes cleanly and the only
+      # failure is the integrity check. That is a CRC mismatch — counted distinctly
+      # as crc_fail, NOT rx_drop (the wire stays legible about the *kind* of fault).
+      body = <<0x11, 0x22, 0x33, 0x44, 0x55, 0x66>>
+      {:ok, frame, st} = FramingCOBS.add_framing(body, st)
+
+      # flip a middle data byte (^0x01 can't turn 0x33 into a 0x00 delimiter)
+      <<a, b, c, rest::binary>> = frame
+      corrupt = <<a, b, bxor_one(c), rest::binary>>
+
+      crc_before = Stats.get(:crc_fail)
+      drop_before = Stats.get(:rx_drop)
+      assert {:ok, [], _st} = FramingCOBS.remove_framing(corrupt, st)
+      assert Stats.get(:crc_fail) == crc_before + 1, "a clean-COBS CRC mismatch is crc_fail"
+
+      assert Stats.get(:rx_drop) == drop_before,
+             "a CRC mismatch must NOT be miscounted as rx_drop"
     end
 
     test "two frames glued together both come out", %{st: st} do

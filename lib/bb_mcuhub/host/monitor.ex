@@ -25,10 +25,10 @@ defmodule BBMcuhub.Host.Monitor do
 
   alias BBMcuhub.Host.NodeRegistry
 
-  @enforce_keys [:node, :port, :fresh_for]
+  @enforce_keys [:node, :port_id, :fresh_for]
   defstruct [
     :node,
-    :port,
+    :port_id,
     :fresh_for,
     last_seq: nil,
     idle: 0,
@@ -38,7 +38,7 @@ defmodule BBMcuhub.Host.Monitor do
 
   @type t :: %__MODULE__{
           node: 0..255,
-          port: 0..255,
+          port_id: 0..255,
           fresh_for: pos_integer(),
           last_seq: 0..0xFFFF | nil,
           idle: non_neg_integer(),
@@ -51,8 +51,8 @@ defmodule BBMcuhub.Host.Monitor do
   the consumer's own beats. Born stale.
   """
   @spec new(0..255, 0..255, pos_integer()) :: t()
-  def new(node, port, fresh_for) when fresh_for >= 1 do
-    %__MODULE__{node: node, port: port, fresh_for: fresh_for}
+  def new(node, port_id, fresh_for) when fresh_for >= 1 do
+    %__MODULE__{node: node, port_id: port_id, fresh_for: fresh_for}
   end
 
   @doc """
@@ -61,7 +61,7 @@ defmodule BBMcuhub.Host.Monitor do
   """
   @spec check(t()) :: t()
   def check(%__MODULE__{} = mon) do
-    check_row(mon, NodeRegistry.get(mon.node, mon.port))
+    check_row(mon, NodeRegistry.get(mon.node, mon.port_id))
   end
 
   @doc """

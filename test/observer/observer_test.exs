@@ -55,7 +55,7 @@ defmodule BBMcuhub.ObserverTest do
     test "an unknown {hub, port} stops the observer at init" do
       Process.flag(:trap_exit, true)
 
-      assert {:error, {:unknown_slot, {:no_such_hub, :nope}}} =
+      assert {:error, {:unknown_port, {:no_such_hub, :nope}}} =
                Observer.start_link(
                  robot: @robot,
                  slots: [{:no_such_hub, :nope}],
@@ -67,7 +67,7 @@ defmodule BBMcuhub.ObserverTest do
     test "a known slot mixed with an unknown one still fails loud (no partial observe)" do
       Process.flag(:trap_exit, true)
 
-      assert {:error, {:unknown_slot, {:sensor_hub, :typo}}} =
+      assert {:error, {:unknown_port, {:sensor_hub, :typo}}} =
                Observer.start_link(
                  robot: @robot,
                  slots: [{:sensor_hub, :pose}, {:sensor_hub, :typo}],

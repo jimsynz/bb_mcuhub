@@ -45,7 +45,7 @@ defmodule BBMcuhub.Host do
   ## Transport (parameterised)
 
   The transport defaults to the production `BBMcuhub.Host.Transport.UART`, but is
-  parameterised so a test can inject `BBMcuhub.Test.LoopbackTransport` and run the
+  parameterised so a test can inject `BBMcuhub.Host.Transport.Loopback` and run the
   whole host stack with no hardware. Pass `transport:` / `transport_opts:`.
 
   ## Usage
@@ -69,7 +69,8 @@ defmodule BBMcuhub.Host do
 
     * `:robot` — the robot module (REQUIRED).
     * `:transport` — a `BBMcuhub.Host.Transport` module (default
-      `BBMcuhub.Host.Transport.UART`); tests inject `LoopbackTransport`.
+      `BBMcuhub.Host.Transport.UART`); tests inject
+      `BBMcuhub.Host.Transport.Loopback`.
     * `:transport_opts` — passed to the transport (`[port: "ttyAMA0", baud:
       1_000_000]` for the UART).
     * `:bb_opts` — extra options forwarded to `BB.Supervisor.start_link/2`

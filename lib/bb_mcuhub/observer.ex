@@ -34,9 +34,9 @@ defmodule BBMcuhub.Observer do
       may report fresh for a slot the fast loop already floored — for "is the hub
       driving" read the Status slot, never an observer's verdict. ADR-0004.)
     * **Fail-loud select.** Every selected `{hub, port}` is resolved via
-      `PortIndex.resolve` at init; an unknown slot **stops** the observer
-      (`{:stop, {:unknown_slot, {hub, port}}}`) — never silently observe a typo'd
-      slot forever (mirrors `BBMcuhub.BBHub.Sensor`).
+      `PortIndex.resolve` at init; an unknown port **stops** the observer
+      (`{:stop, {:unknown_port, {hub, port}}}`) — never silently observe a typo'd
+      port forever (mirrors `BBMcuhub.BBHub.Sensor`).
     * **Sink in-process.** The sink runs in this observer's own process: a slow sink
       degrades only this observer (it falls behind its timer) and a crashing sink
       takes down only this observer's child — by design (ADR-0004 · Consequences).
@@ -107,7 +107,7 @@ defmodule BBMcuhub.Observer do
   @doc """
   Child spec for supervising one observer.
 
-  `restart: :transient` — a fail-loud `{:stop, {:unknown_slot, _}}` at init must not
+  `restart: :transient` — a fail-loud `{:stop, {:unknown_port, _}}` at init must not
   be retried forever (a config typo stops once), while a real crash still restarts.
   """
   @spec child_spec(keyword()) :: Supervisor.child_spec()
@@ -149,10 +149,10 @@ defmodule BBMcuhub.Observer do
            slots: slot_states
          }}
 
-      {:error, {:unknown_slot, slot}} ->
+      {:error, {:unknown_port, slot}} ->
         # Fail loud: a typo'd select must not silently observe nil forever
         # (mirrors BBHub.Sensor's stop on {:unknown_port, _}).
-        {:stop, {:unknown_slot, slot}}
+        {:stop, {:unknown_port, slot}}
     end
   end
 
@@ -193,7 +193,7 @@ defmodule BBMcuhub.Observer do
           {:cont, {:ok, [slot_state | acc]}}
 
         :error ->
-          {:halt, {:error, {:unknown_slot, slot}}}
+          {:halt, {:error, {:unknown_port, slot}}}
       end
     end)
     |> case do

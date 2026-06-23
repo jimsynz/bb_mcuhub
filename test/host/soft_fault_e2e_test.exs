@@ -320,7 +320,7 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
   end
 
   describe "corrupt wire is dropped + counted end-to-end (host framing seam)" do
-    test "a bit-flipped status frame is rejected (rx_drop), clean frames still flow",
+    test "a bit-flipped status frame is rejected + counted, clean frames still flow",
          ctx do
       # Earn motion so a real status frame exists to corrupt.
       command(ctx, 1, 0.5)
@@ -333,12 +333,16 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
       # Take a REAL C-framed status frame and flip a byte in its middle (corrupting
       # the CRC-covered body). Inject it at the host's framing seam.
       wire = VirtualHub.status_wire(ctx.vhub, ctx.eff_port)
-      drop_before = Stats.get(:rx_drop)
+      dropped_before = total_dropped()
       flipped = flip_a_byte(wire)
       VirtualHub.inject_wire(ctx.vhub, flipped)
       _ = :sys.get_state(ctx.owner)
 
-      assert Stats.get(:rx_drop) > drop_before,
+      # WHICH drop counter fires depends on whether the flipped byte breaks the COBS
+      # run (rx_drop / cobs_truncated) or just the body (crc_fail) — frame-layout
+      # dependent. The invariant is the SUM: a corrupted frame is dropped + counted
+      # at the seam, never delivered.
+      assert total_dropped() > dropped_before,
              "a corrupted frame must be dropped + counted at the framing seam"
 
       # The stream is NOT desynced: a subsequent CLEAN status still lands.
@@ -574,6 +578,11 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
              "after recovery the consumer re-witnesses an advance and trusts again"
     end
   end
+
+  # Every way the framing seam can reject a frame, summed — so an assertion about
+  # "a corrupted frame is dropped + counted" doesn't depend on WHICH counter
+  # (rx_drop / crc_fail / cobs_truncated) a particular corruption happens to hit.
+  defp total_dropped, do: Stats.get(:rx_drop) + Stats.get(:crc_fail) + Stats.get(:cobs_truncated)
 
   # Flip one byte in the middle of a wire frame (before its trailing 0x00 delimiter),
   # corrupting the CRC-covered body without removing the delimiter.

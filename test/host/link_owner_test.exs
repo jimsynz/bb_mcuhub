@@ -2,8 +2,8 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
   use ExUnit.Case, async: false
 
   alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
+  alias BBMcuhub.Host.Transport.Loopback, as: LoopbackTransport
   alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Test.LoopbackTransport
   alias BBMcuhub.Wire.{Codec, Stats}
 
   setup do

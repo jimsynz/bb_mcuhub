@@ -41,9 +41,9 @@ defmodule BBMcuhub.BBHub.Sensor do
 
     case PortIndex.resolve(hub, port) do
       {:ok, {node_id, port_id}} ->
-        beat_ms = opts[:beat_ms] || 20
-        fresh_for = opts[:fresh_for] || 3
-        :timer.send_interval(beat_ms, :beat)
+        # beat_ms / fresh_for are filled by the options_schema defaults (the single
+        # source of truth) — no local `|| N` fallback to drift out of sync.
+        :timer.send_interval(opts[:beat_ms], :beat)
 
         {:ok,
          %{
@@ -51,7 +51,7 @@ defmodule BBMcuhub.BBHub.Sensor do
            node_id: node_id,
            port_id: port_id,
            value_type: lookup_value_type(node_id, port_id),
-           mon: Monitor.new(node_id, port_id, fresh_for)
+           mon: Monitor.new(node_id, port_id, opts[:fresh_for])
          }}
 
       :error ->

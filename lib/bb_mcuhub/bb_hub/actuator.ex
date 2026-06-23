@@ -67,7 +67,9 @@ defmodule BBMcuhub.BBHub.Actuator do
       # the status slot is read THROUGH a born-stale monitor (§05): a stale "not
       # floored" must never read as driving, so the view ticks the monitor on its
       # own beat and live/1 reads the monitor's verdict, not the raw slot.
-      :timer.send_interval(opts[:beat_ms] || 20, :status_beat)
+      # (beat_ms / command_seq_start / status_fresh_for are filled by the
+      # options_schema defaults — the single source of truth, no local fallback.)
+      :timer.send_interval(opts[:beat_ms], :status_beat)
 
       {:ok,
        %{
@@ -76,8 +78,8 @@ defmodule BBMcuhub.BBHub.Actuator do
          port_id: port_id,
          status_id: status_id,
          value_type: value_type,
-         seq: opts[:command_seq_start] || 1,
-         status_mon: Monitor.new(node_id, status_id, opts[:status_fresh_for] || 5)
+         seq: opts[:command_seq_start],
+         status_mon: Monitor.new(node_id, status_id, opts[:status_fresh_for])
        }}
     else
       _ -> {:stop, {:unknown_port, {hub, port, status_port}}}
