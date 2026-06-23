@@ -8,10 +8,13 @@ defmodule BBMcuhub.Contract do
   shared vocabulary those rows are built from and the renderers consume.
 
   An **IR row** carries one port's whole-tree identity: its `node` (from the
-  `hubs do` placement), the hub's backplane `transport` (`:can` | `:uart`),
-  generated `port_id`, value `type` + `layout`, `dir`, `rate`, `stamped`, the
-  consumer `fresh_for`, the floored-role flag `has_safe_action`, and the
-  `safe_action` value (a value of the port's value-type, ADR-0005).
+  `hubs do` placement), the hub's declared `parent` (another hub's name, or
+  `:host` for the root) and `uplink` (the transport of this hub's link to its
+  parent, `:can` | `:uart` | nil for the root) — the DECLARED topology of
+  ADR-0006 — plus the generated `port_id`, value `type` + `layout`, `dir`,
+  `rate`, `stamped`, the consumer `fresh_for`, the floored-role flag
+  `has_safe_action`, and the `safe_action` value (a value of the port's
+  value-type, ADR-0005).
 
   ## `t_dev` is opt-in per port (§04)
 
@@ -41,7 +44,8 @@ defmodule BBMcuhub.Contract do
   @type ir_row :: %{
           hub: hub_name(),
           node: 0..255,
-          transport: :can | :uart,
+          parent: atom(),
+          uplink: :can | :uart | nil,
           port: port_name(),
           port_id: 0..255,
           dir: dir(),

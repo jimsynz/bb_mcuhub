@@ -102,7 +102,7 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
     use BB, extensions: [BBMcuhub.Dsl]
 
     hubs do
-      hub(:pos_hub, BBMcuhub.BBHub.ActuatorCommandTest.PositionHub, node: 0x0A, transport: :uart)
+      hub(:pos_hub, BBMcuhub.BBHub.ActuatorCommandTest.PositionHub, node: 0x0A, parent: :host)
     end
 
     topology do

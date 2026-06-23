@@ -8,22 +8,25 @@ defmodule BBMcuhub.Test.Fixtures.Robot do
   library is self-testing in isolation via a fresh fixture robot). It backs the
   drift, C-parity, slice, and verifier tests with no example present.
 
-  Two hubs, chosen to span the wire surface:
+  Two hubs, chosen to span the wire surface (ADR-0006: topology is DECLARED by
+  parent links, not inferred):
 
-    * the **SensorHub** (`:sensor_hub`, NODE 0x02) is the ROOT comms hub on a
-      `:can` backplane. It senses `:pose` (a stock `:imu` value, STAMPED with
-      `t_dev: true`) and `:scalar` (a CUSTOM value-type named BY MODULE,
-      UNSTAMPED) — covering CAN + stamped + the value-type extension seam.
-    * the **ActuatorHub** (`:act_hub`, NODE 0x05) is the LEAF on a `:uart`
-      backplane. It takes a FLOORED `:effort` command (`has_safe_action: true,
-      safe_action: %{nm: 0.0}`, ADR-0005) and reports an `:act_status` — covering
-      UART + the floor + status + the derivable command slot the generic launcher
-      finds.
+    * the **SensorHub** (`:sensor_hub`, NODE 0x02) is the ROOT comms hub
+      (`parent: :host`) — it owns the host UART. It senses `:pose` (a stock
+      `:imu` value, STAMPED with `t_dev: true`) and `:scalar` (a CUSTOM
+      value-type named BY MODULE, UNSTAMPED) — covering stamped + the value-type
+      extension seam.
+    * the **ActuatorHub** (`:act_hub`, NODE 0x05) is the LEAF — it hangs off
+      the root over a `:uart` link (`parent: :sensor_hub, uplink: :uart`). It
+      takes a FLOORED `:effort` command (`has_safe_action: true, safe_action:
+      %{nm: 0.0}`, ADR-0005) and reports an `:act_status` — covering the UART
+      link + the floor + status + the derivable command slot the generic
+      launcher finds.
 
-  So the fixture covers BOTH transports (`:can` root + `:uart` leaf, flipping
-  BACKPLANE_TRANSPORT_UART to 1), STAMPED and UNSTAMPED ports, a FLOORED actuator,
-  and a consumer-style CUSTOM value-type — exactly the surface the library must
-  test in isolation.
+  So the fixture covers a declared root + one UART-linked leaf (flipping the
+  root's downlink-1 transport to UART), STAMPED and UNSTAMPED ports, a FLOORED
+  actuator, and a consumer-style CUSTOM value-type — exactly the surface the
+  library must test in isolation.
 
   Like the real robots, the hub-gateway DSL (`BBMcuhub.Dsl`) composes alongside
   BeamBots' own: `hubs do` places each hub on a NODE id; the views in `topology`
@@ -32,10 +35,16 @@ defmodule BBMcuhub.Test.Fixtures.Robot do
   use BB, extensions: [BBMcuhub.Dsl]
 
   hubs do
-    # CAN root — covers the CAN/stamped side of the wire surface.
-    hub(:sensor_hub, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, transport: :can)
-    # UART leaf — flips BACKPLANE_TRANSPORT_UART to 1; covers the floor + status.
-    hub(:act_hub, BBMcuhub.Test.Fixtures.ActuatorHub, node: 0x05, transport: :uart)
+    # The ROOT comms hub (parent: :host) — owns the host UART (ADR-0006). It
+    # senses pose/scalar; its one child act_hub hangs off it over a UART link.
+    hub(:sensor_hub, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+    # UART leaf — its uplink to the root is UART (flips LINK1_TRANSPORT_UART to
+    # 1); covers the floor + status.
+    hub(:act_hub, BBMcuhub.Test.Fixtures.ActuatorHub,
+      node: 0x05,
+      parent: :sensor_hub,
+      uplink: :uart
+    )
   end
 
   topology do

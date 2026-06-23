@@ -182,12 +182,14 @@ defmodule BBMcuhub.Gen.WireGen do
         "#define WIRE_HEADER_STAMPED_SIZE #{Contract.header_size(true)}",
         "#define WIRE_BROADCAST_NODE 0x#{hex2(Contract.broadcast_node())}",
         "",
-        "/* The root hub's children-facing backplane transport (a contract fact, not",
-        "   a build flag — see docs/adr/0002). 1 = a plain UART carrying the same",
-        "   COBS+CRC frames (no CAN segmentation: a wide body rides one frame); 0 =",
-        "   the default CAN/TWAI backplane. For v1 the backplane is uniform per robot:",
-        "   UART iff any non-root hub is reached over :uart. */",
-        "#define BACKPLANE_TRANSPORT_UART #{backplane_transport_uart(ir)}",
+        "/* Per-link transport of the root hub's DOWNLINKS (ADR-0006). Transport is a",
+        "   property of a LINK, not a robot-wide flag: each downlink k carries",
+        "   LINK<k>_TRANSPORT_UART = 1 (a plain UART carrying the same COBS+CRC frame,",
+        "   no CAN segmentation) or 0 (the default CAN/TWAI backplane). For the",
+        "   single-downlink example boards this is just LINK1_*, equivalent to the old",
+        "   single-backplane flag but sourced from the child's declared uplink, not",
+        "   inferred. The board's link_esp32.cpp realizes only the links it has. */",
+        root_link_transport_defines(ir),
         "",
         "/* Port ids — generated, stable, never hand-assigned (§06). */",
         Enum.map_join(ir, "\n", &port_define/1),
@@ -275,12 +277,15 @@ defmodule BBMcuhub.Gen.WireGen do
   #
   # Derivations, all from the IR (documented for the safety review):
   #
-  #   * ROOT hub  — the lowest-NODE hub in the robot (`Enum.min` on node), matching
-  #     `backplane_transport_uart/1`'s root rule. A root's route table defaults to
-  #     LINK_UP (toward host), MY_NODE → LINK_LOCAL, and every OTHER hub's node →
-  #     LINK_DOWN. Its hub_on_body forwards up via `link_send_up` (host) and down
-  #     via `link_send_down` (backplane → child). A LEAF defaults route_table[*] =
-  #     LINK_LOCAL and passes nullptr,nullptr (local-only) — matching motor/wheels.
+  #   * ROOT hub  — the hub that DECLARES `parent: :host` (ADR-0006), no more
+  #     Enum.min inference. Topology is declared by parent links; each hub gets a
+  #     LOCAL link list (link 0 = the up-link toward its parent/host; downlinks
+  #     1..N from its children, grouped by transport) and a node → local-link-index
+  #     route table: MY_NODE → LINK_LOCAL_IDX, a descendant reached via downlink k
+  #     → k, everything else (ancestors/unknown) → 0 (the up-link). hub_on_body
+  #     routes onto `link_send_on_link(idx, f)`; the board realizes the links it
+  #     physically has and stubs the rest. A LEAF has only link 0 (up), so its
+  #     route table is the default-0 fill + MY_NODE → LINK_LOCAL_IDX.
   #
   #   * FLOORED command port — `dir: :in` AND `has_safe_action == true`
   #     (ADR-0005). Gets a Floor, an `on_command_<port>` that hands the floor the
@@ -350,6 +355,7 @@ defmodule BBMcuhub.Gen.WireGen do
       "#define MY_NODE 0x#{hex2(my_node)}",
       "#endif",
       "",
+      glue_link_model(hub, ir),
       glue_post_control_default(hub),
       glue_floor_state(floored),
       glue_sense_state(senses),
@@ -360,7 +366,7 @@ defmodule BBMcuhub.Gen.WireGen do
       glue_status_ticks(hub, statuses, floored),
       glue_sense_ticks(hub, senses),
       glue_router(hub, rows, root?),
-      glue_setup(hub, floored, root?, ir),
+      glue_setup(hub, floored, ir),
       glue_tasks(hub, rows, actuator?),
       "#endif /* ARDUINO */"
     ])
@@ -427,6 +433,38 @@ defmodule BBMcuhub.Gen.WireGen do
   end
 
   # --- glue: section renderers ---
+
+  # The per-hub LOCAL link model (ADR-0006): link 0 is the up-link; downlinks
+  # 1..N are this hub's children grouped by transport (CAN siblings → one bus;
+  # each UART child → its own link). Emitted as a legible comment + a
+  # <HUB>_N_LINKS define so the link layer knows how many links this hub has;
+  # link_esp32.cpp realizes the ones the board physically owns and stubs the rest.
+  defp glue_link_model(hub, ir) do
+    links = downlinks(ir, hub)
+    n_links = 1 + length(links)
+
+    down_lines =
+      Enum.map(links, fn link ->
+        nodes =
+          link.members
+          |> Enum.flat_map(&subtree_nodes(ir, &1))
+          |> Enum.sort()
+          |> Enum.map_join(", ", &"0x#{hex2(&1)}")
+
+        "      link #{link.idx}: #{link.transport} → node(s) #{nodes}"
+      end)
+
+    up_line =
+      if root_hub?(ir, hub),
+        do: "      link 0 (up): the host UART (the root owns the host link)",
+        else: "      link 0 (up): the parent backplane"
+
+    comment =
+      (["/* This hub's #{n_links} LOCAL link(s) (ADR-0006):", up_line] ++ down_lines ++ ["   */"])
+      |> Enum.join("\n")
+
+    "#{comment}\n#define #{up(hub)}_N_LINKS #{n_links}\n"
+  end
 
   defp glue_intro(hub, root?) do
     role =
@@ -747,35 +785,39 @@ defmodule BBMcuhub.Gen.WireGen do
         """
       end
 
-    {fwd_decls, sinks} =
-      if root? do
-        {
-          """
-          static void fwd_up(const Frame *f, void *) { link_send_up(f); }
-          static void fwd_down(const Frame *f, void *) { link_send_down(f); /* re-frames onto the backplane to a child */ }
-          """,
-          "RouterSinks sinks = {deliver_local, fwd_up, fwd_down, nullptr};"
-        }
-      else
-        {nil,
-         "RouterSinks sinks = {deliver_local, nullptr, nullptr, nullptr}; /* leaf: local only */"}
-      end
+    # The router dispatches onto a per-hub-local LINK INDEX (ADR-0006): link 0 is
+    # the up-link (toward parent/host); downlinks are 1..N. The board's
+    # `link_send_on_link` maps the index to its peripheral (and stubs links it
+    # doesn't physically have). A LEAF only ever has link 0 requested; a branch
+    # routes descendants to their downlink index.
+    send_note =
+      if root?,
+        do: "/* link 0 = host UART (up); downlinks 1..N = backplanes (ADR-0006) */",
+        else: "/* leaf: only link 0 (up toward the parent) is ever requested */"
+
+    send_decl =
+      """
+      static void send_on_link(uint8_t link, const Frame *f, void *) {
+        link_send_on_link(link, f); #{send_note}
+      }
+      """
 
     [
       "static Router g_router;",
       "",
       deliver,
-      fwd_decls,
+      send_decl,
       """
 
       /* Meaning-blind inbound (§04): decode the body (CRC-clean at the seam), learn
-         t_dev-ness per port just-in-time, route by NODE. seq/t_dev never touched. */
+         t_dev-ness per port just-in-time, route by NODE → a LOCAL LINK INDEX
+         (ADR-0006). seq/t_dev never touched. */
       extern "C" void hub_on_body(const uint8_t *body, size_t len) {
         if (len < FRAME_HEADER_BASE_SIZE) return;
         Frame f;
         bool stamped = wire_port_stamped(body[0], body[1]); /* per-port t_dev (§04) */
         if (!frame_decode_body(body, len, stamped, &f)) return;
-        #{sinks}
+        RouterSinks sinks = {deliver_local, send_on_link, nullptr};
         router_route(&g_router, &f, &sinks);
       }\
       """
@@ -784,36 +826,32 @@ defmodule BBMcuhub.Gen.WireGen do
     |> Enum.join("\n")
   end
 
-  defp glue_setup(hub, floored, root?, ir) do
+  defp glue_setup(hub, floored, ir) do
     floor_inits =
       Enum.map_join(floored, "\n", fn row ->
         "  floor_init(&g_floor_#{row.port}, FLOOR_WINDOW_MS_#{up(row.port)}, SAFE_#{up(row.hub)}_#{up(row.port)}, SAFE_N_#{up(row.hub)}_#{up(row.port)}); /* #{inspect(row.safe_action, custom_options: [sort_maps: true])} */"
       end)
 
+    # The node → LOCAL LINK INDEX route fill (ADR-0006). Default 0 (the up-link
+    # toward the parent/host); MY_NODE → LINK_LOCAL_IDX; a descendant reached via
+    # downlink k → k. A leaf has no downlinks, so only the default + self appear.
+    entries = route_entries(ir, hub)
+
+    routes =
+      Enum.map_join(entries, "\n", fn
+        {node, :local} ->
+          "  g_router.route_table[0x#{hex2(node)}] = LINK_LOCAL_IDX; /* MY_NODE — delivered to a local port */"
+
+        {node, idx} ->
+          "  g_router.route_table[0x#{hex2(node)}] = #{idx}; /* reached via downlink #{idx} (ADR-0006) */"
+      end)
+
     route_fill =
-      if root? do
-        my_node = ir |> Enum.find(&(&1.hub == hub)) |> Map.fetch!(:node)
-
-        child_nodes =
-          ir |> Enum.map(& &1.node) |> Enum.uniq() |> Enum.reject(&(&1 == my_node)) |> Enum.sort()
-
-        downs =
-          Enum.map_join(child_nodes, "\n", fn n ->
-            "  g_router.route_table[0x#{hex2(n)}] = LINK_DOWN; /* a child hub, reached over the backplane */"
-          end)
-
-        """
-          g_router.my_node = MY_NODE;
-          for (int i = 0; i < 256; i++) g_router.route_table[i] = LINK_UP; /* default: toward host */
-          g_router.route_table[MY_NODE] = LINK_LOCAL;
-        #{downs}\
-        """
-      else
-        """
-          g_router.my_node = MY_NODE;
-          for (int i = 0; i < 256; i++) g_router.route_table[i] = LINK_LOCAL; /* leaf: every port is local */\
-        """
-      end
+      """
+        g_router.my_node = MY_NODE;
+        for (int i = 0; i < 256; i++) g_router.route_table[i] = 0; /* default: link 0, the up-link toward the parent/host */
+      #{routes}\
+      """
 
     floor_block =
       if floored == [] do
@@ -880,13 +918,90 @@ defmodule BBMcuhub.Gen.WireGen do
     end
   end
 
-  # --- glue: classification + derivation helpers (all from the IR) ---
+  # --- glue: topology / per-hub link model (ADR-0006) ---
+  #
+  # Topology is DECLARED, not inferred. Each IR row carries its hub's `parent`
+  # (another hub's name, or :host for the root) and `uplink` (the transport of
+  # this hub's parent link). From those we build, per hub, its LOCAL link list and
+  # a node → local-link-index route table.
+  #
+  # Per-hub link derivation:
+  #   * Link 0 is ALWAYS the up-link (toward the parent; the host UART for root).
+  #   * Downlinks 1..N are this hub's CHILDREN grouped by transport: children that
+  #     share a CAN uplink share ONE bus ⇒ one link; each UART child is its OWN
+  #     link. Groups are ordered deterministically by the min child node id in the
+  #     group, so generation is stable and drift-testable.
+  #   * route_table[node]: MY_NODE → LINK_LOCAL_IDX; a descendant reached via
+  #     downlink k → k; everything else (ancestors / unknown) → 0 (the up-link).
 
-  # The ROOT hub is the lowest-NODE hub (matches backplane_transport_uart/1).
-  defp root_hub?(ir, hub) do
-    root_node = ir |> Enum.map(& &1.node) |> Enum.min()
-    hub_node = ir |> Enum.find(&(&1.hub == hub)) |> Map.fetch!(:node)
-    hub_node == root_node
+  @host :host
+
+  # The unique hub models from the IR: %{name, node, parent, uplink}, sorted by
+  # node for determinism. Each hub's rows all carry the same parent/uplink/node.
+  defp hub_models(ir) do
+    ir
+    |> Enum.group_by(& &1.hub)
+    |> Enum.map(fn {name, [row | _]} ->
+      %{name: name, node: row.node, parent: row.parent, uplink: row.uplink}
+    end)
+    |> Enum.sort_by(& &1.node)
+  end
+
+  defp hub_model(ir, hub), do: Enum.find(hub_models(ir), &(&1.name == hub))
+
+  # The ROOT hub DECLARES parent: :host (ADR-0006) — no more Enum.min inference.
+  defp root_hub?(ir, hub), do: hub_model(ir, hub).parent == @host
+
+  # The hub's direct children (hubs whose parent is this hub), as hub models.
+  defp children_of(ir, hub) do
+    hub_models(ir) |> Enum.filter(&(&1.parent == hub))
+  end
+
+  # This hub's DOWNLINKS as a list of %{idx, transport, members}, idx starting at
+  # 1. Children are grouped by (shared CAN uplink ⇒ one bus) vs (each UART child ⇒
+  # its own link); groups ordered by min member node id (deterministic).
+  defp downlinks(ir, hub) do
+    children = children_of(ir, hub)
+
+    # CAN children all share ONE bus (one link); each UART child is its own link.
+    {can_children, uart_children} = Enum.split_with(children, &(&1.uplink == :can))
+
+    can_group =
+      if can_children == [], do: [], else: [%{transport: :can, members: can_children}]
+
+    uart_groups = Enum.map(uart_children, &%{transport: :uart, members: [&1]})
+
+    (can_group ++ uart_groups)
+    |> Enum.sort_by(fn g -> g.members |> Enum.map(& &1.node) |> Enum.min() end)
+    |> Enum.with_index(1)
+    |> Enum.map(fn {g, idx} -> Map.put(g, :idx, idx) end)
+  end
+
+  # All NODE ids in the subtree rooted at a child hub (the child + its descendants).
+  defp subtree_nodes(ir, hub_model) do
+    descendants =
+      children_of(ir, hub_model.name)
+      |> Enum.flat_map(&subtree_nodes(ir, &1))
+
+    [hub_model.node | descendants]
+  end
+
+  # The route table for a hub: a list of {node, link_index_or_local} for every
+  # node that resolves to something other than the up-link default. MY_NODE →
+  # :local; a node in downlink k's subtree → k. Everything else falls through to
+  # the up-link (link 0) by the default fill, so it is NOT listed here.
+  defp route_entries(ir, hub) do
+    my_node = hub_model(ir, hub).node
+
+    down_entries =
+      for link <- downlinks(ir, hub),
+          member <- link.members,
+          node <- subtree_nodes(ir, member) do
+        {node, link.idx}
+      end
+
+    [{my_node, :local} | down_entries]
+    |> Enum.sort_by(fn {node, _} -> node end)
   end
 
   defp floored_command?(row), do: row.dir == :in and row.has_safe_action == true
@@ -1111,21 +1226,29 @@ defmodule BBMcuhub.Gen.WireGen do
 
   defp actuators(ir), do: Enum.filter(ir, &(&1.dir == :in and &1.has_safe_action == true))
 
-  # The backplane transport, as the `0`/`1` value of BACKPLANE_TRANSPORT_UART.
-  #
-  # The host talks UART to the ROOT hub (its own host-UART seam is unchanged); the
-  # backplane is the link the root hub uses to reach its children. The IR has no
-  # explicit root marker, so v1 takes the lowest-node hub as the root (the host's
-  # entry point) and asks: is any hub BELOW it reached over :uart? For v1 the
-  # backplane is uniform per robot, so any one such hub flips it to a UART
-  # backplane. An all-:can robot (the Follower) emits 0 and is unchanged.
-  defp backplane_transport_uart(ir) do
-    root_node = ir |> Enum.map(& &1.node) |> Enum.min(fn -> nil end)
+  # Per-downlink transport defines for the ROOT hub (ADR-0006). Transport is a
+  # property of a LINK: each root downlink k emits LINK<k>_TRANSPORT_UART = 1
+  # (UART) or 0 (CAN), sourced from the child's DECLARED uplink — never inferred.
+  # For the single-downlink example this is just LINK1_TRANSPORT_UART, equivalent
+  # to the old robot-wide flag but per-link. A robot with no downlinks at the root
+  # (a single-hub robot) emits none.
+  defp root_link_transport_defines(ir) do
+    case Enum.find(hub_models(ir), &(&1.parent == @host)) do
+      nil ->
+        "/* no root declared — topology verifier will have already failed */"
 
-    uart? =
-      Enum.any?(ir, fn row -> row.node != root_node and row.transport == :uart end)
+      root ->
+        case downlinks(ir, root.name) do
+          [] ->
+            "/* the root has no downlinks (single-hub robot) — no per-link transport */"
 
-    if uart?, do: 1, else: 0
+          links ->
+            Enum.map_join(links, "\n", fn link ->
+              uart = if link.transport == :uart, do: 1, else: 0
+              "#define LINK#{link.idx}_TRANSPORT_UART #{uart}"
+            end)
+        end
+    end
   end
 
   defp tick_name(%{dir: :out, hub: _hub, port: port}), do: "#{port}_sample_tick"

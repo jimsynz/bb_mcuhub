@@ -144,8 +144,13 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x09)
-              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub, node: 0x09)
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x09, parent: :host)
+
+              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub,
+                node: 0x09,
+                parent: :imu,
+                uplink: :uart
+              )
             end
 
             topology do
@@ -168,7 +173,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x00)
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x00, parent: :host)
             end
 
             topology do
@@ -191,7 +196,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02)
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
             end
 
             topology do
@@ -218,7 +223,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:motor, BBMcuhub.Dsl.VerifierTest.MissingFlagHub, node: 0x05)
+              hub(:motor, BBMcuhub.Dsl.VerifierTest.MissingFlagHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -238,7 +243,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:motor, BBMcuhub.Dsl.VerifierTest.BadSafeHub, node: 0x05)
+              hub(:motor, BBMcuhub.Dsl.VerifierTest.BadSafeHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -261,7 +266,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:led, BBMcuhub.Dsl.VerifierTest.StraySafeHub, node: 0x05)
+              hub(:led, BBMcuhub.Dsl.VerifierTest.StraySafeHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -281,7 +286,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:motor, BBMcuhub.Dsl.VerifierTest.SenseCommandHub, node: 0x05)
+              hub(:motor, BBMcuhub.Dsl.VerifierTest.SenseCommandHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -303,7 +308,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02)
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
             end
 
             topology do
@@ -334,7 +339,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
             use BB, extensions: [BBMcuhub.Dsl]
 
             hubs do
-              hub(:collide, BBMcuhub.Dsl.VerifierTest.CollideHub, node: 0x07)
+              hub(:collide, BBMcuhub.Dsl.VerifierTest.CollideHub, node: 0x07, parent: :host)
             end
 
             topology do
@@ -365,6 +370,170 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     end
   end
 
+  # --- the topology checks (ADR-0006) ----------------------------------------
+
+  describe "the verifier rejects ill-formed topologies (ADR-0006)" do
+    test "no root: no hub declares parent: :host is rejected" do
+      # Every hub names a non-:host parent, so there is NO root. The cycle this
+      # forms is irrelevant — the one-root check fires first.
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.NoRoot do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub,
+                node: 0x02,
+                parent: :motor,
+                uplink: :uart
+              )
+
+              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub,
+                node: 0x05,
+                parent: :imu,
+                uplink: :uart
+              )
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      assert err.message =~ "no root"
+      assert err.message =~ "parent: :host"
+    end
+
+    test "two roots: two hubs declaring parent: :host are rejected, naming them" do
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.TwoRoots do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub, node: 0x05, parent: :host)
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      assert err.message =~ "two+ roots"
+      assert err.message =~ ":imu"
+      assert err.message =~ ":motor"
+    end
+
+    test "unknown parent: a parent naming no declared hub is rejected" do
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.UnknownParent do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+
+              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub,
+                node: 0x05,
+                parent: :ghost,
+                uplink: :uart
+              )
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      assert err.message =~ ":motor"
+      assert err.message =~ ":ghost"
+      assert err.message =~ "not a declared hub"
+    end
+
+    test "parent cycle: hubs whose parents loop and never reach :host are rejected" do
+      # imu → motor → imu: a cycle with no :host. (There is also no root, so the
+      # one-root check fires first and names the absence of a root — either way
+      # the broken topology cannot ship.)
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.Cycle do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub,
+                node: 0x02,
+                parent: :motor,
+                uplink: :uart
+              )
+
+              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub,
+                node: 0x05,
+                parent: :imu,
+                uplink: :uart
+              )
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      # no root fires first here (no parent: :host), which is itself a refusal to
+      # ship the broken topology — the point of the check.
+      assert err.message =~ "no root" or err.message =~ "cycle"
+    end
+
+    test "root with an uplink: a parent: :host hub declaring uplink is rejected" do
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs, :imu]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.RootUplink do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub,
+                node: 0x02,
+                parent: :host,
+                uplink: :uart
+              )
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      assert err.message =~ ":imu"
+      assert err.message =~ "host UART"
+    end
+
+    test "non-root without uplink: a child that omits its uplink is rejected" do
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.MissingUplink do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub, node: 0x05, parent: :imu)
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      assert err.message =~ ":motor"
+      assert err.message =~ "uplink"
+    end
+  end
+
   describe "the verifier accepts the good topology (positive control)" do
     test "the test fixture robot compiles clean and projects a non-empty IR" do
       # the library's fixture robot already compiled at load — no verifier error
@@ -384,7 +553,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
           use BB, extensions: [BBMcuhub.Dsl]
 
           hubs do
-            hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02)
+            hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
           end
 
           topology do

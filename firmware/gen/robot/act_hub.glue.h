@@ -23,6 +23,11 @@ extern "C" {
 #define MY_NODE 0x05
 #endif
 
+/* This hub's 1 LOCAL link(s) (ADR-0006):
+      link 0 (up): the parent backplane
+   */
+#define ACT_HUB_N_LINKS 1
+
 /* Optional per-loop telemetry hook (§08). The glue calls act_hub_post_control() at
    the end of every control_tick. The device file can provide its own by doing
    `#define ACT_HUB_POST_CONTROL_OVERRIDE` BEFORE including this header (then
@@ -84,15 +89,20 @@ static Router g_router;
 static void deliver_local(const Frame *f, void *) {
   if (f->port == PORT_ACT_HUB_EFFORT_CMD) on_command_effort_cmd(f);
 }
+static void send_on_link(uint8_t link, const Frame *f, void *) {
+  link_send_on_link(link, f); /* leaf: only link 0 (up toward the parent) is ever requested */
+}
+
 
 /* Meaning-blind inbound (§04): decode the body (CRC-clean at the seam), learn
-   t_dev-ness per port just-in-time, route by NODE. seq/t_dev never touched. */
+   t_dev-ness per port just-in-time, route by NODE → a LOCAL LINK INDEX
+   (ADR-0006). seq/t_dev never touched. */
 extern "C" void hub_on_body(const uint8_t *body, size_t len) {
   if (len < FRAME_HEADER_BASE_SIZE) return;
   Frame f;
   bool stamped = wire_port_stamped(body[0], body[1]); /* per-port t_dev (§04) */
   if (!frame_decode_body(body, len, stamped, &f)) return;
-  RouterSinks sinks = {deliver_local, nullptr, nullptr, nullptr}; /* leaf: local only */
+  RouterSinks sinks = {deliver_local, send_on_link, nullptr};
   router_route(&g_router, &f, &sinks);
 }
 extern "C" void hub_setup(void) {
@@ -100,7 +110,8 @@ extern "C" void hub_setup(void) {
   floor_init(&g_floor_effort_cmd, FLOOR_WINDOW_MS_EFFORT_CMD, SAFE_ACT_HUB_EFFORT_CMD, SAFE_N_ACT_HUB_EFFORT_CMD); /* %{nm: 0.0} */
 
   g_router.my_node = MY_NODE;
-  for (int i = 0; i < 256; i++) g_router.route_table[i] = LINK_LOCAL; /* leaf: every port is local */
+  for (int i = 0; i < 256; i++) g_router.route_table[i] = 0; /* default: link 0, the up-link toward the parent/host */
+  g_router.route_table[0x05] = LINK_LOCAL_IDX; /* MY_NODE — delivered to a local port */
 
   act_hub_device_setup(); /* the hand-written hardware bring-up */
 }

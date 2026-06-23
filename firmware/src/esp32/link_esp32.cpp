@@ -1,28 +1,38 @@
-/* ESP32 link layer (§03): UART (host↔root hub) and the BACKPLANE (root hub ↔
- * children), both carrying the SAME COBS+CRC frame. Mirrors the reference
- * climber transport but conforms to the new design: one frame, big-endian body,
+/* ESP32 link layer (§03, ADR-0006): the host↔root UART seam and the per-hub
+ * LOCAL LINKS, all carrying the SAME COBS+CRC frame. Mirrors the reference
+ * climber transport but conforms to the design: one frame, big-endian body,
  * end-to-end CRC across the re-framing boundary.
  *
- * The backplane transport is a CONTRACT FACT, not a build flag (docs/adr/0002):
- * the generator emits BACKPLANE_TRANSPORT_UART into wire_contract.h from the
- * robot's `transport:` placement, and this file reads it at boot:
+ * Links are per-hub-local INDICES (ADR-0006): link 0 is the up-link (the host
+ * UART on the root, the parent backplane on a leaf); downlinks are 1..N. The
+ * generated route table maps each NODE to one of these indices; the router
+ * calls `link_send_on_link(idx, f)`. THIS BOARD realizes only the links it
+ * physically has — for the single-downlink example boards that is link 0 (up)
+ * and link 1 (the one backplane); link >= 2 is a no-op stub (no hardware/test
+ * validates an N-peripheral driver — deliberately out of scope, see ADR-0006
+ * Consequences).
  *
- *   BACKPLANE_TRANSPORT_UART == 0  → CAN/TWAI backplane with §03 segmentation
- *                                     (a 29-bit id [NODE:8][PORT:8][rsv:13],
- *                                      a wide body splits across CAN frames).
- *   BACKPLANE_TRANSPORT_UART == 1  → a plain UART (Serial2) backplane carrying
- *                                     the SAME COBS+CRC frame with NO
- *                                     segmentation — a wide body (e.g. the
- *                                     54-byte IMU) rides one COBS frame,
- * exactly like the host↔root UART seam.
+ * Transport is a property of a LINK, not a robot-wide flag (ADR-0006). The
+ * generator emits LINK1_TRANSPORT_UART into wire_contract.h from the root's
+ * downlink-1 child's DECLARED uplink; this file reads it at boot for the one
+ * backplane it realizes:
  *
- * Build-time role (UP direction):
- *   -DROOT_HUB  → UP is UART to the host; the backplane (DOWN) reaches
- * children. (default)   → UP is the backplane to the parent (a leaf).
+ *   LINK1_TRANSPORT_UART == 0  → CAN/TWAI backplane with §03 segmentation
+ *                                 (a 29-bit id [NODE:8][PORT:8][rsv:13],
+ *                                  a wide body splits across CAN frames).
+ *   LINK1_TRANSPORT_UART == 1  → a plain UART (Serial2) backplane carrying
+ *                                 the SAME COBS+CRC frame with NO segmentation
+ * — a wide body (e.g. the 54-byte IMU) rides one COBS frame, exactly like the
+ * host↔root UART.
+ *
+ * Build-time role (the up-link, link 0):
+ *   -DROOT_HUB  → link 0 is UART to the host; link 1 (the backplane) reaches a
+ *                 child.
+ *   (default)   → link 0 is the backplane to the parent (a leaf); no downlinks.
  *
  * A root hub with a UART backplane therefore has TWO UARTs: Serial1 (host, on
- * GPIO 16/17 — NOT UART0/USB) and Serial2 (backplane). The host↔root seam is
- * unchanged regardless of backplane.
+ * GPIO 16/17 — NOT UART0/USB) and Serial2 (backplane = link 1). The host↔root
+ * seam is unchanged regardless of the backplane transport.
  *
  * This file only compiles under the Arduino/ESP32 framework (PlatformIO). The
  * pure codec it rides on (frame/transport/crc16/cobs) is the same host-tested
@@ -35,10 +45,17 @@ extern "C" {
 #include "link.h"
 #include "segment.h"
 #include "transport.h"
-#include "wire_contract.h" /* BACKPLANE_TRANSPORT_UART — the generated fact */
+#include "wire_contract.h" /* LINK1_TRANSPORT_UART — the generated per-link fact */
 }
 
-#if BACKPLANE_TRANSPORT_UART
+/* The root's downlink-1 transport (ADR-0006). A leaf has no downlinks, so this
+ * define is only meaningful on a ROOT_HUB build; default it for a clean compile
+ * of a leaf (whose only link, 0, is the up-link). */
+#ifndef LINK1_TRANSPORT_UART
+#define LINK1_TRANSPORT_UART 1
+#endif
+
+#if LINK1_TRANSPORT_UART
 #include "HardwareSerial.h" /* Serial2 — the COBS+CRC backplane */
 #else
 #include "driver/twai.h" /* the default CAN/TWAI backplane */
@@ -61,10 +78,11 @@ extern "C" {
 #define HOST_UART_TX_PIN 17
 #endif
 
-#if BACKPLANE_TRANSPORT_UART
-/* The UART backplane (Serial2). Same baud as the host seam by default; the pins
- * are overridable per board. Defaults: a root/Blaster hub uses TX 26 / RX 27, a
- * leaf uses TX 17 / RX 16 — the two ends are crossed by wiring, not by code. */
+#if LINK1_TRANSPORT_UART
+/* The UART backplane (Serial2 = link 1). Same baud as the host seam by default;
+ * the pins are overridable per board. Defaults: a root/Blaster hub uses TX 26 /
+ * RX 27, a leaf uses TX 17 / RX 16 — the two ends are crossed by wiring, not by
+ * code. */
 #ifndef BACKPLANE_UART_BAUD
 #define BACKPLANE_UART_BAUD 1000000
 #endif
@@ -97,7 +115,7 @@ extern "C" {
 /* Callback the runtime sets: a verified body arrived from some link. */
 static void (*g_on_body)(const uint8_t *body, size_t len) = nullptr;
 
-#if BACKPLANE_TRANSPORT_UART
+#if LINK1_TRANSPORT_UART
 /* The UART backplane is a streaming COBS+CRC seam (transport.c), exactly like
  * the host↔root UART. No segmentation: a wide body rides one COBS frame. */
 static TransportDecoder g_bp_rx;
@@ -154,10 +172,10 @@ void link_set_on_body(void (*cb)(const uint8_t *body, size_t len)) {
 }
 
 void link_begin(void) {
-#if BACKPLANE_TRANSPORT_UART
-  transport_decoder_init(&g_bp_rx); /* the COBS+CRC backplane seam */
+#if LINK1_TRANSPORT_UART
+  transport_decoder_init(&g_bp_rx); /* the COBS+CRC backplane seam (link 1) */
 #else
-  seg_reasm_init(&g_can_rx); /* the CAN backplane reassembler */
+  seg_reasm_init(&g_can_rx); /* the CAN backplane reassembler (link 1) */
 #endif
 
 #if defined(ROOT_HUB)
@@ -168,12 +186,14 @@ void link_begin(void) {
   Serial1.begin(HOST_UART_BAUD, SERIAL_8N1, HOST_UART_RX_PIN, HOST_UART_TX_PIN);
 #endif
 
-#if BACKPLANE_TRANSPORT_UART
-  /* the backplane: a second hardware serial carrying the same COBS+CRC frame */
+#if LINK1_TRANSPORT_UART
+  /* the backplane (link 1): a second hardware serial carrying the same COBS+CRC
+   * frame */
   Serial2.begin(BACKPLANE_UART_BAUD, SERIAL_8N1, BACKPLANE_UART_RX_PIN,
                 BACKPLANE_UART_TX_PIN);
 #else
-  /* the backplane: CAN/TWAI (every role on an all-CAN robot has one) */
+  /* the backplane (link 1): CAN/TWAI (every role on an all-CAN robot has one)
+   */
   twai_general_config_t g = TWAI_GENERAL_CONFIG_DEFAULT(
       (gpio_num_t)CAN_TX_PIN, (gpio_num_t)CAN_RX_PIN, TWAI_MODE_NORMAL);
   twai_timing_config_t t = TWAI_TIMING_CONFIG_1MBITS();
@@ -183,9 +203,10 @@ void link_begin(void) {
 #endif
 }
 
-/* Send a frame UP (toward parent/host). On the root hub that is the host UART;
- * deeper, it is the backplane. The body is identical; only the transport
- * differs. */
+/* Send a frame on the UP-LINK (link 0). On the root hub that is the host UART;
+ * on a leaf, it is the parent backplane. The body is identical; only the
+ * transport differs. Kept under the legible name the generated sense/status
+ * ticks call; link_send_on_link(0, f) routes here. */
 void link_send_up(const Frame *f) {
   uint8_t body[FRAME_MAX_BODY];
   size_t body_len = frame_encode_body(f, body, sizeof(body));
@@ -198,7 +219,7 @@ void link_send_up(const Frame *f) {
   uint8_t wire[FRAME_MAX_WIRE];
   size_t w = transport_encode(body, body_len, wire, sizeof(wire));
   Serial1.write(wire, w);
-#elif BACKPLANE_TRANSPORT_UART
+#elif LINK1_TRANSPORT_UART
   /* UP from a leaf over a UART backplane: COBS+CRC the whole body into one
    * frame. No segmentation — a wide body rides one COBS frame, exactly like the
    * host seam (transport.c). */
@@ -241,20 +262,19 @@ void link_send_up(const Frame *f) {
 #endif
 }
 
-/* Send a frame DOWN to a child over the backplane. Only a root hub bridges
- * host→child: it re-frames the SAME body onto its backplane (Serial2 for a UART
- * backplane, segmented CAN otherwise) — the mirror of a leaf's link_send_up
- * over the backplane. A non-root hub has no children, so this is a no-op there.
- * The router calls this for a frame addressed to a node reached via LINK_DOWN.
- */
-void link_send_down(const Frame *f) {
+/* Send a frame DOWN to a child over the realized backplane (link 1). Only a
+ * root hub bridges host→child: it re-frames the SAME body onto its backplane
+ * (Serial2 for a UART backplane, segmented CAN otherwise) — the mirror of a
+ * leaf's link_send_up over the backplane. A non-root hub has no children, so
+ * this is a no-op there. Reached via link_send_on_link(1, f). */
+static void link_send_down(const Frame *f) {
 #if defined(ROOT_HUB)
   uint8_t body[FRAME_MAX_BODY];
   size_t body_len = frame_encode_body(f, body, sizeof(body));
   if (body_len == 0)
     return;
 
-#if BACKPLANE_TRANSPORT_UART
+#if LINK1_TRANSPORT_UART
   /* DOWN over a UART backplane: COBS+CRC the whole body into one frame (no
    * segmentation), exactly like a leaf's up-send (transport.c). */
   uint8_t wire[FRAME_MAX_WIRE];
@@ -288,6 +308,28 @@ void link_send_down(const Frame *f) {
 #endif
 }
 
+/* Map a per-hub-local LINK INDEX to this board's peripheral (ADR-0006). This
+ * board realizes ONLY the links its hardware has: link 0 (the up-link) and, on
+ * a root, link 1 (the one backplane). link >= 2 is a no-op stub — no hardware
+ * and no harness exercises an N-peripheral driver, so it is deliberately left
+ * out of the safety-critical relay path (ADR-0006 Consequences). The router's
+ * route table never produces an index this board lacks for a robot whose
+ * firmware exists. */
+void link_send_on_link(uint8_t link, const Frame *f) {
+  switch (link) {
+  case 0:
+    link_send_up(
+        f); /* the up-link: host UART (root) / parent backplane (leaf) */
+    break;
+  case 1:
+    link_send_down(f); /* the one backplane this board realizes (root only) */
+    break;
+  default:
+    (void)f; /* link >= 2: not realized on this board — see ADR-0006 */
+    break;
+  }
+}
+
 /* Pump inbound bytes/frames toward g_on_body. Call every loop. */
 void link_pump(void) {
 #if defined(ROOT_HUB)
@@ -297,7 +339,7 @@ void link_pump(void) {
   }
 #endif
 
-#if BACKPLANE_TRANSPORT_UART
+#if LINK1_TRANSPORT_UART
   /* The UART backplane: feed bytes into the COBS+CRC decoder. It calls
    * g_on_body only with a complete, CRC-clean body (CRC stripped) — a
    * corrupt/truncated frame is dropped and counted, never delivered partial

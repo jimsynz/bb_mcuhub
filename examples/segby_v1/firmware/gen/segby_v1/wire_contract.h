@@ -12,12 +12,14 @@
 #define WIRE_HEADER_STAMPED_SIZE 12
 #define WIRE_BROADCAST_NODE 0x00
 
-/* The root hub's children-facing backplane transport (a contract fact, not
-   a build flag — see docs/adr/0002). 1 = a plain UART carrying the same
-   COBS+CRC frames (no CAN segmentation: a wide body rides one frame); 0 =
-   the default CAN/TWAI backplane. For v1 the backplane is uniform per robot:
-   UART iff any non-root hub is reached over :uart. */
-#define BACKPLANE_TRANSPORT_UART 1
+/* Per-link transport of the root hub's DOWNLINKS (ADR-0006). Transport is a
+   property of a LINK, not a robot-wide flag: each downlink k carries
+   LINK<k>_TRANSPORT_UART = 1 (a plain UART carrying the same COBS+CRC frame,
+   no CAN segmentation) or 0 (the default CAN/TWAI backplane). For the
+   single-downlink example boards this is just LINK1_*, equivalent to the old
+   single-backplane flag but sourced from the child's declared uplink, not
+   inferred. The board's link_esp32.cpp realizes only the links it has. */
+#define LINK1_TRANSPORT_UART 1
 
 /* Port ids — generated, stable, never hand-assigned (§06). */
 #define PORT_BLASTER_RANGE_FRONT 0x5B
@@ -89,6 +91,6 @@ static const uint8_t SAFE_WHEELS_MOTOR_LEFT[] = { 0x00, 0x00, 0x00, 0x00 }; /* p
 static const uint8_t SAFE_WHEELS_MOTOR_RIGHT[] = { 0x00, 0x00, 0x00, 0x00 }; /* packed safe_action %{nm: 0.0} */
 
 /* Contract hash — the drift test compares this. */
-#define WIRE_CONTRACT_SHA "5e9da922ce91da19"
+#define WIRE_CONTRACT_SHA "8c21647141efaaaf"
 
 #endif /* BB_MCUHUB_WIRE_CONTRACT_H */

@@ -20,10 +20,19 @@ extern "C" {
 void link_begin(void);
 void link_pump(void);
 void link_set_on_body(void (*cb)(const uint8_t *body, size_t len));
-void link_send_up(
-    const Frame *f); /* toward parent/host; bridge re-frames UART/CAN */
-void link_send_down(const Frame *f); /* toward a child over the backplane (root
-                                        hub only); re-frames onto Serial2/CAN */
+
+/* Send a frame on a per-hub-local LINK INDEX (ADR-0006). Link 0 is the up-link
+ * (host UART on the root, parent backplane on a leaf); downlinks are 1..N. The
+ * board realizes the links it physically has and stubs the rest. The router
+ * calls this with route_table[node]. */
+void link_send_on_link(uint8_t link, const Frame *f);
+
+/* Direction-named helpers the per-hub glue (status/sense ticks) uses to send a
+ * locally-produced frame UP toward the parent/host — link 0. Kept as the
+ * legible names the generated ticks emit; link_send_on_link(0, f) is the same
+ * path. */
+void link_send_up(const Frame *f); /* toward parent/host (link 0); bridge
+                                      re-frames UART/CAN */
 
 /* Legible CAN-seam failure counters (§03), for telemetry / a future status
  * port. tx_oversize: a body over the 512-byte ceiling, or a TWAI TX abandoned

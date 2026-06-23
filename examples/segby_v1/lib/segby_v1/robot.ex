@@ -9,14 +9,15 @@ defmodule SegbyV1.Robot do
   UART, carrying `seq` and (for the IMU) `t_dev`, with the floor on the wheels
   hub's own chip.
 
-  Two hubs, both on a `:uart` backplane (§03/ADR-0002):
+  Two hubs (ADR-0006: topology is DECLARED by parent links):
 
-    * the **Blaster** (NODE 0x02) is the root comms hub — it senses pose (the
-      MPU-9250 IMU) and a forward range (the HC-SR04), and drives a decorative
-      WS2812 status strip. Its children-facing backplane to the wheels is UART.
+    * the **Blaster** (NODE 0x02) is the root comms hub (`parent: :host`) — it
+      owns the host UART and senses pose (the MPU-9250 IMU) and a forward range
+      (the HC-SR04), and drives a decorative WS2812 status strip. The wheels leaf
+      hangs off it over a UART link.
     * the **Wheels** (NODE 0x05) is the leaf — ONE MKS Dual FOC board driving
       both wheels, so it takes two effort commands (left/right) and reports two
-      statuses. Its parent link is UART.
+      statuses. Its parent link is UART (`parent: :blaster, uplink: :uart`).
 
   The host control pipeline lives in `SegbyV1.Balance` — a robot-level
   `BB.Controller` placed in the `controllers do` block below. It consumes the
@@ -31,8 +32,10 @@ defmodule SegbyV1.Robot do
   use BB, extensions: [BBMcuhub.Dsl]
 
   hubs do
-    hub(:blaster, SegbyV1.Hubs.Blaster, node: 0x02, transport: :uart)
-    hub(:wheels, SegbyV1.Hubs.Wheels, node: 0x05, transport: :uart)
+    # The root (parent: :host) owns the host UART; the wheels leaf hangs off it
+    # over a UART link (ADR-0006).
+    hub(:blaster, SegbyV1.Hubs.Blaster, node: 0x02, parent: :host)
+    hub(:wheels, SegbyV1.Hubs.Wheels, node: 0x05, parent: :blaster, uplink: :uart)
   end
 
   controllers do

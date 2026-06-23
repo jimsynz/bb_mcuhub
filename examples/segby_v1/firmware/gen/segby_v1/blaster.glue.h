@@ -23,6 +23,12 @@ extern "C" {
 #define MY_NODE 0x02
 #endif
 
+/* This hub's 2 LOCAL link(s) (ADR-0006):
+      link 0 (up): the host UART (the root owns the host link)
+      link 1: uart → node(s) 0x05
+   */
+#define BLASTER_N_LINKS 2
+
 /* Optional per-loop telemetry hook (§08). The glue calls blaster_post_control() at
    the end of every control_tick. The device file can provide its own by doing
    `#define BLASTER_POST_CONTROL_OVERRIDE` BEFORE including this header (then
@@ -103,25 +109,27 @@ static Router g_router;
 static void deliver_local(const Frame *f, void *) {
   if (f->port == PORT_BLASTER_STATUS_LED) on_command_status_led(f);
 }
-static void fwd_up(const Frame *f, void *) { link_send_up(f); }
-static void fwd_down(const Frame *f, void *) { link_send_down(f); /* re-frames onto the backplane to a child */ }
+static void send_on_link(uint8_t link, const Frame *f, void *) {
+  link_send_on_link(link, f); /* link 0 = host UART (up); downlinks 1..N = backplanes (ADR-0006) */
+}
 
 
 /* Meaning-blind inbound (§04): decode the body (CRC-clean at the seam), learn
-   t_dev-ness per port just-in-time, route by NODE. seq/t_dev never touched. */
+   t_dev-ness per port just-in-time, route by NODE → a LOCAL LINK INDEX
+   (ADR-0006). seq/t_dev never touched. */
 extern "C" void hub_on_body(const uint8_t *body, size_t len) {
   if (len < FRAME_HEADER_BASE_SIZE) return;
   Frame f;
   bool stamped = wire_port_stamped(body[0], body[1]); /* per-port t_dev (§04) */
   if (!frame_decode_body(body, len, stamped, &f)) return;
-  RouterSinks sinks = {deliver_local, fwd_up, fwd_down, nullptr};
+  RouterSinks sinks = {deliver_local, send_on_link, nullptr};
   router_route(&g_router, &f, &sinks);
 }
 extern "C" void hub_setup(void) {
   g_router.my_node = MY_NODE;
-  for (int i = 0; i < 256; i++) g_router.route_table[i] = LINK_UP; /* default: toward host */
-  g_router.route_table[MY_NODE] = LINK_LOCAL;
-  g_router.route_table[0x05] = LINK_DOWN; /* a child hub, reached over the backplane */
+  for (int i = 0; i < 256; i++) g_router.route_table[i] = 0; /* default: link 0, the up-link toward the parent/host */
+  g_router.route_table[0x02] = LINK_LOCAL_IDX; /* MY_NODE — delivered to a local port */
+  g_router.route_table[0x05] = 1; /* reached via downlink 1 (ADR-0006) */
 
   blaster_device_setup(); /* the hand-written hardware bring-up */
 }

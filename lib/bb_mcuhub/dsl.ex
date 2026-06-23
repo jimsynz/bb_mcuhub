@@ -1,19 +1,25 @@
 defmodule BBMcuhub.Dsl.Hub do
   @moduledoc """
-  One hub placed in the robot (§06): its symbolic `name`, the hub `module` that
-  declares its ports, its whole-tree-unique `node` id (§03), and the `transport`
-  that carries this hub's backplane (CAN by default, UART when the robot has no
-  CAN transceiver). The transport is a contract fact, not a build flag — the
-  generator emits it and firmware reads it at boot.
+  One hub placed in the robot (§06, ADR-0006): its symbolic `name`, the hub
+  `module` that declares its ports, its whole-tree-unique `node` id (§03), the
+  `parent` it hangs off (another hub's name, or `:host` for the root), and the
+  `uplink` transport of the link UP to that parent (`:can` | `:uart`).
+
+  Topology is DECLARED, not inferred (ADR-0006): the tree falls out of the parent
+  pointers, and a link is the edge between a hub and its parent. Transport is a
+  property of the LINK, not the hub — `uplink` is the transport of THIS hub's
+  link to its parent. The root declares `parent: :host`; its uplink is the host
+  UART (fixed, not declared). A non-root hub declares both `parent` and `uplink`.
   """
 
-  defstruct [:name, :module, :node, transport: :can, __spark_metadata__: nil]
+  defstruct [:name, :module, :node, :parent, :uplink, __spark_metadata__: nil]
 
   @type t :: %__MODULE__{
           name: atom(),
           module: module(),
           node: 0..255,
-          transport: :can | :uart,
+          parent: atom(),
+          uplink: :can | :uart | nil,
           __spark_metadata__: term()
         }
 end
@@ -64,7 +70,8 @@ defmodule BBMcuhub.Dsl.IrTransformer do
     %{
       hub: hub.name,
       node: hub.node,
-      transport: hub.transport,
+      parent: hub.parent,
+      uplink: hub.uplink,
       port: port.name,
       port_id: Contract.port_id(hub.name, port.name),
       dir: port.dir,
@@ -137,6 +144,9 @@ defmodule BBMcuhub.Dsl.Verifier do
     * a sensor/actuator/status_port that names a `(hub, port)` with no IR
       producer (reader↔producer reconciliation);
     * two hubs sharing a `node`, or a reserved `node` (0x00);
+    * an ill-formed topology (ADR-0006): no root / two roots / an unknown
+      `parent:` / a parent cycle / a disconnected hub / a non-root missing its
+      `uplink:` / a root that declares an `uplink:`;
     * a view `fresh_for` < 1;
     * a `:in` port missing `has_safe_action`, a floored port without a valid
       `safe_action` value, or a stray `safe_action`/flag where it does not belong
@@ -162,6 +172,7 @@ defmodule BBMcuhub.Dsl.Verifier do
     views = collect_view_refs(Verifier.get_entities(dsl_state, [:topology]))
 
     with :ok <- verify_nodes(hubs, module),
+         :ok <- verify_topology(hubs, module),
          :ok <- verify_fresh_for(views, module),
          :ok <- verify_safe_actions(ir, module),
          :ok <- verify_command_messages(ir, module),
@@ -354,6 +365,137 @@ defmodule BBMcuhub.Dsl.Verifier do
     end
   end
 
+  # The tree is well-formed (ADR-0006): topology is DECLARED by parent links, not
+  # inferred from node ids. Each violation names the offending hub:
+  #
+  #   * EXACTLY ONE hub declares `parent: :host` (the root). Zero → no root;
+  #     two+ → name them.
+  #   * the root MUST NOT declare an `uplink:` (its uplink is the host UART).
+  #   * every NON-root hub declares an `uplink:` (the transport of its parent
+  #     link), and its `parent:` names a DECLARED hub.
+  #   * NO cycles in the parent pointers; every hub is CONNECTED (reaches the
+  #     root by following parents).
+  @host :host
+  defp verify_topology(hubs, module) do
+    names = MapSet.new(hubs, & &1.name)
+    roots = Enum.filter(hubs, &(&1.parent == @host))
+
+    with :ok <- verify_one_root(roots, hubs, module),
+         :ok <- verify_root_uplink(roots, module),
+         :ok <- verify_parents_resolve(hubs, names, module),
+         :ok <- verify_nonroot_uplinks(hubs, module),
+         :ok <- verify_no_cycles(hubs, module) do
+      :ok
+    end
+  end
+
+  defp verify_one_root([_one], _hubs, _module), do: :ok
+
+  defp verify_one_root([], _hubs, module) do
+    error(
+      module,
+      [:hubs],
+      "no root: a hub must declare parent: :host — the root owns the host link (ADR-0006)"
+    )
+  end
+
+  defp verify_one_root(roots, _hubs, module) do
+    names = roots |> Enum.map(& &1.name) |> Enum.sort()
+
+    error(
+      module,
+      [:hubs],
+      "two+ roots: hubs #{inspect(names)} each declare parent: :host — exactly one hub may be the root (ADR-0006)"
+    )
+  end
+
+  # The root's uplink is the host UART (fixed). Declaring one is a contradiction.
+  defp verify_root_uplink(roots, module) do
+    case Enum.find(roots, &(not is_nil(&1.uplink))) do
+      nil ->
+        :ok
+
+      hub ->
+        error(
+          module,
+          [:hubs, hub.name],
+          "root hub #{inspect(hub.name)} declares uplink: #{inspect(hub.uplink)} — the root's uplink is the host UART, not declared (ADR-0006)"
+        )
+    end
+  end
+
+  # Every non-:host parent names a DECLARED hub.
+  defp verify_parents_resolve(hubs, names, module) do
+    case Enum.find(hubs, &(&1.parent != @host and not MapSet.member?(names, &1.parent))) do
+      nil ->
+        :ok
+
+      hub ->
+        error(
+          module,
+          [:hubs, hub.name],
+          "hub #{inspect(hub.name)} names parent #{inspect(hub.parent)}, which is not a declared hub (ADR-0006)"
+        )
+    end
+  end
+
+  # Every NON-root hub declares an uplink (the transport of its parent link).
+  defp verify_nonroot_uplinks(hubs, module) do
+    case Enum.find(hubs, &(&1.parent != @host and is_nil(&1.uplink))) do
+      nil ->
+        :ok
+
+      hub ->
+        error(
+          module,
+          [:hubs, hub.name],
+          "non-root hub #{inspect(hub.name)} (parent #{inspect(hub.parent)}) declares no uplink — a non-root hub must declare its parent-link transport (:can | :uart) (ADR-0006)"
+        )
+    end
+  end
+
+  # No cycles: following parent pointers from each hub must reach :host without
+  # revisiting a hub. A revisit (or a non-resolving parent we don't error on here
+  # because verify_parents_resolve already did) means a cycle. This also asserts
+  # CONNECTEDNESS — a hub that loops never reaches :host.
+  defp verify_no_cycles(hubs, module) do
+    by_name = Map.new(hubs, &{&1.name, &1})
+
+    Enum.reduce_while(hubs, :ok, fn hub, :ok ->
+      case walk_to_host(hub, by_name, MapSet.new()) do
+        :ok ->
+          {:cont, :ok}
+
+        {:cycle, chain} ->
+          {:halt,
+           error(
+             module,
+             [:hubs, hub.name],
+             "parent cycle through #{inspect(chain)} — following parents never reaches :host (ADR-0006)"
+           )}
+      end
+    end)
+  end
+
+  # Follow parents to :host. A hub already on the path → a cycle (report it). A
+  # parent not in the map can only be :host here (verify_parents_resolve ran), so
+  # reaching :host or an unresolved parent both terminate the walk cleanly.
+  defp walk_to_host(%{parent: @host}, _by_name, _seen), do: :ok
+
+  defp walk_to_host(%{name: name, parent: parent}, by_name, seen) do
+    cond do
+      MapSet.member?(seen, name) ->
+        {:cycle, seen |> MapSet.put(name) |> Enum.sort()}
+
+      true ->
+        case Map.fetch(by_name, parent) do
+          {:ok, parent_hub} -> walk_to_host(parent_hub, by_name, MapSet.put(seen, name))
+          # parent unresolved (already errored by verify_parents_resolve) — stop.
+          :error -> :ok
+        end
+    end
+  end
+
   # Every view declares a freshness window of at least one beat.
   defp verify_fresh_for(views, module) do
     case Enum.find(views, fn v -> not is_nil(v.fresh_for) and v.fresh_for < 1 end) do
@@ -408,10 +550,13 @@ defmodule BBMcuhub.Dsl.Verifier do
 
   # Every port's framed value fits under the segmentation ceiling. This is a
   # CAN-only invariant: the 512-byte ceiling is the segmentation budget (§03). A
-  # :uart backplane carries arbitrary-length bodies in one COBS frame (no
-  # fragmentation), so its ports are exempt — filter them out before the check.
+  # :uart link carries arbitrary-length bodies in one COBS frame (no
+  # fragmentation), so its ports are exempt. A port's frames traverse its hub's
+  # uplink (toward the parent); the root's uplink is the host UART (uplink == nil
+  # ⇒ never segmented). So a port is CAN-budgeted iff its hub's uplink is :can
+  # (ADR-0006: transport is a property of the link, not the hub).
   defp verify_frame_sizes(ir, module) do
-    can_rows = Enum.filter(ir, &(&1.transport == :can))
+    can_rows = Enum.filter(ir, &(&1.uplink == :can))
 
     case Enum.find(can_rows, fn row -> frame_size(row) > @segmentation_ceiling end) do
       nil ->
@@ -499,10 +644,16 @@ defmodule BBMcuhub.Dsl do
         required: true,
         doc: "the flat, whole-tree-unique NODE id (§03)"
       ],
-      transport: [
+      parent: [
+        type: :atom,
+        required: true,
+        doc: "the parent hub's name, or the atom :host for the root (ADR-0006)"
+      ],
+      uplink: [
         type: {:in, [:can, :uart]},
-        default: :can,
-        doc: "the wire to this hub's children/parent backplane"
+        required: false,
+        doc:
+          "the transport of THIS hub's link to its parent (:can | :uart). Required for a non-root hub; the root's uplink is the host UART (fixed, not declared) (ADR-0006)"
       ]
     ]
   }

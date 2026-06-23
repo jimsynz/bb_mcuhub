@@ -6,7 +6,7 @@ defmodule SegbyV1.RobotTest do
   (A malformed segby would fail to compile and this file would never load.)
 
   Beyond that, this asserts the IR `SegbyV1.Robot` projects (§06): the two-hub,
-  dual-port-one-node, UART-backplane shape locked for segby_v1.
+  dual-port-one-node, declared-parent-link shape locked for segby_v1 (ADR-0006).
 
     * Blaster (NODE 0x02), the root comms hub: `pose` (out/imu, stamped),
       `range_front` (out/`SegbyV1.ValueTypes.Range`), `status_led`
@@ -19,7 +19,9 @@ defmodule SegbyV1.RobotTest do
   seam, ADR-0003): `BBMcuhub.ValueType.resolve/1` passes a module through, so the
   IR carries the module as the port's `type`.
 
-  Both hubs sit on a `:uart` backplane (no CAN transceiver, §03/ADR-0002).
+  Topology is DECLARED by parent links (ADR-0006): the Blaster is the root
+  (`parent: :host`, owns the host UART) and the Wheels leaf hangs off it over a
+  UART link (`parent: :blaster, uplink: :uart`). No CAN transceiver on hand.
   """
   use ExUnit.Case, async: true
 
@@ -41,8 +43,15 @@ defmodule SegbyV1.RobotTest do
     assert length(ir) == 7
   end
 
-  test "every IR row carries the UART backplane (§03)", %{ir: ir} do
-    assert Enum.all?(ir, &(&1.transport == :uart))
+  test "topology is declared by parent links: root Blaster + UART-linked Wheels leaf (ADR-0006)",
+       %{ir: ir} do
+    # The Blaster is the root (parent: :host, no declared uplink — the host UART).
+    blaster_rows = Enum.filter(ir, &(&1.hub == :blaster))
+    assert Enum.all?(blaster_rows, &(&1.parent == :host and is_nil(&1.uplink)))
+
+    # The Wheels leaf hangs off the Blaster over a UART link.
+    wheels_rows = Enum.filter(ir, &(&1.hub == :wheels))
+    assert Enum.all?(wheels_rows, &(&1.parent == :blaster and &1.uplink == :uart))
   end
 
   test "the Blaster (NODE 0x02) projects pose, range_front and status_led", %{by_port: by} do
@@ -50,7 +59,9 @@ defmodule SegbyV1.RobotTest do
     assert pose.node == 0x02
     assert pose.dir == :out
     assert pose.type == :imu
-    assert pose.transport == :uart
+    # the root owns the host link (ADR-0006): parent :host, no declared uplink
+    assert pose.parent == :host
+    assert is_nil(pose.uplink)
     # pose feeds fusion/replay, so it ships the producer's µs stamp (§04)
     assert pose.stamped == true
 
@@ -60,13 +71,13 @@ defmodule SegbyV1.RobotTest do
     # a CONSUMER value-type named BY MODULE (the extension seam) — the IR carries
     # the module as the type.
     assert range.type == SegbyV1.ValueTypes.Range
-    assert range.transport == :uart
+    assert range.parent == :host
 
     led = Map.fetch!(by, {:blaster, :status_led})
     assert led.node == 0x02
     assert led.dir == :in
     assert led.type == SegbyV1.ValueTypes.Led
-    assert led.transport == :uart
+    assert led.parent == :host
     # the LED is decorative — a non-floored command port (ADR-0005)
     assert led.has_safe_action == false
     assert led.safe_action == nil
@@ -81,7 +92,9 @@ defmodule SegbyV1.RobotTest do
       assert cmd.node == 0x05
       assert cmd.dir == :in
       assert cmd.type == :effort
-      assert cmd.transport == :uart
+      # the Wheels leaf hangs off the Blaster over a UART link (ADR-0006)
+      assert cmd.parent == :blaster
+      assert cmd.uplink == :uart
       # each motor carries its own floor: zero torque on command silence (ADR-0005)
       assert cmd.has_safe_action == true
       assert cmd.safe_action == %{nm: 0.0}
@@ -99,7 +112,8 @@ defmodule SegbyV1.RobotTest do
       assert status.node == 0x05
       assert status.dir == :out
       assert status.type == :status
-      assert status.transport == :uart
+      assert status.parent == :blaster
+      assert status.uplink == :uart
     end
 
     assert sl.port_id != sr.port_id
