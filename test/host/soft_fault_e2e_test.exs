@@ -30,7 +30,7 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
   alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
   alias BBMcuhub.Test.VirtualHub
-  alias BBMcuhub.Wire.Codec
+  alias BBMcuhub.Wire.{Codec, Stats}
 
   @robot BBMcuhub.Test.Fixtures.Robot
   # The fixture actuator's floor window (FLOOR_MISSES × CMD_PERIOD; §05). The exact
@@ -40,6 +40,7 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
   setup do
     :ets.delete_all_objects(NodeRegistry.table())
     PortIndex.build(@robot)
+    Stats.setup()
 
     {:ok, {a_node, eff_port}} = PortIndex.resolve(:act_hub, :effort_cmd)
     {:ok, {^a_node, status_port}} = PortIndex.resolve(:act_hub, :act_status)
@@ -270,5 +271,187 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
       # silence the unused-codec warning
       _ = &Codec.decode_body/1
     end
+  end
+
+  describe "the floor drives the actual SAFE_ACTION value on fire (physical guarantee)" do
+    test "armed → drives the target; floored → drives the safe action", ctx do
+      command(ctx, 1, 0.7)
+      VirtualHub.tick(ctx.vhub, 10)
+      command(ctx, 2, 0.7)
+      VirtualHub.tick(ctx.vhub, 20)
+
+      # Armed: the real C floor passes the commanded target THROUGH to the plant.
+      assert VirtualHub.armed?(ctx.vhub, ctx.eff_port)
+
+      assert_in_delta VirtualHub.drive(ctx.vhub, ctx.eff_port),
+                      0.7,
+                      0.0001,
+                      "armed floor drives the commanded target"
+
+      # Silence past the window: the floor must drive the SAFE ACTION (0.0), not the
+      # last target — the guarantee is the *value* applied to the plant, not a flag.
+      VirtualHub.tick(ctx.vhub, 200)
+      refute VirtualHub.armed?(ctx.vhub, ctx.eff_port)
+
+      assert VirtualHub.drive(ctx.vhub, ctx.eff_port) == 0.0,
+             "a fired floor drives the safe action (0 torque), never the stale target"
+    end
+  end
+
+  describe "seq wraparound survives the full host→C-floor path" do
+    test "a command seq crossing 0xFFFF → 0 is still a witnessed advance", ctx do
+      # Baseline + advance near the u16 ceiling so the floor is armed and primed.
+      command(ctx, 0xFFFE, 0.5)
+      VirtualHub.tick(ctx.vhub, 10)
+      command(ctx, 0xFFFF, 0.5)
+      VirtualHub.tick(ctx.vhub, 20)
+      assert VirtualHub.armed?(ctx.vhub, ctx.eff_port), "armed at the seq ceiling"
+
+      # WRAP: 0xFFFF → 0. The body's u16 seq encodes/decodes through the real wire,
+      # and the floor's plain-inequality advance test (CONTEXT.md · Advance) must
+      # treat 0 ≠ 0xFFFF as a new write — so the wheel stays armed across the wrap.
+      command(ctx, 0, 0.5)
+      VirtualHub.tick(ctx.vhub, 40)
+
+      assert VirtualHub.armed?(ctx.vhub, ctx.eff_port),
+             "seq wraparound (0xFFFF → 0) is an advance — the floor stays armed"
+    end
+  end
+
+  describe "corrupt wire is dropped + counted end-to-end (host framing seam)" do
+    test "a bit-flipped status frame is rejected (rx_drop), clean frames still flow",
+         ctx do
+      # Earn motion so a real status frame exists to corrupt.
+      command(ctx, 1, 0.5)
+      VirtualHub.tick(ctx.vhub, 10)
+      command(ctx, 2, 0.5)
+      VirtualHub.tick(ctx.vhub, 20)
+      _ = :sys.get_state(ctx.owner)
+      assert {%{floored: false}, _, _} = NodeRegistry.get(ctx.a_node, ctx.status_port)
+
+      # Take a REAL C-framed status frame and flip a byte in its middle (corrupting
+      # the CRC-covered body). Inject it at the host's framing seam.
+      wire = VirtualHub.status_wire(ctx.vhub, ctx.eff_port)
+      drop_before = Stats.get(:rx_drop)
+      flipped = flip_a_byte(wire)
+      VirtualHub.inject_wire(ctx.vhub, flipped)
+      _ = :sys.get_state(ctx.owner)
+
+      assert Stats.get(:rx_drop) > drop_before,
+             "a corrupted frame must be dropped + counted at the framing seam"
+
+      # The stream is NOT desynced: a subsequent CLEAN status still lands.
+      command(ctx, 3, 0.5)
+      VirtualHub.tick(ctx.vhub, 40)
+      _ = :sys.get_state(ctx.owner)
+
+      assert {%{applied_seq: 3}, 3, _} = NodeRegistry.get(ctx.a_node, ctx.status_port),
+             "a clean frame after corruption still delivers — no desync"
+    end
+
+    test "garbage bytes between delimiters never reach the registry", ctx do
+      # Pure noise framed as a delimited junk frame: COBS/CRC must reject it.
+      drop_before = Stats.get(:rx_drop)
+      VirtualHub.inject_wire(ctx.vhub, <<0xDE, 0xAD, 0xBE, 0xEF, 0x00>>)
+      _ = :sys.get_state(ctx.owner)
+
+      assert Stats.get(:rx_drop) > drop_before, "junk is dropped + counted"
+      assert NodeRegistry.get(ctx.a_node, ctx.status_port) == nil, "no value reached a slot"
+    end
+
+    test "a truncated COBS frame is counted as cobs_truncated", ctx do
+      # A code byte (0x05) claims 4 following bytes, but only one precedes the 0x00
+      # delimiter — the COBS decoder reports :truncated, a distinct counter from a
+      # CRC drop. (This is the one wire counter the rest of the suite never exercises.)
+      trunc_before = Stats.get(:cobs_truncated)
+      VirtualHub.inject_wire(ctx.vhub, <<0x05, 0x11, 0x00>>)
+      _ = :sys.get_state(ctx.owner)
+
+      assert Stats.get(:cobs_truncated) > trunc_before,
+             "a truncated COBS run is counted as cobs_truncated"
+
+      assert NodeRegistry.get(ctx.a_node, ctx.status_port) == nil
+    end
+  end
+
+  describe "torn + interleaved frames reassemble through the host decoder" do
+    test "a status frame split across two injections is held then delivered", ctx do
+      command(ctx, 1, 0.5)
+      VirtualHub.tick(ctx.vhub, 10)
+      command(ctx, 2, 0.5)
+      VirtualHub.tick(ctx.vhub, 20)
+
+      wire = VirtualHub.status_wire(ctx.vhub, ctx.eff_port)
+      half = div(byte_size(wire), 2)
+      <<part1::binary-size(half), part2::binary>> = wire
+
+      # First half: incomplete, nothing should be delivered yet.
+      VirtualHub.inject_wire(ctx.vhub, part1)
+      _ = :sys.get_state(ctx.owner)
+      # (we can't easily assert "nothing" without a baseline; clear the slot first)
+      :ets.delete(NodeRegistry.table(), {ctx.a_node, ctx.status_port})
+
+      # Second half completes the frame → the body is delivered + decoded.
+      VirtualHub.inject_wire(ctx.vhub, part2)
+      _ = :sys.get_state(ctx.owner)
+
+      assert {%{applied_seq: 2}, 2, _} = NodeRegistry.get(ctx.a_node, ctx.status_port),
+             "a frame torn across two reads is reassembled and delivered"
+    end
+
+    test "two interleaved frames (status + sensor) both reassemble", ctx do
+      {:ok, {p_node, p_port}} = PortIndex.resolve(:sensor_hub, :pose)
+
+      command(ctx, 1, 0.5)
+      VirtualHub.tick(ctx.vhub, 10)
+      command(ctx, 2, 0.5)
+      VirtualHub.tick(ctx.vhub, 20)
+
+      status = VirtualHub.status_wire(ctx.vhub, ctx.eff_port)
+
+      pose = %{
+        qw: 1.0,
+        qx: 0.0,
+        qy: 0.0,
+        qz: 0.0,
+        wx: 0.0,
+        wy: 0.0,
+        wz: 0.0,
+        ax: 0.0,
+        ay: 0.0,
+        az: 9.81
+      }
+
+      pose_body = Codec.encode_body(p_node, p_port, 5, 5, :imu, pose, true)
+      sensor = BBMcuhub.Test.VHubNif.transport_encode(pose_body)
+
+      :ets.delete(NodeRegistry.table(), {ctx.a_node, ctx.status_port})
+
+      # A complete sensor frame, then a status frame TORN across the next two reads.
+      # Each frame is delimiter-terminated (0x00), so the framer peels the whole
+      # sensor frame off the first read and reassembles the torn status across the
+      # second and third. (Concatenating a *partial* frame in front of a complete one
+      # would glue their bytes — that is corruption, not interleaving.)
+      sh = div(byte_size(status), 2)
+      <<s1::binary-size(sh), s2::binary>> = status
+      VirtualHub.inject_wire(ctx.vhub, sensor <> s1)
+      _ = :sys.get_state(ctx.owner)
+      VirtualHub.inject_wire(ctx.vhub, s2)
+      _ = :sys.get_state(ctx.owner)
+
+      assert {%{az: az}, 5, _} = NodeRegistry.get(p_node, p_port)
+      assert_in_delta az, 9.81, 0.001
+
+      assert {%{applied_seq: 2}, 2, _} = NodeRegistry.get(ctx.a_node, ctx.status_port),
+             "the interleaved status frame still reassembled"
+    end
+  end
+
+  # Flip one byte in the middle of a wire frame (before its trailing 0x00 delimiter),
+  # corrupting the CRC-covered body without removing the delimiter.
+  defp flip_a_byte(wire) do
+    mid = div(byte_size(wire), 2)
+    <<pre::binary-size(mid), b, post::binary>> = wire
+    <<pre::binary, Bitwise.bxor(b, 0xFF), post::binary>>
   end
 end
