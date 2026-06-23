@@ -2971,9 +2971,12 @@ topology <span class="k">do</span>
           <b>single writer</b> of its outbound command slot — the link owner
           only ever <em>drains</em> that slot to the wire, never writes it (so
           the link owner can never manufacture a <code>seq</code> advance, §04).
-          The actuator <em>server</em> auto-subscribes the command topic and
-          delivers each command to <code>handle_info</code>; the view decodes
-          the <code>BB.Message</code> and <code>put</code>s the command slot,
+          The actuator <em>server</em> auto-subscribes the command topic — for
+          the command struct the port's value-type names
+          (<code>command_message</code>), so a consumer's own command value-type
+          flows through unchanged, the view never naming a struct — and delivers
+          each command to <code>handle_info</code>; the view decodes the
+          <code>BB.Message</code> and <code>put</code>s the command slot,
           advancing the command <code>seq</code> once per command. The hub's own
           floor (§05) does the safety work; the view never drives hardware
           directly. Liveness is read from the status slot

@@ -10,6 +10,37 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-23 — A command value-type names its own command message (completes the agnostic Component)
+
+The same ergonomics review found the actuator **Component** contradicted its own
+"value-type-agnostic, never hard-coding a struct shape" claim: it resolves and
+`unlift`s the command value-type generically, but **hard-coded the PubSub subscribe**
+to `BB.Message.Actuator.Command.Effort` — so a consumer's own command (a `Position`,
+an `LedColor`) was filtered out _before_ the generic `unlift`, and `Effort` was the
+only command that could flow through a BeamBots controller.
+
+Resolved by giving a **command value-type** one more piece of its own contract:
+
+- A new optional `command_message/0` on the **value-type** behaviour, defaulting to
+  `nil` (overridable in `use BBMcuhub.ValueType`). A command value-type overrides it
+  to return the `BB.Message` command struct it accepts; a sense-only value-type leaves
+  it `nil`.
+- The actuator view **derives its subscribe `message_types` from the value-type's
+  `command_message`** instead of the literal `Effort` — so a consumer's command
+  surfaces through the same view. The agnostic-Component claim now holds on the command
+  direction, not just the sensor one.
+- The **verifier requires** a non-`nil` `command_message` on any value-type placed on a
+  `dir: :in` command port — a sense value-type on a command port fails loud (the same
+  "the verifier checks roles, not just framing" theme as ADR-0005/0006).
+
+No new ADR — this is a small completion of the value-type spine within the existing
+"a value-type owns its full contract" decision, not a separate hard-to-reverse
+trade-off. CONTEXT.md's **Value-type** and **Component** terms gain the
+`command_message` note. Design locked; implementation lands with the ADR-0005/0006
+follow-up (the actuator view, the behaviour default, the verifier check) — not yet done.
+
+---
+
 ## 2026-06-23 — Topology is declared by parent links, not inferred from node ids (ADR-0006)
 
 The same ergonomics review found a second cluster of silent foot-guns, all from

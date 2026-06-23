@@ -82,7 +82,11 @@ segmentation); the hub module owns the device-specific logic. A port names a
 A standalone, reusable unit (`use BBMcuhub.ValueType`) defining _what bytes a kind of
 value puts on the wire and how those bytes become a typed `BB.Message`_ — and nothing
 else. It carries an ordered `[{field, wire_type}]` **layout** plus a `lift`/`unlift` pair
-(raw field-map ↔ `BB.Message`). It names no node, pin, rate, or bot, so the **same**
+(raw field-map ↔ `BB.Message`). A **command** value-type also names the one `BB.Message`
+command struct it accepts (`command_message`) — so the actuator **Component** subscribes
+to _that_ struct, derived from the value-type, never a hard-coded one; a sense-only
+value-type leaves it absent. This is part of owning the contract: a value-type knows its
+own command message, the view does not guess it. It names no node, pin, rate, or bot, so the **same**
 value-type composes across many **hubs** and robots — `:imu` is one contract whether on a
 follower's IMU board or segby's Blaster. A **port** references its value-type by module;
 the library ships a lean stock set — **imu**, **effort**, and **status** (the universal
@@ -256,10 +260,13 @@ A thin `BB.Sensor` / `BB.Actuator` that surfaces a hub's port to BeamBots. A _vi
 reads/writes slots through the LinkOwner and carries the hub contract in its
 `options_schema`. It is **value-type-agnostic** — it lifts to/from a typed `BB.Message` by
 delegating to the port's **value-type** (`lift`/`unlift`), never hard-coding a struct
-shape, so a consumer's own value-type surfaces through the same view. It owns no socket
-and names no transport, so it runs unchanged whether the port is on the root hub's own I²C
-or a CAN leaf three hops down. A sensor view publishes only when born-stale freshness
-passes; an **actuator view is the single writer of its command slot**.
+shape, so a consumer's own value-type surfaces through the same view. This holds on
+**both** directions: an actuator view subscribes to the command struct the value-type
+names (`command_message`), so a consumer's own command value-type flows through the same
+view — the view never names a specific command struct, the value-type does. It owns no
+socket and names no transport, so it runs unchanged whether the port is on the root hub's
+own I²C or a CAN leaf three hops down. A sensor view publishes only when born-stale
+freshness passes; an **actuator view is the single writer of its command slot**.
 
 ### Observer (the observability plane)
 
