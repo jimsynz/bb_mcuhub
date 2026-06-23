@@ -142,9 +142,25 @@ safe — a rebooted board never trusts a leftover reading.
 
 The authoritative safe-state mechanism, on each actuator hub's **own chip**. It watches
 the `seq` of _its own_ command against a compiled-in window on its own clock; if the
-`seq` stops advancing, it drives the plant to its `safe_action` and latches disarmed.
+`seq` stops advancing, it drives the plant to its **safe action** and latches disarmed.
 It needs no inbound frame, so it fires even if the parent, the tree above, or the host
 is entirely gone. It is the guarantee; everything host-side is best-effort on top of it.
+The floor is **value-type-agnostic**: it watches a `seq` and swaps between two values of
+the command's own value-type (the commanded one and the safe one), never interpreting
+their meaning — it does not know a torque from a position (ADR-0005).
+
+### Safe action
+
+The value an actuator hub's **floor** drives when disarmed — and it is **a value of that
+command port's own value-type** (the same **layout** the command rides on the wire), not
+a separate kind of thing. A float-effort port's safe action is a torque-zero value; a
+servo's is a neutral position (plus, say, a brake flag); whatever the value-type can
+express, a safe action can be. It is **declared once** on the port and is therefore
+checked by the same validation as any value-type value (an ill-formed safe action refuses
+to compile) and rendered into firmware by the same codec as the wire bytes, so the
+on-chip safe state cannot drift from what was declared. Every floored command port **must**
+declare one — a floored port is never silently floorless (ADR-0005).
+_Avoid_: treating a safe action as a bare scalar or a magic keyword; it is a typed value.
 
 ### Born-disarmed
 

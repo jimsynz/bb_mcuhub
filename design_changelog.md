@@ -10,6 +10,38 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-23 — A safe action is a value-type value; the floor is byte-generic (ADR-0005)
+
+An ergonomics/design review (three parallel lenses against the worked example)
+found the highest-severity leak in the **safe-state path**: `safe_action` was a
+bare atom that silently mapped to `0.0` for any unknown value, _omitting_ it
+silently removed the dead-man floor entirely (a `dir: :in` port with no
+`safe_action` became a non-floored direct-drive port, no error), and the C floor
+was structurally `float`-only — so a multi-field floored command (servo position +
+brake) was unrepresentable yet silently mis-decoded. The verifier, sold as "the bug
+cannot ship," checked wire framing but not this role/safety well-formedness.
+
+Resolved by making the safe action **the same kind of thing as the command**:
+
+- **`safe_action` is a literal value of the port's own value-type** (`%{nm: 0.0}`,
+  `%{pos: 90.0, brake: true}`) — declared once, so the verifier validates it like any
+  value-type value and the generator packs it through the **existing layout codec**
+  (the parity-witnessed one — no new translation layer) into C byte initializers.
+- **The floor holds opaque bytes**, value-type-agnostic: it watches the `seq` and
+  swaps two packed values (commanded ↔ safe), never interpreting them. The scalar
+  case is just `N = 4`. This is truer to what the floor always was.
+- **The verifier requires `safe_action` on every floored port** and rejects an
+  ill-formed one at compile time — the three silent failures become loud or
+  impossible.
+
+Decision recorded in **ADR-0005**; CONTEXT.md gains a **Safe action** term and the
+floor entry notes its value-type-agnosticism. Design locked; implementation is a
+deliberate multi-stratum follow-up (floor.h/.c, generator, verifier, the C harness,
+the firmware `_drive` hook, the test-only VirtualHub NIF, and the parity/drift
+witnesses) — not yet done.
+
+---
+
 ## 2026-06-21 — Observability is a separate plane: the observer (§09; ADR-0004)
 
 First real on-hardware use of the architecture surfaced a coupling: the dashboard
