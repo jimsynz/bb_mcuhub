@@ -10,6 +10,40 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-23 — Topology is declared by parent links, not inferred from node ids (ADR-0006)
+
+The same ergonomics review found a second cluster of silent foot-guns, all from
+**inferring topology**: the root hub was `Enum.min(node_id)` (assign the host-
+connected hub a higher id than a leaf → the leaf silently becomes root, host cut
+off); the backplane transport was a robot-wide flag collapsed from a misleading
+per-hub `transport:` field (on a baked-in "uniform backplane" assumption); and
+parent/child structure was unexpressible (single-hop, single-backplane only). The
+verifier checked wire framing but not topology.
+
+Resolved by making the tree **declared and a link first-class**:
+
+- **Transport is a property of a _link_** (the edge between a hub and its parent),
+  not a hub or a robot — the real hardware truth (host→root is always UART; a hub
+  reaches children over a shared CAN bus, point-to-point UART, several UARTs, or a
+  mix).
+- **Each hub declares `parent:` + `uplink:`**; the root declares `parent: :host`.
+  The tree falls out of the parent pointers; links are derived first-class entities.
+  A parent may own **any mix** of downlinks (no sibling-uniformity constraint — that
+  was an artifact of the wrong per-hub model).
+- **The route table maps `node → specific link`** (was `LINK_UP/DOWN/LOCAL`), so
+  multi-downlink and multi-hop trees work; routing stays a flat `route_table[node]`
+  lookup, only its values change.
+- **The verifier checks the tree**: exactly one root, every parent resolves, no
+  cycles, fully connected — a topology bug refuses to compile.
+
+Decision recorded in **ADR-0006**; CONTEXT.md gains a **Link** term and the Root hub
+entry now keys on `parent: :host`, not lowest id. Design locked; implementation is a
+deliberate follow-up (the DSL `parent:`/`uplink:`, the verifier tree checks, the
+node→link router in `wire_gen.ex` + the C router, `link_esp32.cpp` per-link
+peripherals, the router/relay harnesses) — not yet done.
+
+---
+
 ## 2026-06-23 — A safe action is a value-type value; the floor is byte-generic (ADR-0005)
 
 An ergonomics/design review (three parallel lenses against the worked example)

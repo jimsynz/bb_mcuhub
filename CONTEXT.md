@@ -22,10 +22,30 @@ with children is a branch; a hub with none is a leaf. See **Root hub**, **Contra
 
 ### Root hub
 
-The hub that owns the host link: it speaks **UART** upward to the host and **CAN**
-downward to its child hubs, bridging the serial link to the CAN backplane. It is still
-an ordinary hub (it may sense or act while it bridges) — not a fourth node kind, just
-the one hub that happens to hold the host connection.
+The hub that owns the host link: it speaks **UART** upward to the host and bridges down
+to its children over their **links** (a shared CAN bus, point-to-point UART, or a mix).
+It is the hub that **declares `parent: :host`** — not the lowest-numbered hub, not a
+fourth node kind, just the one hub that holds the host connection. It is still an
+ordinary hub (it may sense or act while it bridges). Exactly one root per robot, checked
+at compile time (ADR-0006).
+
+### Link
+
+The **edge between a hub and its parent** — a first-class topology entity, not a port
+(a port is a sense/act endpoint; a link is how a hub is _reached_). A link carries a
+**transport** (`:can` or `:uart`) and a peripheral; the host→root link is always UART.
+A hub **declares its parent and its uplink transport** (`parent: :blaster, uplink: :can`);
+the tree falls out of those parent pointers. Children sharing a parent and a CAN uplink
+share **one bus**; a UART uplink is point-to-point — and a parent may own **any mix**
+(a CAN bus _and_ several UARTs), because a link is just a typed edge the parent
+multiplexes (no sibling-uniformity constraint). The generated **route table maps each
+node to the specific link** that reaches it (the host link is link 0), so routing stays
+a flat `route_table[node]` lookup — only its values are links, not bare directions. The
+verifier checks the tree is well-formed (one root, every parent resolves, no cycles,
+fully connected). Nothing about transport or tree shape is inferred from node-id
+ordering (ADR-0006).
+_Avoid_: conflating a link with a **port** (a child link is never a port) or with a
+**NODE** (a node is addressed; a link is traversed).
 
 ### Host
 
