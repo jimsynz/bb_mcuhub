@@ -14,8 +14,9 @@ defmodule SegbyV1.Hubs.Blaster do
       value-type named BY MODULE (the extension seam, ADR-0003).
     * `status_led` (in): a `SegbyV1.ValueTypes.Led` command (an RGB triple)
       driving the WS2812 status strip — also a consumer value-type. It is
-      decorative — not a motor — so it carries no `safe_action`/floor; a stale
-      LED command is harmless.
+      decorative — not a motor — so it declares `has_safe_action: false` (a
+      non-floored actuator, ADR-0005): no floor, no safe_action; a stale LED
+      command is harmless.
 
   The declared `sample` MFA refs are data only; the firmware has the on-device
   equivalents under `firmware/mcu/blaster.cpp`.
@@ -41,7 +42,8 @@ defmodule SegbyV1.Hubs.Blaster do
     port(:status_led,
       dir: :in,
       type: SegbyV1.ValueTypes.Led,
-      rate: 20
+      rate: 20,
+      has_safe_action: false
     )
   end
 end

@@ -8,9 +8,9 @@ defmodule SegbyV1.Hubs.Wheels do
   on-chip floor (§05).
 
     * `motor_left` / `motor_right` (in): an `:effort` command at 50 Hz each.
-      `safe_action: :zero_torque` drives each motor's own on-chip floor (§05);
-      the consumer freshness window (`fresh_for`) lives on the actuator views in
-      the robot topology, not here.
+      `has_safe_action: true, safe_action: %{nm: 0.0}` (zero torque, ADR-0005)
+      drives each motor's own on-chip floor (§05); the consumer freshness window
+      (`fresh_for`) lives on the actuator views in the robot topology, not here.
     * `status_left` / `status_right` (out): each motor's reported truth
       (applied_seq, floored?) at 50 Hz — the source of "is it actually
       driving?", read instead of inferred from "we sent a command".
@@ -25,7 +25,8 @@ defmodule SegbyV1.Hubs.Wheels do
       dir: :in,
       type: :effort,
       rate: 50,
-      safe_action: :zero_torque,
+      has_safe_action: true,
+      safe_action: %{nm: 0.0},
       step: {SegbyV1.Hubs.Wheels.Floor, :step}
     )
 
@@ -33,7 +34,8 @@ defmodule SegbyV1.Hubs.Wheels do
       dir: :in,
       type: :effort,
       rate: 50,
-      safe_action: :zero_torque,
+      has_safe_action: true,
+      safe_action: %{nm: 0.0},
       step: {SegbyV1.Hubs.Wheels.Floor, :step}
     )
 

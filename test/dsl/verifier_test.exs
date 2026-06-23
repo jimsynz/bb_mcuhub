@@ -52,6 +52,57 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     def init(_opts), do: :ignore
   end
 
+  defmodule MissingFlagHub do
+    @moduledoc """
+    A hub whose `:in` command port OMITS `has_safe_action` — the floored-role flag
+    is required on every command port (ADR-0005). Placing this in a robot must trip
+    `verify_safe_actions`.
+    """
+    use BBMcuhub.Hub
+
+    ports do
+      port(:cmd, dir: :in, type: :effort, rate: 50)
+    end
+  end
+
+  defmodule BadSafeHub do
+    @moduledoc """
+    A floored `:in` port whose `safe_action` carries an UNKNOWN field — its
+    `:effort` layout is `%{nm: f32}`, but it declares `%{nm: 0.0, torque: 0.0}`.
+    The extra `:torque` is not in the value-type layout, so the verifier must
+    reject it (ADR-0005), not silently default.
+    """
+    use BBMcuhub.Hub
+
+    ports do
+      port(:cmd,
+        dir: :in,
+        type: :effort,
+        rate: 50,
+        has_safe_action: true,
+        safe_action: %{nm: 0.0, torque: 0.0}
+      )
+    end
+  end
+
+  defmodule StraySafeHub do
+    @moduledoc """
+    A `has_safe_action: false` (non-floored) port that nonetheless declares a
+    `safe_action` — the role and the value disagree, a compile error (ADR-0005).
+    """
+    use BBMcuhub.Hub
+
+    ports do
+      port(:cmd,
+        dir: :in,
+        type: :effort,
+        rate: 50,
+        has_safe_action: false,
+        safe_action: %{nm: 0.0}
+      )
+    end
+  end
+
   defmodule CollideHub do
     @moduledoc """
     A hub whose two REAL port names hash to the same `port_id` (0xA6) — a genuine
@@ -142,6 +193,69 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       assert err.message =~ "{:imu, :pose}"
       assert err.message =~ "fresh_for 0"
       assert err.message =~ ">= 1"
+    end
+
+    test "missing has_safe_action: a :in port without the floored-role flag is rejected (ADR-0005)" do
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.MissingFlag do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:motor, BBMcuhub.Dsl.VerifierTest.MissingFlagHub, node: 0x05)
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      assert err.message =~ "{:motor, :cmd}"
+      assert err.message =~ "has_safe_action"
+    end
+
+    test "ill-formed safe_action: a floored port with an unknown value-type field is rejected (ADR-0005)" do
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.BadSafe do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:motor, BBMcuhub.Dsl.VerifierTest.BadSafeHub, node: 0x05)
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      assert err.message =~ "{:motor, :cmd}"
+      # names the unknown field and the value-type it is not part of, rather than
+      # silently defaulting (ADR-0005).
+      assert err.message =~ ":torque"
+      assert err.message =~ ":effort"
+    end
+
+    test "stray safe_action: a non-floored port that declares a safe_action is rejected (ADR-0005)" do
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs, :led]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.StraySafe do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:led, BBMcuhub.Dsl.VerifierTest.StraySafeHub, node: 0x05)
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      assert err.message =~ "{:led, :cmd}"
+      assert err.message =~ "has_safe_action: false"
     end
 
     test "unknown port: a view naming a port no hub declares is rejected (§06)" do

@@ -2,7 +2,7 @@ defmodule BBMcuhub.HostTest do
   @moduledoc """
   Proves the generic launcher derives command slots from a robot's IR (ADR-0003),
   not from a hand-listed set of ports. A command slot is the wire `{node,
-  port_id}` of every actuator command port (`dir: :in` AND `safe_action != nil`).
+  port_id}` of every actuator command port (`dir: :in` AND `has_safe_action: true`).
 
   The library tests this against its OWN fixture robot (segby_v1 moved to the
   example app, which tests the same derivation over its two-wheel IR).
@@ -26,19 +26,20 @@ defmodule BBMcuhub.HostTest do
       assert slots == [effort]
     end
 
-    test "every derived slot is a floored command port (dir: :in, safe_action != nil)" do
+    test "every derived slot is a floored command port (dir: :in, has_safe_action: true)" do
       ir = BBMcuhub.Robot.Info.ir(FixtureRobot)
       derived = MapSet.new(Host.command_slots(FixtureRobot))
 
       for row <- ir, MapSet.member?(derived, {row.node, row.port_id}) do
         assert row.dir == :in
+        assert row.has_safe_action == true
         assert row.safe_action != nil
       end
 
       # nothing that is NOT a floored command port leaks into the slots
       non_command =
         ir
-        |> Enum.reject(&(&1.dir == :in and &1.safe_action != nil))
+        |> Enum.reject(&(&1.dir == :in and &1.has_safe_action == true))
         |> Enum.map(&{&1.node, &1.port_id})
         |> MapSet.new()
 

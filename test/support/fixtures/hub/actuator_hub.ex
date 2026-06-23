@@ -3,11 +3,12 @@ defmodule BBMcuhub.Test.Fixtures.ActuatorHub do
   The fixture's act hub (test-only) — an actuator that also reports its own truth.
 
     * `:effort_cmd` (in): an `:effort` command at 50 Hz, FLOORED with
-      `safe_action: :zero_torque` (§05). This is the port `slice_test`'s actuator
-      path exercises: command → slot → floor, with the floor's host-side reference
-      (`BBMcuhub.Test.Fixtures.Floor`) degrading on silence. It is also the single
-      derivable command slot the generic `BBMcuhub.Host` launcher finds in this
-      robot's IR (`dir: :in` AND `safe_action != nil`).
+      `has_safe_action: true, safe_action: %{nm: 0.0}` (zero torque, ADR-0005/§05).
+      This is the port `slice_test`'s actuator path exercises: command → slot →
+      floor, with the floor's host-side reference (`BBMcuhub.Test.Fixtures.Floor`)
+      degrading on silence. It is also the single derivable command slot the
+      generic `BBMcuhub.Host` launcher finds in this robot's IR (`dir: :in` AND
+      `has_safe_action: true`).
     * `:act_status` (out): the actuator's reported truth (applied_seq, floored?) at
       50 Hz — the source of "is it actually driving?", read by the actuator view's
       `live/1` born-stale liveness gate (§05).
@@ -24,7 +25,8 @@ defmodule BBMcuhub.Test.Fixtures.ActuatorHub do
       dir: :in,
       type: :effort,
       rate: 50,
-      safe_action: :zero_torque
+      has_safe_action: true,
+      safe_action: %{nm: 0.0}
     )
 
     port(:act_status,

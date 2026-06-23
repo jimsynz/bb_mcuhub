@@ -9,8 +9,9 @@ defmodule BBMcuhub.Contract do
 
   An **IR row** carries one port's whole-tree identity: its `node` (from the
   `hubs do` placement), the hub's backplane `transport` (`:can` | `:uart`),
-  generated `port_id`, value `type` + `layout`, `dir`, `rate`, `stamped`, and the
-  consumer `fresh_for` / `safe_action`.
+  generated `port_id`, value `type` + `layout`, `dir`, `rate`, `stamped`, the
+  consumer `fresh_for`, the floored-role flag `has_safe_action`, and the
+  `safe_action` value (a value of the port's value-type, ADR-0005).
 
   ## `t_dev` is opt-in per port (§04)
 
@@ -49,7 +50,8 @@ defmodule BBMcuhub.Contract do
           stamped: boolean(),
           rate: pos_integer(),
           fresh_for: pos_integer() | nil,
-          safe_action: atom() | nil
+          has_safe_action: boolean() | nil,
+          safe_action: %{atom() => number()} | nil
         }
 
   @doc """

@@ -249,10 +249,17 @@ defmodule BBMcuhub.Gen.WireGen do
 
   defp floor_defines(row) do
     period_ms = div(1000, row.rate)
+    # The safe action, packed to bytes by the SAME layout codec the wire uses
+    # (ADR-0005). The floor stores/drives these opaque bytes verbatim; emitting
+    # them here makes the safe-state contract a byte-exact, drift-tested artifact.
+    safe = Codec.encode_fields(row.layout, row.safe_action)
+    safe_bytes = safe |> :binary.bin_to_list() |> Enum.map_join(", ", &"0x#{hex2(&1)}")
 
     [
       "#define FLOOR_MISSES_#{up(row.hub)}_#{up(row.port)} #{row.fresh_for}",
-      "#define CMD_PERIOD_MS_#{up(row.hub)}_#{up(row.port)} #{period_ms}"
+      "#define CMD_PERIOD_MS_#{up(row.hub)}_#{up(row.port)} #{period_ms}",
+      "#define SAFE_N_#{up(row.hub)}_#{up(row.port)} #{byte_size(safe)}",
+      "static const uint8_t SAFE_#{up(row.hub)}_#{up(row.port)}[] = { #{safe_bytes} }; /* packed safe_action #{inspect(row.safe_action, custom_options: [sort_maps: true])} */"
     ]
     |> Enum.join("\n")
   end
@@ -275,15 +282,17 @@ defmodule BBMcuhub.Gen.WireGen do
   #     via `link_send_down` (backplane → child). A LEAF defaults route_table[*] =
   #     LINK_LOCAL and passes nullptr,nullptr (local-only) — matching motor/wheels.
   #
-  #   * FLOORED command port — `dir: :in` AND `safe_action != nil`. Gets a Floor,
-  #     an `on_command_<port>` that decodes the effort and feeds the floor's seq,
-  #     and a per-loop `<hub>_<port>_drive(floor_tick(...))` in control_tick. The
+  #   * FLOORED command port — `dir: :in` AND `has_safe_action == true`
+  #     (ADR-0005). Gets a Floor, an `on_command_<port>` that hands the floor the
+  #     RAW PAYLOAD BYTES + seq (no value decode), and a per-loop drive in
+  #     control_tick that feeds the floor's CURRENT BYTES to the device hook. The
   #     floor window = FLOOR_MISSES_* * CMD_PERIOD_MS_* (from wire_contract.h); the
-  #     safe_action atom maps to a numeric via `safe_action_value/1` (default 0.0f).
+  #     safe_action is a value of the port's value-type, packed by the SAME layout
+  #     codec the wire uses and emitted as the C byte array SAFE_<HUB>_<PORT>.
   #
-  #   * NON-FLOORED command port — `dir: :in` AND `safe_action == nil` (segby's
-  #     `status_led`). No floor: `on_command_<port>` decodes the value and calls the
-  #     device drive hook directly, reproducing the hand-written LED path exactly.
+  #   * NON-FLOORED command port — `dir: :in` AND `has_safe_action == false`
+  #     (segby's `status_led`). No floor: `on_command_<port>` decodes the value and
+  #     calls the device drive hook directly, reproducing the hand-written LED path.
   #
   #   * STATUS port — `dir: :out`, `type: :status`. Reports {applied_seq, floored?}
   #     of its PAIRED floored command port (see `status_pair/2`).
@@ -494,14 +503,16 @@ defmodule BBMcuhub.Gen.WireGen do
   defp glue_on_commands(hub, floored, nonfloored) do
     floored_fns =
       Enum.map(floored, fn row ->
+        min_len = payload_min_len(ValueType.resolve(row.type).layout())
+
         """
-        /* A command for #{row.port}: decode the value, hand its seq to the floor
-           (the floor watches the seq, not the value), record applied_seq (§05). */
+        /* A command for #{row.port}: hand the floor the RAW PACKED VALUE BYTES +
+           its seq — the floor watches the seq, not the value, and stores the bytes
+           opaquely (ADR-0005). Record applied_seq for the status report (§05). */
         static void on_command_#{row.port}(const Frame *f) {
           if (f->port != PORT_#{up(hub)}_#{up(row.port)}) return;
-          if (f->payload_len < 4) return;
-          float v = be_get_f32(&f->payload[0]);
-          floor_on_command(&g_floor_#{row.port}, f->seq, v);
+          if (f->payload_len < #{min_len}) return;
+          floor_on_command(&g_floor_#{row.port}, f->seq, f->payload, f->payload_len);
           g_applied_seq_#{row.port} = f->seq;
         }\
         """
@@ -555,15 +566,14 @@ defmodule BBMcuhub.Gen.WireGen do
   defp glue_control_tick(_hub, [], false), do: nil
 
   defp glue_control_tick(hub, floored, true) do
-    drives =
-      Enum.map_join(floored, "\n", fn row ->
-        "  #{hub}_#{row.port}_drive(floor_tick(&g_floor_#{row.port}, now_ms));"
-      end)
+    drives = Enum.map_join(floored, "\n", &glue_floor_drive(hub, &1))
 
     """
     /* The drive loop — period 0 so it runs every loop pass, never starved (§08).
        Each floor gates its own port: target while armed, safe action otherwise
-       (default safe). Then the optional per-loop device hook (telemetry). */
+       (default safe). The floor hands back the PACKED VALUE BYTES (ADR-0005); the
+       glue decodes them to the hook's typed param. Then the optional per-loop
+       device hook (telemetry). */
     static void control_tick(uint32_t now_us) {
       uint32_t now_ms = now_us / 1000u;
     #{drives}
@@ -573,6 +583,53 @@ defmodule BBMcuhub.Gen.WireGen do
   end
 
   defp glue_control_tick(_hub, _floored, _actuator?), do: nil
+
+  # One floored port's drive: tick the floor into a packed-bytes buffer, then
+  # decode those bytes to the device hook's expected param (ADR-0005). The HOOK
+  # SIGNATURE is stable — a single-f32 port still gets a scalar `float`, a
+  # multi-field port a `const <Struct> *`. The floor itself stays byte-generic.
+  defp glue_floor_drive(hub, row) do
+    layout = ValueType.resolve(row.type).layout()
+    buf = "drive_#{row.port}"
+
+    case layout do
+      [{_field, wt}] ->
+        # single field → decode the one scalar from the floor's bytes, pass it.
+        """
+          uint8_t #{buf}[FLOOR_MAX_VALUE];
+          floor_tick(&g_floor_#{row.port}, now_ms, #{buf});
+          #{hub}_#{row.port}_drive(#{buf_get(wt, buf, 0)});\
+        """
+
+      _ ->
+        # multi-field → rebuild the packed struct from the floor's bytes, pass a
+        # pointer (matches the drive-hook's `const <Struct> *` signature).
+        fields =
+          layout
+          |> Enum.with_index()
+          |> Enum.map_join("\n", fn {{field, wt}, idx} ->
+            "    #{buf}_v.#{field} = #{buf_get(wt, buf, field_offset(layout, idx))};"
+          end)
+
+        """
+          uint8_t #{buf}[FLOOR_MAX_VALUE];
+          floor_tick(&g_floor_#{row.port}, now_ms, #{buf});
+          #{c_struct_name(row.type)} #{buf}_v;
+        #{fields}
+          #{hub}_#{row.port}_drive(&#{buf}_v);\
+        """
+    end
+  end
+
+  # Big-endian field GET at `off` from a plain `uint8_t *` buffer (the floor's
+  # packed-bytes output), for wire type `wt`.
+  defp buf_get(:f32, b, off), do: "be_get_f32(&#{b}[#{off}])"
+  defp buf_get(:f64, b, off), do: "be_get_f64(&#{b}[#{off}])"
+  defp buf_get(:u8, b, off), do: "#{b}[#{off}]"
+  defp buf_get(:u16, b, off), do: "be_get_u16(&#{b}[#{off}])"
+  defp buf_get(:u32, b, off), do: "be_get_u32(&#{b}[#{off}])"
+  defp buf_get(:u64, b, off), do: "be_get_u64(&#{b}[#{off}])"
+  defp buf_get(:bool, b, off), do: "(#{b}[#{off}] != 0)"
 
   # Command ports are event-driven via on_command; their scheduled cmd tick (the
   # schedule lists every port) is a no-op, matching the hand-written hubs.
@@ -730,7 +787,7 @@ defmodule BBMcuhub.Gen.WireGen do
   defp glue_setup(hub, floored, root?, ir) do
     floor_inits =
       Enum.map_join(floored, "\n", fn row ->
-        "  floor_init(&g_floor_#{row.port}, FLOOR_WINDOW_MS_#{up(row.port)}, #{safe_action_value(row.safe_action)}f); /* #{inspect(row.safe_action)} */"
+        "  floor_init(&g_floor_#{row.port}, FLOOR_WINDOW_MS_#{up(row.port)}, SAFE_#{up(row.hub)}_#{up(row.port)}, SAFE_N_#{up(row.hub)}_#{up(row.port)}); /* #{inspect(row.safe_action, custom_options: [sort_maps: true])} */"
       end)
 
     route_fill =
@@ -832,8 +889,8 @@ defmodule BBMcuhub.Gen.WireGen do
     hub_node == root_node
   end
 
-  defp floored_command?(row), do: row.dir == :in and row.safe_action != nil
-  defp nonfloored_command?(row), do: row.dir == :in and row.safe_action == nil
+  defp floored_command?(row), do: row.dir == :in and row.has_safe_action == true
+  defp nonfloored_command?(row), do: row.dir == :in and row.has_safe_action == false
   defp status_port?(row), do: row.dir == :out and row.type == :status
   defp sense_port?(row), do: row.dir == :out and row.type != :status
 
@@ -853,13 +910,6 @@ defmodule BBMcuhub.Gen.WireGen do
   end
 
   defp name_suffix(port), do: port |> Atom.to_string() |> String.split("_") |> List.last()
-
-  # The safe_action atom → its numeric drive value. Default 0.0f (safe = off).
-  # Today only :zero_torque exists; documented mapping so a new safe action is
-  # one line here.
-  defp safe_action_value(:zero_torque), do: "0.0"
-  defp safe_action_value(nil), do: "0.0"
-  defp safe_action_value(_other), do: "0.0"
 
   # The drive-hook *parameter* declaration, from the value-type layout (§ Firmware
   # hook): a single numeric field → the scalar by value; a multi-field value → a
@@ -1059,7 +1109,7 @@ defmodule BBMcuhub.Gen.WireGen do
   defp sample_scalar(:u64, idx), do: (idx + 1) * 17
   defp sample_scalar(:bool, idx), do: rem(idx, 2) == 0
 
-  defp actuators(ir), do: Enum.filter(ir, &(&1.dir == :in and &1.safe_action != nil))
+  defp actuators(ir), do: Enum.filter(ir, &(&1.dir == :in and &1.has_safe_action == true))
 
   # The backplane transport, as the `0`/`1` value of BACKPLANE_TRANSPORT_UART.
   #

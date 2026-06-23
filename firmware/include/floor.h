@@ -9,6 +9,15 @@
  * action; motion is earned only by witnessing a fresh, in-window command seq
  * advancing SINCE THIS chip's boot.
  *
+ * VALUE-TYPE-AGNOSTIC (ADR-0005): the floor stores and drives OPAQUE BYTES, the
+ * packed value of the port's own value-type — never a float. The safe action is
+ * just a valid command value, packed by the same layout codec the wire uses;
+ * the floor swaps byte buffers and watches the seq, exactly as before, and
+ * never knows whether the value is a torque, a servo pose, or an RGB triple.
+ * The
+ * `_drive` hook receives the packed value and the device code unpacks it. A
+ * scalar effort floor is just N = 4.
+ *
  * Pure logic, no hardware — the firmware binds drive()/safe-action to pins;
  * this is unit-tested on the host. "Advanced?" is a plain inequality (seq !=
  * last), sound because every path to this chip is in-order (§04). */
@@ -22,6 +31,10 @@
 extern "C" {
 #endif
 
+/* Max packed value width the floor carries — the frame payload ceiling
+ * (FRAME_MAX_PAYLOAD). Every value-type's packed size fits under this. */
+#define FLOOR_MAX_VALUE 64
+
 typedef struct {
   uint32_t window_ms; /* FLOOR_MISSES * CMD_PERIOD_MS, from the contract */
   uint16_t cmd_seq;   /* last command seq received (set by on_command) */
@@ -30,20 +43,26 @@ typedef struct {
   bool armed;         /* false at boot — born disarmed */
   bool have_baseline; /* have we recorded a first seq to compare against? */
   bool seen_advance;  /* has the seq advanced (since boot) at least once? */
-  float target;       /* commanded setpoint */
-  float safe_action;  /* the value driven when disarmed (e.g. 0 torque) */
+  uint8_t n;          /* packed value width (bytes), from the layout */
+  uint8_t target[FLOOR_MAX_VALUE]; /* commanded packed value */
+  uint8_t safe[FLOOR_MAX_VALUE]; /* safe packed value (driven when disarmed) */
 } Floor;
 
-/* Initialise born-disarmed with the safe action already selected. */
-void floor_init(Floor *f, uint32_t window_ms, float safe_action);
-
-/* A new command frame for this hub's actuator port: record target + its seq. */
-void floor_on_command(Floor *f, uint16_t seq, float target);
-
-/* Run one control tick at monotonic time `now_ms`. Returns the value to DRIVE:
- * the target while armed, the safe action otherwise. Updates arm/disarm state.
+/* Initialise born-disarmed with the safe action already selected. `safe` is the
+ * packed safe-action value (`n` bytes); it is copied into both `safe` and
+ * `target`, so a born-disarmed floor drives the safe value before any command.
  */
-float floor_tick(Floor *f, uint32_t now_ms);
+void floor_init(Floor *f, uint32_t window_ms, const uint8_t *safe, uint8_t n);
+
+/* A new command frame for this hub's actuator port: record the packed value
+ * (`n` bytes) as the target + its seq. The floor watches the SEQ, not the
+ * value. */
+void floor_on_command(Floor *f, uint16_t seq, const uint8_t *value, uint8_t n);
+
+/* Run one control tick at monotonic time `now_ms`. Writes the value to DRIVE
+ * into `out[0..n)` — the target while armed, the safe action otherwise — and
+ * returns its width `n`. Updates arm/disarm state. */
+uint8_t floor_tick(Floor *f, uint32_t now_ms, uint8_t *out);
 
 #ifdef __cplusplus
 }

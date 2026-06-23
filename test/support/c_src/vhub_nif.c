@@ -11,10 +11,10 @@
  * VirtualHub keeps the floor/decoder state as binaries and threads them through
  * each call.
  *
- * Exposed:
- *   floor_init(window_ms, safe_action)            -> floor_state (binary)
- *   floor_on_command(floor_state, seq, target)    -> floor_state
- *   floor_tick(floor_state, now_ms)               -> {floor_state, drive,
+ * Exposed (ADR-0005: the floor is byte-generic — values are packed binaries):
+ *   floor_init(window_ms, safe_bytes)             -> floor_state (binary)
+ *   floor_on_command(floor_state, seq, value_bytes) -> floor_state
+ *   floor_tick(floor_state, now_ms)               -> {floor_state, drive_bytes,
  * armed} transport_encode(body)                        -> wire_bytes (binary)
  *   decoder_new()                                 -> decoder_state (binary)
  *   decoder_feed(decoder_state, bytes)            -> {decoder_state, [body],
@@ -49,12 +49,12 @@ static ERL_NIF_TERM nif_floor_init(ErlNifEnv *env, int argc,
                                    const ERL_NIF_TERM argv[]) {
   (void)argc;
   unsigned int window_ms;
-  double safe_action;
+  ErlNifBinary safe;
   if (!enif_get_uint(env, argv[0], &window_ms) ||
-      !enif_get_double(env, argv[1], &safe_action))
+      !enif_inspect_binary(env, argv[1], &safe) || safe.size > FLOOR_MAX_VALUE)
     return enif_make_badarg(env);
   Floor f;
-  floor_init(&f, (uint32_t)window_ms, (float)safe_action);
+  floor_init(&f, (uint32_t)window_ms, safe.data, (uint8_t)safe.size);
   return mk_floor_bin(env, &f);
 }
 
@@ -63,11 +63,12 @@ static ERL_NIF_TERM nif_floor_on_command(ErlNifEnv *env, int argc,
   (void)argc;
   Floor f;
   unsigned int seq;
-  double target;
+  ErlNifBinary value;
   if (!get_floor(env, argv[0], &f) || !enif_get_uint(env, argv[1], &seq) ||
-      !enif_get_double(env, argv[2], &target))
+      !enif_inspect_binary(env, argv[2], &value) ||
+      value.size > FLOOR_MAX_VALUE)
     return enif_make_badarg(env);
-  floor_on_command(&f, (uint16_t)seq, (float)target);
+  floor_on_command(&f, (uint16_t)seq, value.data, (uint8_t)value.size);
   return mk_floor_bin(env, &f);
 }
 
@@ -78,9 +79,12 @@ static ERL_NIF_TERM nif_floor_tick(ErlNifEnv *env, int argc,
   unsigned int now_ms;
   if (!get_floor(env, argv[0], &f) || !enif_get_uint(env, argv[1], &now_ms))
     return enif_make_badarg(env);
-  float drive = floor_tick(&f, (uint32_t)now_ms);
-  return enif_make_tuple3(env, mk_floor_bin(env, &f),
-                          enif_make_double(env, (double)drive),
+  uint8_t buf[FLOOR_MAX_VALUE];
+  uint8_t n = floor_tick(&f, (uint32_t)now_ms, buf);
+  ERL_NIF_TERM drive;
+  unsigned char *p = enif_make_new_binary(env, n, &drive);
+  memcpy(p, buf, n);
+  return enif_make_tuple3(env, mk_floor_bin(env, &f), drive,
                           enif_make_atom(env, f.armed ? "true" : "false"));
 }
 

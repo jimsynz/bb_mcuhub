@@ -39,7 +39,26 @@ defmodule BBMcuhub.Test.VirtualHub do
   use GenServer
 
   alias BBMcuhub.Test.VHubNif
+  alias BBMcuhub.ValueType
   alias BBMcuhub.Wire.{Codec, FramingCOBS}
+
+  # The fixture actuator's value-type is :effort (a single f32). ADR-0005: the
+  # floor is byte-generic, so the VirtualHub packs every command value and the
+  # safe action through the SAME layout codec the wire uses, and threads PACKED
+  # BYTES into the C floor. A single-f32 port's drive bytes decode back to a float
+  # so `drive/2` keeps its scalar contract (the e2e suite reads a float).
+  @effort_layout ValueType.resolve(:effort).layout()
+
+  defp pack_effort(nm), do: Codec.encode_fields(@effort_layout, %{nm: nm * 1.0})
+
+  defp unpack_effort(bytes) do
+    {%{nm: nm}, <<>>} = Codec.take_fields(@effort_layout, bytes)
+    nm
+  end
+
+  # The packed safe action for the fixture floor: zero torque (ADR-0005's
+  # `%{nm: 0.0}`), packed to its 4 wire bytes.
+  defp safe_bytes, do: pack_effort(0.0)
 
   # One simulated actuator port running a real C floor.
   defp new_port(node, port_id, window_ms, status_port_id) do
@@ -49,11 +68,11 @@ defmodule BBMcuhub.Test.VirtualHub do
       status_port_id: status_port_id,
       window_ms: window_ms,
       safe_action: 0.0,
-      floor: VHubNif.floor_init(window_ms, 0.0),
+      floor: VHubNif.floor_init(window_ms, safe_bytes()),
       silenced: false,
       last_seq: 0,
       armed: false,
-      drive: 0.0
+      drive: safe_bytes()
     }
   end
 
@@ -201,7 +220,7 @@ defmodule BBMcuhub.Test.VirtualHub do
   end
 
   def handle_call({:drive, port_id}, _from, st),
-    do: {:reply, st.ports[port_id].drive, st}
+    do: {:reply, unpack_effort(st.ports[port_id].drive), st}
 
   def handle_call({:command_direct, port_id, seq, target}, _from, st) do
     {:reply, :ok,
@@ -209,7 +228,8 @@ defmodule BBMcuhub.Test.VirtualHub do
        if p.silenced do
          p
        else
-         %{p | floor: VHubNif.floor_on_command(p.floor, seq, target), last_seq: seq}
+         floor = VHubNif.floor_on_command(p.floor, seq, pack_effort(target))
+         %{p | floor: floor, last_seq: seq}
        end
      end)}
   end
@@ -225,7 +245,7 @@ defmodule BBMcuhub.Test.VirtualHub do
   def handle_call({:reset_floor, port_id}, _from, st) do
     {:reply, :ok,
      put_in_port(st, port_id, fn p ->
-       %{p | floor: VHubNif.floor_init(p.window_ms, 0.0), armed: false, last_seq: 0}
+       %{p | floor: VHubNif.floor_init(p.window_ms, safe_bytes()), armed: false, last_seq: 0}
      end)}
   end
 
@@ -248,8 +268,8 @@ defmodule BBMcuhub.Test.VirtualHub do
             ports
 
           p ->
-            target = command_target(body)
-            floor = VHubNif.floor_on_command(p.floor, seq, target)
+            value_bytes = command_value_bytes(body)
+            floor = VHubNif.floor_on_command(p.floor, seq, value_bytes)
             Map.put(ports, port_id, %{p | floor: floor, last_seq: seq})
         end
 
@@ -258,12 +278,13 @@ defmodule BBMcuhub.Test.VirtualHub do
     end
   end
 
-  # Decode the effort payload (f32) out of the body to feed as the floor's target.
-  # The floor watches the SEQ for arming; the target is just the value to drive.
-  defp command_target(body) do
+  # The PACKED command value bytes to feed the floor (ADR-0005: the floor stores
+  # opaque bytes). Decode the body to its value map, then re-pack via the effort
+  # layout — the floor watches the SEQ for arming; the value is just what it drives.
+  defp command_value_bytes(body) do
     case Codec.decode_body(body) do
-      {:ok, %{value: %{nm: nm}}} -> nm * 1.0
-      _ -> 0.0
+      {:ok, %{value: %{nm: nm}}} -> pack_effort(nm)
+      _ -> safe_bytes()
     end
   end
 

@@ -81,10 +81,14 @@ typedef struct __attribute__((packed)) {
 /* Per-actuator floor window, derived from one number (§05). */
 #define FLOOR_MISSES_WHEELS_MOTOR_LEFT 5
 #define CMD_PERIOD_MS_WHEELS_MOTOR_LEFT 20
+#define SAFE_N_WHEELS_MOTOR_LEFT 4
+static const uint8_t SAFE_WHEELS_MOTOR_LEFT[] = { 0x00, 0x00, 0x00, 0x00 }; /* packed safe_action %{nm: 0.0} */
 #define FLOOR_MISSES_WHEELS_MOTOR_RIGHT 5
 #define CMD_PERIOD_MS_WHEELS_MOTOR_RIGHT 20
+#define SAFE_N_WHEELS_MOTOR_RIGHT 4
+static const uint8_t SAFE_WHEELS_MOTOR_RIGHT[] = { 0x00, 0x00, 0x00, 0x00 }; /* packed safe_action %{nm: 0.0} */
 
 /* Contract hash — the drift test compares this. */
-#define WIRE_CONTRACT_SHA "dc8be9a9f99d9e85"
+#define WIRE_CONTRACT_SHA "5e9da922ce91da19"
 
 #endif /* BB_MCUHUB_WIRE_CONTRACT_H */

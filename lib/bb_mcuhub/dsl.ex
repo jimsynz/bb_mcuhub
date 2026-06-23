@@ -73,6 +73,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
       stamped: port.t_dev,
       rate: port.rate,
       fresh_for: fresh_for_for(views, hub.name, port),
+      has_safe_action: port.has_safe_action,
       safe_action: port.safe_action
     }
   end
@@ -137,6 +138,9 @@ defmodule BBMcuhub.Dsl.Verifier do
       producer (reader↔producer reconciliation);
     * two hubs sharing a `node`, or a reserved `node` (0x00);
     * a view `fresh_for` < 1;
+    * a `:in` port missing `has_safe_action`, a floored port without a valid
+      `safe_action` value, or a stray `safe_action`/flag where it does not belong
+      (the floored-role contract, ADR-0005);
     * a `{node, port_id}` collision across IR rows;
     * a port whose frame would exceed the segmentation ceiling.
   """
@@ -159,10 +163,126 @@ defmodule BBMcuhub.Dsl.Verifier do
 
     with :ok <- verify_nodes(hubs, module),
          :ok <- verify_fresh_for(views, module),
+         :ok <- verify_safe_actions(ir, module),
          :ok <- verify_reconciliation(views, ir, module),
          :ok <- verify_no_id_collision(ir, module),
          :ok <- verify_frame_sizes(ir, module) do
       :ok
+    end
+  end
+
+  # The floored-role contract (ADR-0005), per port:
+  #
+  #   * a :in (command) port MUST declare `has_safe_action` (true or false);
+  #   * has_safe_action: true ⇒ `safe_action` present AND a valid value of the
+  #     port's value-type (every layout field present, numeric — the codec packs
+  #     it; an unknown/missing/ill-typed field is a compile error, not a silent
+  #     default);
+  #   * has_safe_action: false ⇒ `safe_action` MUST be absent;
+  #   * a :out (produced) port carries NEITHER (the flag is meaningless there).
+  defp verify_safe_actions(ir, module) do
+    Enum.reduce_while(ir, :ok, fn row, :ok ->
+      case verify_safe_action(row, module) do
+        :ok -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp verify_safe_action(%{dir: :out} = row, module) do
+    cond do
+      not is_nil(row.has_safe_action) ->
+        error(
+          module,
+          [:hubs, row.hub],
+          "produced port #{inspect({row.hub, row.port})} declares has_safe_action — it is meaningless on a :out port; remove it (ADR-0005)"
+        )
+
+      not is_nil(row.safe_action) ->
+        error(
+          module,
+          [:hubs, row.hub],
+          "produced port #{inspect({row.hub, row.port})} declares a safe_action — only a floored :in port has one (ADR-0005)"
+        )
+
+      true ->
+        :ok
+    end
+  end
+
+  defp verify_safe_action(%{dir: :in, has_safe_action: nil} = row, module) do
+    error(
+      module,
+      [:hubs, row.hub],
+      "command port #{inspect({row.hub, row.port})} must declare has_safe_action (true ⇒ floored with a safe_action; false ⇒ non-floored) — omitting it would silently drop the dead-man (ADR-0005)"
+    )
+  end
+
+  defp verify_safe_action(%{dir: :in, has_safe_action: false} = row, module) do
+    if is_nil(row.safe_action) do
+      :ok
+    else
+      error(
+        module,
+        [:hubs, row.hub],
+        "command port #{inspect({row.hub, row.port})} is has_safe_action: false (non-floored) but declares a safe_action — the role and the value must agree; drop the safe_action or set has_safe_action: true (ADR-0005)"
+      )
+    end
+  end
+
+  defp verify_safe_action(%{dir: :in, has_safe_action: true} = row, module) do
+    cond do
+      is_nil(row.safe_action) ->
+        error(
+          module,
+          [:hubs, row.hub],
+          "command port #{inspect({row.hub, row.port})} is has_safe_action: true (floored) but declares no safe_action — a floored port MUST give a safe action value (ADR-0005)"
+        )
+
+      true ->
+        validate_safe_value(row, module)
+    end
+  end
+
+  # The safe_action must be a valid value of the port's value-type: every field
+  # in the layout present with a numeric value (the same shape the codec packs to
+  # the wire). We validate explicitly for a clear message, then trial-pack via the
+  # real codec so an ill-typed value (e.g. a non-number) is caught by the same
+  # encoder the bytes go through (ADR-0005: no separate translation layer).
+  defp validate_safe_value(row, module) do
+    layout_fields = Enum.map(row.layout, fn {field, _wt} -> field end)
+    given_fields = Map.keys(row.safe_action)
+
+    missing = layout_fields -- given_fields
+    extra = given_fields -- layout_fields
+
+    cond do
+      missing != [] ->
+        error(
+          module,
+          [:hubs, row.hub],
+          "safe_action for #{inspect({row.hub, row.port})} is missing field(s) #{inspect(missing)} of its #{inspect(row.type)} value-type (ADR-0005)"
+        )
+
+      extra != [] ->
+        error(
+          module,
+          [:hubs, row.hub],
+          "safe_action for #{inspect({row.hub, row.port})} has unknown field(s) #{inspect(extra)} not in its #{inspect(row.type)} value-type layout (ADR-0005)"
+        )
+
+      true ->
+        try do
+          _ = BBMcuhub.Wire.Codec.encode_fields(row.layout, row.safe_action)
+          :ok
+        rescue
+          e ->
+            error(
+              module,
+              [:hubs, row.hub],
+              "safe_action for #{inspect({row.hub, row.port})} is not a valid #{inspect(row.type)} value — #{Exception.message(e)} (ADR-0005)"
+            )
+        end
     end
   end
 

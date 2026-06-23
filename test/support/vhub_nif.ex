@@ -27,20 +27,24 @@ defmodule BBMcuhub.Test.VHubNif do
   @typedoc "Opaque C `TransportDecoder` struct, carried as a binary."
   @type decoder :: binary()
 
-  @doc "A born-disarmed floor with `window_ms` and `safe_action` already selected."
-  @spec floor_init(non_neg_integer(), float()) :: floor()
-  def floor_init(_window_ms, _safe_action), do: nif_error()
+  @doc """
+  A born-disarmed floor with `window_ms` and the PACKED `safe_action` bytes
+  already selected (ADR-0005: the floor is byte-generic — the safe action is the
+  port's value-type value, packed by `BBMcuhub.Wire.Codec.encode_fields/2`).
+  """
+  @spec floor_init(non_neg_integer(), binary()) :: floor()
+  def floor_init(_window_ms, _safe_bytes), do: nif_error()
 
-  @doc "Record a new command (its seq + target) on the floor."
-  @spec floor_on_command(floor(), 0..0xFFFF, float()) :: floor()
-  def floor_on_command(_floor, _seq, _target), do: nif_error()
+  @doc "Record a new command (its seq + the PACKED value bytes) on the floor."
+  @spec floor_on_command(floor(), 0..0xFFFF, binary()) :: floor()
+  def floor_on_command(_floor, _seq, _value_bytes), do: nif_error()
 
   @doc """
   Run one floor control tick at explicit simulated `now_ms`. Returns the updated
-  floor, the value to DRIVE (target while armed, safe action otherwise), and the
-  armed flag.
+  floor, the PACKED value bytes to DRIVE (the target while armed, the safe action
+  otherwise), and the armed flag.
   """
-  @spec floor_tick(floor(), non_neg_integer()) :: {floor(), float(), boolean()}
+  @spec floor_tick(floor(), non_neg_integer()) :: {floor(), binary(), boolean()}
   def floor_tick(_floor, _now_ms), do: nif_error()
 
   @doc "Frame a CRC-covered body for the wire: `COBS(body || CRC16(body)) || 0x00`."

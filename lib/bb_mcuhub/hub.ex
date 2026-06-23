@@ -2,8 +2,17 @@ defmodule BBMcuhub.Hub.Port do
   @moduledoc """
   One port's intrinsic wire facts (§06), as authored in a hub module's
   `ports do … end`. These are the PRODUCER facts — what the hub physically does:
-  its `dir`, value `type`, sample/command `rate`, whether it carries `t_dev`, its
-  `safe_action`, and the declared `sample`/`step` MFA refs.
+  its `dir`, value `type`, sample/command `rate`, whether it carries `t_dev`,
+  whether it is floored (`has_safe_action`) and — if so — its `safe_action`
+  value, and the declared `sample`/`step` MFA refs.
+
+  ADR-0005: a `dir: :in` (command) port declares its role explicitly with the
+  REQUIRED boolean `has_safe_action`. `true` ⇒ floored: a `safe_action` value of
+  the port's own value-type (a `%{field => number}` map, the same layout the wire
+  carries) MUST be given and the port gets an on-chip floor. `false` ⇒ a
+  non-floored actuator (e.g. a decorative LED): `safe_action` MUST be absent. The
+  flag is meaningless on a `dir: :out` port (both must be absent there). The
+  verifier (`BBMcuhub.Dsl.Verifier`) enforces all of this.
 
   The MFA refs (`sample`, `step`) are **declared data only** — the host never
   invokes them; they travel into the generated per-hub schedule for the firmware.
@@ -14,6 +23,7 @@ defmodule BBMcuhub.Hub.Port do
     :dir,
     :type,
     :rate,
+    :has_safe_action,
     :safe_action,
     :sample,
     :step,
@@ -27,7 +37,8 @@ defmodule BBMcuhub.Hub.Port do
           type: atom(),
           rate: pos_integer(),
           t_dev: boolean(),
-          safe_action: atom() | nil,
+          has_safe_action: boolean() | nil,
+          safe_action: %{atom() => number()} | nil,
           sample: {module(), atom()} | nil,
           step: {module(), atom()} | nil,
           __spark_metadata__: term()
@@ -51,7 +62,16 @@ defmodule BBMcuhub.Hub.Dsl do
       type: [type: :atom, required: true, doc: "the value type (a BBMcuhub.ValueType ref)"],
       rate: [type: :pos_integer, required: true, doc: "nominal sample/command rate in Hz"],
       t_dev: [type: :boolean, default: false, doc: "carry the producer µs stamp (§04)"],
-      safe_action: [type: :atom, doc: "the on-chip floor's safe action for a command port (§05)"],
+      has_safe_action: [
+        type: :boolean,
+        doc:
+          "REQUIRED on a :in port (ADR-0005): true ⇒ floored (give a safe_action); false ⇒ non-floored. Absent on :out ports. Enforced by the verifier."
+      ],
+      safe_action: [
+        type: :map,
+        doc:
+          "the on-chip floor's safe action — a value of the port's value-type (%{field => number}), required iff has_safe_action: true (ADR-0005/§05)"
+      ],
       sample: [type: {:tuple, [:atom, :atom]}, doc: "declared {module, fun} sampler (data only)"],
       step: [type: {:tuple, [:atom, :atom]}, doc: "declared {module, fun} floor step (data only)"]
     ]

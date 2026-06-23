@@ -26,8 +26,9 @@ defmodule BBMcuhub.Host do
   ## Command slots are derived from the IR (not hand-listed)
 
   A command slot is the wire `{node, port_id}` of every IR row that is an actuator
-  command port: `dir: :in` AND `safe_action != nil` — exactly the floored command
-  ports of §05 (the same predicate `BBMcuhub.Gen.WireGen` uses to find actuators).
+  command port: `dir: :in` AND `has_safe_action: true` — exactly the floored
+  command ports of §05/ADR-0005 (the same predicate `BBMcuhub.Gen.WireGen` uses to
+  find actuators).
   Each such row already carries its `node` and `port_id`, so the slots are simply
   `Enum.map(actuator_rows, &{&1.node, &1.port_id})`. Deriving them from the IR
   means a contract move can never desync the watched slots from the wire ids — and
@@ -83,7 +84,7 @@ defmodule BBMcuhub.Host do
 
   @doc """
   The command `(node, port_id)` slots the `LinkOwner` drains for `robot`, derived
-  from its IR: every actuator command port (`dir: :in` AND `safe_action != nil`).
+  from its IR: every actuator command port (`dir: :in` AND `has_safe_action: true`).
 
   Builds the `PortIndex` for `robot` as a side effect (so the actuator views
   resolve their slots against this robot's ids). Returns `[]` for a sensor-only
@@ -96,7 +97,7 @@ defmodule BBMcuhub.Host do
 
     robot
     |> Info.ir()
-    |> Enum.filter(&(&1.dir == :in and &1.safe_action != nil))
+    |> Enum.filter(&(&1.dir == :in and &1.has_safe_action == true))
     |> Enum.map(&{&1.node, &1.port_id})
   end
 

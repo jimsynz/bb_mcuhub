@@ -1,6 +1,7 @@
 #include "floor.h"
+#include <string.h>
 
-void floor_init(Floor *f, uint32_t window_ms, float safe_action) {
+void floor_init(Floor *f, uint32_t window_ms, const uint8_t *safe, uint8_t n) {
   f->window_ms = window_ms;
   f->cmd_seq = 0;
   f->last_seq = 0;
@@ -8,16 +9,18 @@ void floor_init(Floor *f, uint32_t window_ms, float safe_action) {
   f->armed = false;         /* born disarmed */
   f->have_baseline = false; /* no first seq recorded yet */
   f->seen_advance = false;  /* nothing witnessed yet */
-  f->target = safe_action;
-  f->safe_action = safe_action;
+  f->n = n;
+  memcpy(f->safe, safe, n);
+  memcpy(f->target, safe, n); /* born-disarmed → safe value selected */
 }
 
-void floor_on_command(Floor *f, uint16_t seq, float target) {
+void floor_on_command(Floor *f, uint16_t seq, const uint8_t *value, uint8_t n) {
   f->cmd_seq = seq; /* watch the seq, not the value */
-  f->target = target;
+  f->n = n;
+  memcpy(f->target, value, n);
 }
 
-float floor_tick(Floor *f, uint32_t now_ms) {
+uint8_t floor_tick(Floor *f, uint32_t now_ms, uint8_t *out) {
   /* Born-disarmed, STRICT (matches the host monitor's §04 choice): the first
    * command seq we ever see only records a baseline; trust begins on a later,
    * DIFFERENT seq — so a stale command sitting in a buffer at boot cannot
@@ -38,9 +41,11 @@ float floor_tick(Floor *f, uint32_t now_ms) {
 
   if (!fresh) {
     f->armed = false; /* silence (or not-yet-earned) → safe, latched */
-    return f->safe_action;
+    memcpy(out, f->safe, f->n);
+    return f->n;
   }
 
   f->armed = true; /* a fresh, in-window command earns motion */
-  return f->target;
+  memcpy(out, f->target, f->n);
+  return f->n;
 }

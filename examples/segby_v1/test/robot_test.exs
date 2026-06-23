@@ -67,7 +67,8 @@ defmodule SegbyV1.RobotTest do
     assert led.dir == :in
     assert led.type == SegbyV1.ValueTypes.Led
     assert led.transport == :uart
-    # the LED is decorative — a command port with NO floor (§05)
+    # the LED is decorative — a non-floored command port (ADR-0005)
+    assert led.has_safe_action == false
     assert led.safe_action == nil
   end
 
@@ -81,8 +82,9 @@ defmodule SegbyV1.RobotTest do
       assert cmd.dir == :in
       assert cmd.type == :effort
       assert cmd.transport == :uart
-      # each motor carries its own floor: zero torque on command silence (§05)
-      assert cmd.safe_action == :zero_torque
+      # each motor carries its own floor: zero torque on command silence (ADR-0005)
+      assert cmd.has_safe_action == true
+      assert cmd.safe_action == %{nm: 0.0}
       # the consumer freshness window from the actuator view (§04)
       assert cmd.fresh_for == 5
     end

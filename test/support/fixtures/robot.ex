@@ -15,9 +15,10 @@ defmodule BBMcuhub.Test.Fixtures.Robot do
       `t_dev: true`) and `:scalar` (a CUSTOM value-type named BY MODULE,
       UNSTAMPED) — covering CAN + stamped + the value-type extension seam.
     * the **ActuatorHub** (`:act_hub`, NODE 0x05) is the LEAF on a `:uart`
-      backplane. It takes a FLOORED `:effort` command (`safe_action: :zero_torque`)
-      and reports an `:act_status` — covering UART + the floor + status + the
-      derivable command slot the generic launcher finds.
+      backplane. It takes a FLOORED `:effort` command (`has_safe_action: true,
+      safe_action: %{nm: 0.0}`, ADR-0005) and reports an `:act_status` — covering
+      UART + the floor + status + the derivable command slot the generic launcher
+      finds.
 
   So the fixture covers BOTH transports (`:can` root + `:uart` leaf, flipping
   BACKPLANE_TRANSPORT_UART to 1), STAMPED and UNSTAMPED ports, a FLOORED actuator,

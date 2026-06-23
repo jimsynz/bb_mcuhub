@@ -153,7 +153,7 @@ defmodule SegbyV1.Host do
 
   @doc """
   The two wheel command `(node, port_id)` slots the `LinkOwner` drains, derived
-  from the segby IR (every `dir: :in` command port with a `safe_action`). Builds
+  from the segby IR (every `dir: :in` command port with `has_safe_action: true`). Builds
   the `PortIndex` for segby as a side effect (it defaults to a fixture otherwise).
   Delegates to `BBMcuhub.Host.command_slots/1`.
   """

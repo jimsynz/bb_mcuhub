@@ -42,32 +42,38 @@ static uint16_t g_applied_seq_motor_right = 0;  /* last command seq we handed th
 /* Per-status-port seq. */
 static uint16_t g_status_seq_status_left = 0;
 static uint16_t g_status_seq_status_right = 0;
-/* A command for motor_left: decode the value, hand its seq to the floor
-   (the floor watches the seq, not the value), record applied_seq (§05). */
+/* A command for motor_left: hand the floor the RAW PACKED VALUE BYTES +
+   its seq — the floor watches the seq, not the value, and stores the bytes
+   opaquely (ADR-0005). Record applied_seq for the status report (§05). */
 static void on_command_motor_left(const Frame *f) {
   if (f->port != PORT_WHEELS_MOTOR_LEFT) return;
   if (f->payload_len < 4) return;
-  float v = be_get_f32(&f->payload[0]);
-  floor_on_command(&g_floor_motor_left, f->seq, v);
+  floor_on_command(&g_floor_motor_left, f->seq, f->payload, f->payload_len);
   g_applied_seq_motor_left = f->seq;
 }
 
-/* A command for motor_right: decode the value, hand its seq to the floor
-   (the floor watches the seq, not the value), record applied_seq (§05). */
+/* A command for motor_right: hand the floor the RAW PACKED VALUE BYTES +
+   its seq — the floor watches the seq, not the value, and stores the bytes
+   opaquely (ADR-0005). Record applied_seq for the status report (§05). */
 static void on_command_motor_right(const Frame *f) {
   if (f->port != PORT_WHEELS_MOTOR_RIGHT) return;
   if (f->payload_len < 4) return;
-  float v = be_get_f32(&f->payload[0]);
-  floor_on_command(&g_floor_motor_right, f->seq, v);
+  floor_on_command(&g_floor_motor_right, f->seq, f->payload, f->payload_len);
   g_applied_seq_motor_right = f->seq;
 }
 /* The drive loop — period 0 so it runs every loop pass, never starved (§08).
    Each floor gates its own port: target while armed, safe action otherwise
-   (default safe). Then the optional per-loop device hook (telemetry). */
+   (default safe). The floor hands back the PACKED VALUE BYTES (ADR-0005); the
+   glue decodes them to the hook's typed param. Then the optional per-loop
+   device hook (telemetry). */
 static void control_tick(uint32_t now_us) {
   uint32_t now_ms = now_us / 1000u;
-  wheels_motor_left_drive(floor_tick(&g_floor_motor_left, now_ms));
-  wheels_motor_right_drive(floor_tick(&g_floor_motor_right, now_ms));
+  uint8_t drive_motor_left[FLOOR_MAX_VALUE];
+  floor_tick(&g_floor_motor_left, now_ms, drive_motor_left);
+  wheels_motor_left_drive(be_get_f32(&drive_motor_left[0]));
+  uint8_t drive_motor_right[FLOOR_MAX_VALUE];
+  floor_tick(&g_floor_motor_right, now_ms, drive_motor_right);
+  wheels_motor_right_drive(be_get_f32(&drive_motor_right[0]));
   wheels_post_control();
 }
 /* IN ports are event-driven via on_command; the scheduled cmd tick is a no-op. */
@@ -128,8 +134,8 @@ extern "C" void hub_on_body(const uint8_t *body, size_t len) {
 }
 extern "C" void hub_setup(void) {
   /* born-disarmed floors first (§05), so the safe output is selected before any drive */
-  floor_init(&g_floor_motor_left, FLOOR_WINDOW_MS_MOTOR_LEFT, 0.0f); /* :zero_torque */
-  floor_init(&g_floor_motor_right, FLOOR_WINDOW_MS_MOTOR_RIGHT, 0.0f); /* :zero_torque */
+  floor_init(&g_floor_motor_left, FLOOR_WINDOW_MS_MOTOR_LEFT, SAFE_WHEELS_MOTOR_LEFT, SAFE_N_WHEELS_MOTOR_LEFT); /* %{nm: 0.0} */
+  floor_init(&g_floor_motor_right, FLOOR_WINDOW_MS_MOTOR_RIGHT, SAFE_WHEELS_MOTOR_RIGHT, SAFE_N_WHEELS_MOTOR_RIGHT); /* %{nm: 0.0} */
 
   g_router.my_node = MY_NODE;
   for (int i = 0; i < 256; i++) g_router.route_table[i] = LINK_LOCAL; /* leaf: every port is local */

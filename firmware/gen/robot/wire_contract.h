@@ -69,8 +69,10 @@ typedef struct __attribute__((packed)) {
 /* Per-actuator floor window, derived from one number (§05). */
 #define FLOOR_MISSES_ACT_HUB_EFFORT_CMD 5
 #define CMD_PERIOD_MS_ACT_HUB_EFFORT_CMD 20
+#define SAFE_N_ACT_HUB_EFFORT_CMD 4
+static const uint8_t SAFE_ACT_HUB_EFFORT_CMD[] = { 0x00, 0x00, 0x00, 0x00 }; /* packed safe_action %{nm: 0.0} */
 
 /* Contract hash — the drift test compares this. */
-#define WIRE_CONTRACT_SHA "f7709f925fd6f72c"
+#define WIRE_CONTRACT_SHA "907856b0b0942e06"
 
 #endif /* BB_MCUHUB_WIRE_CONTRACT_H */

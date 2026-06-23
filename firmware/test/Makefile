@@ -20,7 +20,7 @@ PARITY_SRC := $(ROOT)/firmware/src/crc16.c \
               $(ROOT)/firmware/src/frame.c \
               $(ROOT)/firmware/src/transport.c \
               test_parity.c
-FLOOR_SRC  := $(ROOT)/firmware/src/floor.c test_floor.c
+FLOOR_SRC  := $(ROOT)/firmware/src/floor.c $(ROOT)/firmware/src/frame.c test_floor.c
 ROUTER_SRC := $(ROOT)/firmware/src/router.c test_router.c
 SEGMENT_SRC := $(ROOT)/firmware/src/segment.c $(ROOT)/firmware/src/crc16.c \
                $(ROOT)/firmware/src/frame.c test_segment.c
@@ -34,7 +34,7 @@ all: run
 parity_harness: $(PARITY_SRC) $(GEN)/parity_vectors.h $(GEN)/wire_contract.h
 	$(CC) $(CFLAGS) $(INC) $(PARITY_SRC) -o parity_harness
 
-floor_harness: $(FLOOR_SRC) $(ROOT)/firmware/include/floor.h
+floor_harness: $(FLOOR_SRC) $(ROOT)/firmware/include/floor.h $(ROOT)/firmware/include/frame.h
 	$(CC) $(CFLAGS) $(INC) $(FLOOR_SRC) -o floor_harness
 
 router_harness: $(ROUTER_SRC) $(ROOT)/firmware/include/router.h
