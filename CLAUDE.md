@@ -31,7 +31,9 @@ Library (`bb_mcuhub`, repo root — every consumer gets this, never edits it):
   `firmware/test/` host-compiled C harnesses (Makefile, no device); `firmware/gen/robot/`
   the fixture robot's generated artifacts. NO deployable `platformio.ini`.
 - `test/` — Elixir tests; `test/support/fixtures/` the coverage-maximizing fixture
-  robot that lets the library self-test in isolation.
+  robot that lets the library self-test in isolation. `test/support/virtual_hub.ex`
+  - `test/support/c_src/` (a test-only NIF) run the **real firmware C floor + C wire
+    path** behind the host stack for deterministic, hardware-free e2e (see below).
 
 Example (`examples/segby_v1/`, app `:segby_v1`, namespace `SegbyV1.*`):
 
@@ -74,6 +76,33 @@ does **not** work in a fresh worktree — use the devShell instead.)
 on first use. The devShell defaults that to a **worktree-local** `.pio-core`
 (gitignored) so each worktree keeps its own and never touches another tree's
 core. Set `PLATFORMIO_CORE_DIR` yourself to override.
+
+### End-to-end testing with the real C floor (the VirtualHub)
+
+There is a host-side e2e seam that runs the **actual firmware C code** (the floor,
+the COBS+CRC wire path) behind the real Elixir host stack — no hardware, fully
+deterministic. Prefer it for any host↔hub behaviour (safety, freshness,
+communication resilience): it exercises the real safety code, so it can't drift
+from the device the way an Elixir mock would.
+
+- `test/support/c_src/vhub_nif.c` — a **test-only**, purely-functional NIF wrapping
+  the same `firmware/src/*.c` the C harnesses host-compile (`floor`, `transport`,
+  `frame`, `crc16`, `cobs`). Built by `elixir_make` **only in `:test`** (the
+  `compilers:` gate in `mix.exs`); the `.so` is gitignored; the shipped library
+  needs no C. Loader: `BBMcuhub.Test.VHubNif`.
+- `test/support/virtual_hub.ex` — `BBMcuhub.Test.VirtualHub`, a `Host.Transport`
+  that plays the ESP32 hub tree: runs a real C floor per actuator port on **explicit
+  simulated time** (`tick(vhub, now_ms)` is the only clock — no wall-clock sleeps),
+  routes host-bound traffic through the real `FramingCOBS` seam, and injects faults
+  (`silence`, `broadcast_disarm`, `reset_floor`, `inject_wire` for corrupt/torn
+  bytes). Read back state with `armed?`/`drive`/`status_wire`.
+- `test/host/soft_fault_e2e_test.exs` is the worked example to copy from.
+
+When you add resilience/safety/wire coverage, reach for this seam **before** a
+unit-level mock or a live-board test — keep assertions count-/value-based and time
+explicit so nothing flakes. (Two things it can't reach, by design: the **WDT
+boot-loop**, which needs a real RTOS/QEMU or the board, and **motor-sign
+calibration**, which is a bench step.)
 
 ## Conventions
 
