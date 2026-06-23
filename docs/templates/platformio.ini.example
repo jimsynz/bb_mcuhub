@@ -1,0 +1,92 @@
+; ============================================================================
+;  platformio.ini TEMPLATE for a bb_mcuhub robot's firmware (one env per hub)
+;  Copy this into <your-app>/firmware/platformio.ini and adapt the marked
+;  placeholders. Based on examples/segby_v1/firmware/platformio.ini.
+;
+;  Replace every placeholder:
+;    <slug>     your robot's slug (the --slug you pass to mix wire.gen, e.g.
+;               "segby_v1"); the generated headers land in firmware/gen/<slug>/.
+;    <hub>      a hub name from your `hubs do` block (e.g. blaster, wheels) — one
+;               env + one mcu/<hub>.cpp per hub.
+;    <path>     the relative path from THIS file to the bb_mcuhub firmware/ dir
+;               (the C chassis, packaged by firmware/library.json at the repo
+;               root). For an in-tree example it is "../../../firmware"; for a
+;               registry/git dep, see lib_deps notes below.
+;    0xNN       this hub's NODE id — the SAME id you wrote in `hubs do`
+;               (hub(:<hub>, ..., node: 0xNN)). Whole-tree unique (§ NODE/PORT).
+;    <baud>     host<->root UART baud; must match the host transport baud.
+;
+;  How a build is composed: each env = exactly ONE hand-written device file
+;  (mcu/<hub>.cpp) + the C chassis (codec/scheduler/router/transport/floor/
+;  segment + the esp32 link layer + the generic hub main loop, pulled via
+;  lib_deps) + this robot's GENERATED headers (-Igen/<slug>). The device .cpp
+;  #includes its generated <hub>.glue.h, which #includes the chassis headers.
+;  Root-ness is GENERATED, never flagged — there is NO -DROOT_HUB (see below).
+; ============================================================================
+
+[platformio]
+; The device hooks + the generated headers live under firmware/ (this dir).
+src_dir = .
+
+[env]
+; The pioarduino FORK of platform-espressif32 — REQUIRED for arduino-esp32 3.x /
+; ESP-IDF 5.x, which is where the TWAI (CAN) driver API used by the chassis'
+; esp32 link layer lives. Stock platform-espressif32 will not build the chassis.
+platform = https://github.com/pioarduino/platform-espressif32/releases/download/55.03.38-1/platform-espressif32.zip
+board = lolin32_lite          ; <-- set to YOUR ESP32 board
+framework = arduino
+monitor_speed = 115200
+upload_speed = 115200
+
+; The bb_mcuhub C chassis as a PlatformIO library. Its library.json (at the repo
+; root's firmware/) packages src/ + include/, so PlatformIO pulls the chassis as
+; a dependency — NOT by globbing the library's sources into this build.
+;   - In-tree (example layout): symlink://<path>/firmware  (a relative path).
+;   - A registry or git dep later swaps this one line; the build shape is the same.
+lib_deps =
+  symlink://<path>/firmware
+build_flags =
+  -Wall
+
+; ---------------------------------------------------------------------------
+;  ROOT HUB env — the hub that declares `parent: :host` in your `hubs do` block.
+;  Root-ness is GENERATED (ADR-0006): the DSL declares parent: :host, the
+;  generator emits ROOT_NODE into gen/<slug>/wire_contract.h, and the chassis
+;  derives IS_ROOT = (MY_NODE == ROOT_NODE). So -DMY_NODE=<root node> ALONE makes
+;  this the root — there is NO -DROOT_HUB flag. The root env's MY_NODE MUST equal
+;  the declared root node.
+; ---------------------------------------------------------------------------
+[env:<hub>_root]
+build_flags =
+  ${env.build_flags}
+  ; the generated-headers include path: wire_contract.h, <hub>.glue.h,
+  ; <hub>.device.h — all under firmware/gen/<slug>/.
+  -Igen/<slug>
+  ; this hub's NODE id; REQUIRED. Equals ROOT_NODE here, so this is the root.
+  -DMY_NODE=0xNN
+  ; host<->root UART baud; ROOT ENV ONLY. Must match the host's transport baud
+  ; (the `transport_opts` your host launcher passes to BBMcuhub.Host).
+  -DHOST_UART_BAUD=<baud>
+build_src_filter =
+  ; compile ONLY this hub's hand-written device file for this env.
+  +<mcu/<hub>.cpp>
+
+; ---------------------------------------------------------------------------
+;  LEAF / non-root hub env — a hub that declares `parent: :<some_hub>` with an
+;  `uplink: :uart | :can`. No -DHOST_UART_BAUD (it has no host link); no
+;  -DROOT_HUB (root-ness is generated). Add per-hub lib_deps (e.g. a motor
+;  library) by extending ${env.lib_deps}.
+; ---------------------------------------------------------------------------
+[env:<hub>_leaf]
+; extra libraries for THIS hub only (optional) — inherit the chassis, then add:
+; lib_deps =
+;   ${env.lib_deps}
+;   some/Library@^1.2.3
+build_flags =
+  ${env.build_flags}
+  -Igen/<slug>
+  ; this hub's NODE id; REQUIRED. NOT equal to ROOT_NODE, so the chassis treats
+  ; it as a non-root hub (IS_ROOT is false).
+  -DMY_NODE=0xNN
+build_src_filter =
+  +<mcu/<hub>.cpp>
