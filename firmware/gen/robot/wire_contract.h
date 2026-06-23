@@ -12,6 +12,12 @@
 #define WIRE_HEADER_STAMPED_SIZE 12
 #define WIRE_BROADCAST_NODE 0x00
 
+/* The root hub's node id (ADR-0006). Root-ness is DECLARED — the hub with
+   parent: :host is root — so the firmware derives IS_ROOT = (MY_NODE ==
+   ROOT_NODE) instead of hand-setting a -DROOT_HUB build flag. Always emitted
+   (a single-hub robot still declares parent: :host). */
+#define ROOT_NODE 0x02
+
 /* Per-link transport of the root hub's DOWNLINKS (ADR-0006). Transport is a
    property of a LINK, not a robot-wide flag: each downlink k carries
    LINK<k>_TRANSPORT_UART = 1 (a plain UART carrying the same COBS+CRC frame,

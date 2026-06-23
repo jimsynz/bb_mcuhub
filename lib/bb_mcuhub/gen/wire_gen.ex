@@ -182,6 +182,12 @@ defmodule BBMcuhub.Gen.WireGen do
         "#define WIRE_HEADER_STAMPED_SIZE #{Contract.header_size(true)}",
         "#define WIRE_BROADCAST_NODE 0x#{hex2(Contract.broadcast_node())}",
         "",
+        "/* The root hub's node id (ADR-0006). Root-ness is DECLARED — the hub with",
+        "   parent: :host is root — so the firmware derives IS_ROOT = (MY_NODE ==",
+        "   ROOT_NODE) instead of hand-setting a -DROOT_HUB build flag. Always emitted",
+        "   (a single-hub robot still declares parent: :host). */",
+        root_node_define(ir),
+        "",
         "/* Per-link transport of the root hub's DOWNLINKS (ADR-0006). Transport is a",
         "   property of a LINK, not a robot-wide flag: each downlink k carries",
         "   LINK<k>_TRANSPORT_UART = 1 (a plain UART carrying the same COBS+CRC frame,",
@@ -1225,6 +1231,20 @@ defmodule BBMcuhub.Gen.WireGen do
   defp sample_scalar(:bool, idx), do: rem(idx, 2) == 0
 
   defp actuators(ir), do: Enum.filter(ir, &(&1.dir == :in and &1.has_safe_action == true))
+
+  # The node id of the ROOT hub (ADR-0006). Root-ness is DECLARED — the hub with
+  # parent: :host is root — so the firmware no longer hand-sets a -DROOT_HUB flag:
+  # the chassis derives IS_ROOT = (MY_NODE == ROOT_NODE) from this generated define.
+  # A single-hub robot still declares parent: :host, so ROOT_NODE is ALWAYS emitted.
+  defp root_node_define(ir) do
+    case Enum.find(hub_models(ir), &(&1.parent == @host)) do
+      nil ->
+        "/* no root declared — topology verifier will have already failed */"
+
+      root ->
+        "#define ROOT_NODE 0x#{hex2(root.node)}"
+    end
+  end
 
   # Per-downlink transport defines for the ROOT hub (ADR-0006). Transport is a
   # property of a LINK: each root downlink k emits LINK<k>_TRANSPORT_UART = 1

@@ -122,6 +122,15 @@ router from one authored model — not inferred from id arithmetic.
   peripheral code out of the safety-critical relay path** (no hardware and no harness
   exercises an N-peripheral link layer), rather than shipping multi-link firmware that
   nothing can test.
+  - **Root-ness is now firmware-realized from the declared source (update, 2026-06-23).**
+    The link layer no longer hand-sets a `-DROOT_HUB` build flag. The generator emits
+    `#define ROOT_NODE 0x<NN>` (the declared `parent: :host` hub's node) into
+    `wire_contract.h`, and `link_esp32.cpp` derives `IS_ROOT = (MY_NODE == ROOT_NODE)`
+    — a preprocess-time fold (both are integer literals), so the root/leaf split still
+    happens in the preprocessor, now from one declared truth instead of a flag a board
+    could forget. This closes the part of the firmware scope that had deferred root-ness
+    to a build flag; per-link transport (`LINK<k>_TRANSPORT_UART`) is already generated
+    the same way.
 - **Transport sits where it belongs** (the link), so heterogeneous downlinks (a CAN
   bus + N UARTs under one parent) and genuine multi-hop trees are first-class, not
   worked around.

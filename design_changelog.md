@@ -10,6 +10,39 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-23 — Root-ness is firmware-realized from a generated ROOT_NODE (the -DROOT_HUB flag is gone)
+
+ADR-0006 made root-ness **declared** in the IR — the hub with `parent: :host` is the
+root — and the verifier and generator already computed it (`root_hub?/2`, the
+`LINK<k>_TRANSPORT_UART` defines). But the FIRMWARE still hand-set `-DROOT_HUB` on the
+root env: a second, _unverified_ source of the same truth. Forget the flag on the root
+env (or paste it onto a leaf) and the board silently compiles as the wrong role — the
+exact "inferred topology" foot-gun ADR-0006 set out to close, surviving in the build
+flags after the IR was fixed.
+
+Resolved by deriving root-ness in the chassis from a single generated fact:
+
+- The generator emits `#define ROOT_NODE 0x<NN>` into the robot-scoped
+  `wire_contract.h` (alongside the per-link `LINK<k>_TRANSPORT_UART` defines), where
+  `NN` is the node id of the declared `parent: :host` hub. It is **always** emitted —
+  a single-hub robot still declares `parent: :host`. No root ⇒ a clear comment (the
+  topology verifier has already failed).
+- The link layer (`link_esp32.cpp`) computes `#define IS_ROOT (MY_NODE == ROOT_NODE)`
+  right after including `wire_contract.h`, and every former `#if defined(ROOT_HUB)`
+  block now reads `#if IS_ROOT`. Both `MY_NODE` (from `-DMY_NODE=0x02`) and `ROOT_NODE`
+  are integer literals, so the comparison folds at preprocess time — the root/leaf
+  split still happens entirely in the preprocessor, just from generated truth.
+- The example's `blaster_root` env drops `-DROOT_HUB`; `-DMY_NODE=0x02` now _also_
+  drives root-ness, so there is one source, not two.
+
+No new ADR — this is the firmware half of ADR-0006's declared-topology decision finally
+catching up to the IR, not a new trade-off. It closes the part of ADR-0006's
+"Option-1" firmware scope that had deferred root-ness to a hand-set flag. Implemented
+and gated by the existing drift test + the two-env `pio run` (the authoritative proof
+`IS_ROOT` resolves per env).
+
+---
+
 ## 2026-06-23 — A command value-type names its own command message (completes the agnostic Component)
 
 The same ergonomics review found the actuator **Component** contradicted its own

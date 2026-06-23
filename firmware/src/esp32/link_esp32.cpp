@@ -25,10 +25,12 @@
  * — a wide body (e.g. the 54-byte IMU) rides one COBS frame, exactly like the
  * host↔root UART.
  *
- * Build-time role (the up-link, link 0):
- *   -DROOT_HUB  → link 0 is UART to the host; link 1 (the backplane) reaches a
- *                 child.
- *   (default)   → link 0 is the backplane to the parent (a leaf); no downlinks.
+ * Role (the up-link, link 0) is DERIVED, not flagged (ADR-0006). The generator
+ * emits ROOT_NODE (the declared parent: :host hub) into wire_contract.h, and
+ * this file computes IS_ROOT = (MY_NODE == ROOT_NODE):
+ *   IS_ROOT  → link 0 is UART to the host; link 1 (the backplane) reaches a
+ *              child.
+ *   (else)   → link 0 is the backplane to the parent (a leaf); no downlinks.
  *
  * A root hub with a UART backplane therefore has TWO UARTs: Serial1 (host, on
  * GPIO 16/17 — NOT UART0/USB) and Serial2 (backplane = link 1). The host↔root
@@ -45,12 +47,20 @@ extern "C" {
 #include "link.h"
 #include "segment.h"
 #include "transport.h"
-#include "wire_contract.h" /* LINK1_TRANSPORT_UART — the generated per-link fact */
+#include "wire_contract.h" /* LINK1_TRANSPORT_UART, ROOT_NODE — generated facts */
 }
 
+/* Root-ness is GENERATED, not a hand-set build flag (ADR-0006). The DSL
+ * declares the root (the hub with parent: :host); the generator emits ROOT_NODE
+ * into wire_contract.h; this board's MY_NODE (-DMY_NODE=0x..) and ROOT_NODE are
+ * both integer literals, so IS_ROOT folds at preprocess time and every #if
+ * IS_ROOT below resolves per env. Forgetting a flag can no longer silently make
+ * a root compile as a leaf. */
+#define IS_ROOT (MY_NODE == ROOT_NODE)
+
 /* The root's downlink-1 transport (ADR-0006). A leaf has no downlinks, so this
- * define is only meaningful on a ROOT_HUB build; default it for a clean compile
- * of a leaf (whose only link, 0, is the up-link). */
+ * define is only meaningful when IS_ROOT; default it for a clean compile of a
+ * leaf (whose only link, 0, is the up-link). */
 #ifndef LINK1_TRANSPORT_UART
 #define LINK1_TRANSPORT_UART 1
 #endif
@@ -87,14 +97,14 @@ extern "C" {
 #define BACKPLANE_UART_BAUD 1000000
 #endif
 #ifndef BACKPLANE_UART_TX_PIN
-#if defined(ROOT_HUB)
+#if IS_ROOT
 #define BACKPLANE_UART_TX_PIN 26
 #else
 #define BACKPLANE_UART_TX_PIN 17
 #endif
 #endif
 #ifndef BACKPLANE_UART_RX_PIN
-#if defined(ROOT_HUB)
+#if IS_ROOT
 #define BACKPLANE_UART_RX_PIN 27
 #else
 #define BACKPLANE_UART_RX_PIN 16
@@ -157,7 +167,7 @@ static void can_body_cb(const uint8_t *body, size_t len, void *) {
 }
 #endif
 
-#if defined(ROOT_HUB)
+#if IS_ROOT
 static TransportDecoder
     g_uart_rx; /* the host UART seam — only the root hub has one */
 
@@ -178,7 +188,7 @@ void link_begin(void) {
   seg_reasm_init(&g_can_rx); /* the CAN backplane reassembler (link 1) */
 #endif
 
-#if defined(ROOT_HUB)
+#if IS_ROOT
   transport_decoder_init(&g_uart_rx);
   /* UART1 to the host on dedicated GPIO pins (NOT UART0/USB) — independent of
    * the backplane transport. RX 16 / TX 17, crossed to the Pi's PL011 by
@@ -213,7 +223,7 @@ void link_send_up(const Frame *f) {
   if (body_len == 0)
     return;
 
-#if defined(ROOT_HUB)
+#if IS_ROOT
   /* UP from the root hub is the host UART (Serial1 on GPIO 16/17) — unchanged
    * by the backplane. */
   uint8_t wire[FRAME_MAX_WIRE];
@@ -268,7 +278,7 @@ void link_send_up(const Frame *f) {
  * leaf's link_send_up over the backplane. A non-root hub has no children, so
  * this is a no-op there. Reached via link_send_on_link(1, f). */
 static void link_send_down(const Frame *f) {
-#if defined(ROOT_HUB)
+#if IS_ROOT
   uint8_t body[FRAME_MAX_BODY];
   size_t body_len = frame_encode_body(f, body, sizeof(body));
   if (body_len == 0)
@@ -332,7 +342,7 @@ void link_send_on_link(uint8_t link, const Frame *f) {
 
 /* Pump inbound bytes/frames toward g_on_body. Call every loop. */
 void link_pump(void) {
-#if defined(ROOT_HUB)
+#if IS_ROOT
   while (Serial1.available() > 0) {
     uint8_t b = (uint8_t)Serial1.read();
     transport_decoder_feed(&g_uart_rx, &b, 1, uart_body_cb, nullptr);
