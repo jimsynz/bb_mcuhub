@@ -304,6 +304,27 @@ design bends around.
 _Avoid_: calling an observer a "view" or a "Component" (the control-plane counterpart);
 assuming an observer is always low-frequency (it owns its rate, fast or slow).
 
+### Probe (the diagnostic read)
+
+A **test/diagnostic affordance**, not a running-system component: a single,
+flush-robust expression that returns the **authoritative, freshness-gated, decoded**
+truth of a `(hub, port)` **slot** — for an actuator hub, its **Status slot**'s
+`{applied_seq, floored?}` plus a born-stale freshness verdict — in **one** REPL/console
+read. It exists because the on-board IEx console is unreliable for _multi_-statement
+scripted reads, yet a fault-injection campaign must witness "did the floor fire?"
+reliably; a probe collapses the resolve→read→decode→freshness-gate chain into one
+expression so a `seq` that has gone stale never reads as "driving" (the false-green
+**Status slot** guards against). A probe is **one-shot and synchronous** — it answers
+"what is it right now?" once, on demand, and returns; it owns no timer, no cadence, and
+no **sink**. It is **read-only** (the same pure-reader capability an **Observer** holds)
+and is **not part of the wire contract** (host-side test tooling, drift-neutral, no
+firmware).
+_Avoid_: calling a probe an **Observer**. An observer is a _running plane_ concept — a
+continuous pure reader sampling at its own cadence into a sink; a probe is a _one-shot
+diagnostic_ used by tests and at the bench. (A probe resembles a sample-state observer
+whose "sink" is its return value, but the distinction — continuous plane component vs.
+on-demand test tool — is the point of the separate term.)
+
 ### Control plane · observability plane
 
 Two planes over the same **slots**. The **control plane** is everything that acts on the
