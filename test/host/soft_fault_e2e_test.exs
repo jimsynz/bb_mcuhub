@@ -27,9 +27,10 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
   """
   use ExUnit.Case, async: false
 
+  alias BBMcuhub.BBHub
   alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
-  alias BBMcuhub.Test.VirtualHub
+  alias BBMcuhub.Host.{LinkOwner, Monitor, NodeRegistry}
+  alias BBMcuhub.Test.{ViewHarness, VirtualHub}
   alias BBMcuhub.Wire.{Codec, Stats}
 
   @robot BBMcuhub.Test.Fixtures.Robot
@@ -444,6 +445,133 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
 
       assert {%{applied_seq: 2}, 2, _} = NodeRegistry.get(ctx.a_node, ctx.status_port),
              "the interleaved status frame still reassembled"
+    end
+  end
+
+  describe "the actuator VIEW's live/1 verdict tracks the real status stream" do
+    # Unlike slice_test (which pokes the status slot directly), this drives the real
+    # BB.Actuator view's freshness-gated live/1 over a status stream emitted by the
+    # REAL C floor through the wire: floored → driving → back to unknown when the
+    # stream goes stale. We drive the view's :status_beat by hand for determinism.
+    setup ctx do
+      # The actuator view's init/1 subscribes on the robot's BB PubSub, so the
+      # BeamBots supervision tree must be up for this group (the floor/wire groups
+      # above don't need it).
+      start_supervised!(%{id: BB.Supervisor, start: {BB.Supervisor, :start_link, [@robot]}})
+
+      {:ok, view} =
+        ViewHarness.start(BBHub.Actuator,
+          bb: %{robot: @robot, path: [:base_link, :drive_joint, :drive]},
+          hub: :act_hub,
+          port: :effort_cmd,
+          status_port: :act_status,
+          status_fresh_for: 2,
+          # never auto-fire the status beat; we tick it explicitly
+          beat_ms: 600_000
+        )
+
+      on_exit(fn -> if Process.alive?(view), do: GenServer.stop(view) end)
+      {:ok, view: view}
+    end
+
+    test ":floored_or_unknown until a fresh not-floored status is witnessed, then :driving",
+         ctx do
+      beat = fn -> send(ctx.view, :status_beat) && :sys.get_state(ctx.view) end
+      live = fn -> BBHub.Actuator.live(ViewHarness.view_state(ctx.view)) end
+
+      # Born stale: nothing witnessed.
+      beat.()
+      assert live.() == :floored_or_unknown
+
+      # Earn motion in the real C floor so it emits a fresh, advancing, not-floored
+      # status stream. The view must witness an advance (born-stale) before :driving.
+      command(ctx, 1, 0.5)
+      tick_and_read(ctx, 10)
+      beat.()
+      assert live.() == :floored_or_unknown, "first status seq is baseline — not yet trusted"
+
+      command(ctx, 2, 0.5)
+      tick_and_read(ctx, 20)
+      beat.()
+      assert live.() == :driving, "fresh, not-floored status from the real floor → driving"
+    end
+
+    test "when the status stream stops, live/1 returns to :floored_or_unknown (no false green)",
+         ctx do
+      beat = fn -> send(ctx.view, :status_beat) && :sys.get_state(ctx.view) end
+      live = fn -> BBHub.Actuator.live(ViewHarness.view_state(ctx.view)) end
+
+      command(ctx, 1, 0.5)
+      tick_and_read(ctx, 10)
+      beat.()
+      command(ctx, 2, 0.5)
+      tick_and_read(ctx, 20)
+      beat.()
+      assert live.() == :driving
+
+      # The hub goes silent — no more status emitted (the VirtualHub stops ticking).
+      # The view keeps beating; after status_fresh_for beats the leftover not-floored
+      # value must NOT read as driving (the §05 false-green guard), e2e.
+      beat.()
+      beat.()
+      beat.()
+
+      assert live.() == :floored_or_unknown,
+             "a frozen 'not floored' status must never stay a confident green"
+    end
+  end
+
+  describe "host UART drop + recover (born-stale re-witness across a comms gap)" do
+    test "a monitor that was fresh goes stale on a gap, then re-witnesses on recovery",
+         ctx do
+      # A host-side consumer of the status slot (its own born-stale monitor, ticked on
+      # its own beats — the same machinery a view/observer uses).
+      mon = Monitor.new(ctx.a_node, ctx.status_port, 2)
+
+      # Status flows from the real floor → the monitor witnesses an advance → fresh.
+      command(ctx, 1, 0.5)
+      tick_and_read(ctx, 10)
+      mon = Monitor.check(mon)
+      command(ctx, 2, 0.5)
+      tick_and_read(ctx, 20)
+      mon = Monitor.check(mon)
+      command(ctx, 3, 0.5)
+      tick_and_read(ctx, 40)
+      mon = Monitor.check(mon)
+      assert Monitor.fresh?(mon), "fresh while status flows"
+
+      # UART DROP: the transport dies. No new status reaches the registry.
+      GenServer.stop(ctx.owner)
+
+      # The consumer keeps beating against the frozen slot → goes stale within
+      # fresh_for beats. A comms gap must not leave a stale value trusted.
+      mon = mon |> Monitor.check() |> Monitor.check() |> Monitor.check()
+      refute Monitor.fresh?(mon), "a dropped link makes the consumer go stale"
+
+      # RECOVER: a fresh host stack + VirtualHub comes up (a new root-hub link). The
+      # status stream resumes and the SAME consumer must RE-WITNESS an advance before
+      # it trusts again — born-stale across the gap, not an instant re-trust.
+      {:ok, owner2} =
+        LinkOwner.start_link(
+          transport: VirtualHub,
+          transport_opts: [ports: [{ctx.a_node, ctx.eff_port, @window_ms, ctx.status_port}]],
+          command_slots: [{ctx.a_node, ctx.eff_port}],
+          name: nil
+        )
+
+      vhub2 = :sys.get_state(owner2).transport
+      on_exit(fn -> if Process.alive?(owner2), do: GenServer.stop(owner2) end)
+      ctx2 = %{ctx | owner: owner2, vhub: vhub2}
+
+      command(ctx2, 10, 0.5)
+      tick_and_read(ctx2, 100)
+      mon = Monitor.check(mon)
+      command(ctx2, 11, 0.5)
+      tick_and_read(ctx2, 120)
+      mon = Monitor.check(mon)
+
+      assert Monitor.fresh?(mon),
+             "after recovery the consumer re-witnesses an advance and trusts again"
     end
   end
 
