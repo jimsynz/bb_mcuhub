@@ -65,9 +65,11 @@ defmodule BBMcuhub.Dsl.IrTransformer do
   end
 
   # One IR row: producer facts from the hub port, the consumer window (fresh_for)
-  # from the view targeting this (hub, port).
+  # from the view targeting this (hub, port). Built through the IrRow constructor
+  # so a malformed projection fails loud HERE (naming the (hub, port)), never as a
+  # late KeyError in the generator (candidate 1).
   defp ir_row(hub, port, views) do
-    %{
+    BBMcuhub.Contract.IrRow.new(%{
       hub: hub.name,
       node: hub.node,
       parent: hub.parent,
@@ -82,7 +84,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
       fresh_for: fresh_for_for(views, hub.name, port),
       has_safe_action: port.has_safe_action,
       safe_action: port.safe_action
-    }
+    })
   end
 
   # The consumer window the IR carries is the on-chip FLOOR window for a command

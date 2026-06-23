@@ -1205,10 +1205,17 @@ defmodule BBMcuhub.Gen.WireGen do
 
   # --- shared helpers ---
 
-  @doc "Deterministic SHA over the whole IR — the drift hash."
+  @doc """
+  Deterministic SHA over the whole IR — the drift hash.
+
+  Hashed over each row's plain field map (the `__struct__` tag stripped), so the
+  hash reflects the SEMANTIC contract, not the Elixir representation — promoting
+  the IR row from a map to a typed struct (candidate 1) leaves the hash unchanged.
+  """
   @spec contract_sha([Contract.ir_row()]) :: String.t()
   def contract_sha(ir) do
-    canonical = inspect(ir, custom_options: [sort_maps: true], limit: :infinity)
+    semantic = Enum.map(ir, &Map.delete(Map.from_struct(&1), :__struct__))
+    canonical = inspect(semantic, custom_options: [sort_maps: true], limit: :infinity)
     :crypto.hash(:sha256, canonical) |> Base.encode16(case: :lower) |> binary_part(0, 16)
   end
 

@@ -41,22 +41,10 @@ defmodule BBMcuhub.Contract do
   @type port_name :: atom()
   @type dir :: :in | :out
 
-  @type ir_row :: %{
-          hub: hub_name(),
-          node: 0..255,
-          parent: atom(),
-          uplink: :can | :uart | nil,
-          port: port_name(),
-          port_id: 0..255,
-          dir: dir(),
-          type: atom(),
-          layout: Layouts.layout(),
-          stamped: boolean(),
-          rate: pos_integer(),
-          fresh_for: pos_integer() | nil,
-          has_safe_action: boolean() | nil,
-          safe_action: %{atom() => number()} | nil
-        }
+  # An IR row is a typed value (candidate 1): the struct + its smart constructor
+  # live in `BBMcuhub.Contract.IrRow`, which fails loud at projection time on a
+  # malformed row. This alias keeps the existing `Contract.ir_row()` spec name.
+  @type ir_row :: BBMcuhub.Contract.IrRow.t()
 
   @doc """
   The header field layout that frames a payload, for a `stamped?` port.
