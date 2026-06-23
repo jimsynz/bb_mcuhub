@@ -48,5 +48,9 @@ examples/*/deps/
 examples/*/cover/
 examples/*/doc/
 
+# The test-only virtual-hub NIF is a built artifact (platform-specific); its C
+# source lives under test/support/c_src/ and IS tracked. Rebuilt by elixir_make.
+/priv/*.so
+
 # Local secrets (wifi creds for the Nerves build, etc.) — never commit
 .env

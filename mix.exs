@@ -10,6 +10,14 @@ defmodule BBMcuhub.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
+      # The virtual-hub NIF (test-only, Option B) wraps the real firmware C floor +
+      # wire path so the soft-fault e2e runs the ACTUAL safety code. Built by
+      # elixir_make ONLY in :test; never shipped (see test/support/c_src/Makefile).
+      make_targets: ["all"],
+      make_clean: ["clean"],
+      make_cwd: "test/support/c_src",
+      compilers:
+        if(Mix.env() == :test, do: [:elixir_make | Mix.compilers()], else: Mix.compilers()),
       description: description(),
       package: package(),
       name: "bb_mcuhub",
@@ -51,6 +59,10 @@ defmodule BBMcuhub.MixProject do
       # worked example (segby_v1) uses the dashboard, so the library no longer
       # depends on it.
       {:stream_data, "~> 1.0", only: [:dev, :test]},
+      # Builds the test-only virtual-hub NIF (Option B). Already a transitive dep
+      # via circuits_uart, so this is not a new shipped dependency; the NIF itself
+      # is built only in :test (see the :compilers gate in project/0).
+      {:elixir_make, "~> 0.8", runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
   end
