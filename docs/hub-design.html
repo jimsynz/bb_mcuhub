@@ -1121,23 +1121,27 @@
           only, and a downstream hub is reached by addressing its own NODE,
           which the parent's route table maps to the <em>specific link</em> that
           reaches it. Routing is therefore a flat table lookup on NODE through
-          the generated topology — <code>route_table[node] → link</code>, where
-          the host link is link 0 — a branch hub forwards a frame onto the one
-          link (of possibly several downlinks) that reaches that node, never a
-          peer-name dispatch and never a port on the parent. <b>SEQ</b> is the
-          producing hub's own write counter, bumped by one on every real new
-          value; a relay hub copies it verbatim. <b>T_DEV</b> is the producing
-          hub's own 64-bit monotonic microseconds at the write — carried for
-          same-device use only (§04), 64-bit so a hub's clock never wraps in the
-          field; it is <b>present only on ports that declare it</b> (stamped
-          ports), so a command or status frame omits it entirely. The decoder
-          learns whether a frame carries it from the
-          <code>(NODE, PORT)</code> it just read, so the optional field is never
-          ambiguous. The CRC covers the whole decoded body (NODE…PAYLOAD), so it
-          guards the routing header across every hop — the UART above the root
-          hub and the CAN below it alike — not just the payload. The same frame
-          rides both transports; the root hub re-frames it from one to the other
-          without touching NODE, SEQ, T_DEV, or PAYLOAD.
+          the generated topology — <code>route_table[node] → link</code> — a
+          branch hub forwards a frame onto the one link (of possibly several
+          downlinks) that reaches that node, never a peer-name dispatch and
+          never a port on the parent. Link indices are <em>per-hub-local</em>:
+          each hub numbers its own links, with <b>link 0 the up-link</b> toward
+          its parent (the host UART for the root) and its downlinks
+          <code>1..N</code> (a shared CAN bus is one link, each point-to-point
+          UART its own). <b>SEQ</b> is the producing hub's own write counter,
+          bumped by one on every real new value; a relay hub copies it verbatim.
+          <b>T_DEV</b> is the producing hub's own 64-bit monotonic microseconds
+          at the write — carried for same-device use only (§04), 64-bit so a
+          hub's clock never wraps in the field; it is
+          <b>present only on ports that declare it</b> (stamped ports), so a
+          command or status frame omits it entirely. The decoder learns whether
+          a frame carries it from the <code>(NODE, PORT)</code> it just read, so
+          the optional field is never ambiguous. The CRC covers the whole
+          decoded body (NODE…PAYLOAD), so it guards the routing header across
+          every hop — the UART above the root hub and the CAN below it alike —
+          not just the payload. The same frame rides both transports; the root
+          hub re-frames it from one to the other without touching NODE, SEQ,
+          T_DEV, or PAYLOAD.
         </p>
 
         <div class="callout bad">

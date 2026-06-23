@@ -63,9 +63,17 @@ transport"; it sits at the end of a link that does.
 - **Routing — the route table maps `node → link`.** The generator replaces the 3-way
   `LINK_UP | LINK_DOWN | LINK_LOCAL` fill with a per-node lookup of the **specific
   link** that reaches that node (the parent link toward an ancestor, the correct
-  child link toward a descendant, local for self). The host link is link 0. This is
-  what lets a parent route to the right one of several downlinks, and what makes
-  multi-hop trees work.
+  child link toward a descendant, local for self). This is what lets a parent route to
+  the right one of several downlinks, and what makes multi-hop trees work.
+  - **Link indices are per-hub-local.** Each hub numbers its own links: **link 0 is
+    always the up-link** (toward the parent — the host UART for the root), and its
+    downlinks take indices `1..N`. A CAN bus shared by several children is **one**
+    link (one index); each UART child is **its own** link. A hub's `route_table[node]`
+    is an index into _that hub's_ link list — the root's link 1 is unrelated to a
+    leaf's link 1. The firmware's `send_on_link(idx, frame)` maps a local index to
+    that hub's peripheral. (The model is generic over N links; a given board's
+    `link_esp32.cpp` realizes the links it physically has and stubs the rest — see
+    Consequences.)
 - **Verifier — the tree is well-formed.** Exactly one hub declares `parent: :host`
   (one root); every `parent:` names a declared hub; no cycles; every hub is reachable
   from the root (connected). A violation refuses to compile, naming the offending
@@ -104,6 +112,16 @@ router from one authored model — not inferred from id arithmetic.
 - **The three inferred topology facts become declared + verified.** Wrong-root,
   contradictory-backplane, and unexpressible-tree-shape all become compile errors or
   simply expressible — no id-ordering accidents.
+- **The model is generic over N links; the firmware realizes what the hardware has.**
+  The host-side model (DSL, verifier, IR, the per-hub `node → link` route table) and
+  the C `Router` are **fully generic** over any number of links and are exercised by
+  the host-compiled router harness. But a given board's `link_esp32.cpp` only realizes
+  the links it **physically** has — the example's single downlink today; a second UART
+  or a CAN+UART mix is a route-table-correct, harness-tested path whose `send_on_link`
+  case is implemented when that board exists. This deliberately keeps **unvalidated
+  peripheral code out of the safety-critical relay path** (no hardware and no harness
+  exercises an N-peripheral link layer), rather than shipping multi-link firmware that
+  nothing can test.
 - **Transport sits where it belongs** (the link), so heterogeneous downlinks (a CAN
   bus + N UARTs under one parent) and genuine multi-hop trees are first-class, not
   worked around.
