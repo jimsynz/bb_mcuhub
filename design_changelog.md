@@ -98,6 +98,12 @@ Resolved by making the safe action **the same kind of thing as the command**:
 - **The verifier requires `safe_action` on every floored port** and rejects an
   ill-formed one at compile time — the three silent failures become loud or
   impossible.
+- **A `dir: :in` port declares its role with a required `has_safe_action` boolean**
+  (`true` ⇒ floored, safe*action required, floor generated; `false` ⇒ non-floored
+  actuator like the LED, no safe_action). The floored-vs-not distinction is no longer
+  \_inferred* from whether `safe_action` is present — so a motor with a forgotten safe
+  action is a compile error, not a silently un-floored port. (Named `has_safe_action`
+  rather than `floored` because it says exactly what it gates.)
 
 Decision recorded in **ADR-0005**; CONTEXT.md gains a **Safe action** term and the
 floor entry notes its value-type-agnosticism. Design locked; implementation is a

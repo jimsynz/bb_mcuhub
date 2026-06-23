@@ -1982,7 +1982,7 @@
 
   ports <span class="k">do</span>
     port :motor_target, dir: :in, type: <span class="t">BBMcuhub.ValueType.Effort</span>, rate: 50,
-      safe_action: %{nm: <span class="n">0.0</span>}, step: {<span class="t">Hubs.Motor.Floor</span>, :step}  <span class="c"># a value of the port's value-type</span>
+      has_safe_action: <span class="k">true</span>, safe_action: %{nm: <span class="n">0.0</span>}  <span class="c"># floored: a value of the port's value-type (false ⇒ non-floored, e.g. an LED)</span>
     port :motor_status, dir: :out, type: <span class="t">BBMcuhub.ValueType.Status</span>, rate: 50  <span class="c"># reports its own truth (§05)</span>
   <span class="k">end</span>
 <span class="k">end</span></pre>

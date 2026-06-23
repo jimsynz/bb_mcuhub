@@ -182,9 +182,14 @@ servo's is a neutral position (plus, say, a brake flag); whatever the value-type
 express, a safe action can be. It is **declared once** on the port and is therefore
 checked by the same validation as any value-type value (an ill-formed safe action refuses
 to compile) and rendered into firmware by the same codec as the wire bytes, so the
-on-chip safe state cannot drift from what was declared. Every floored command port **must**
-declare one — a floored port is never silently floorless (ADR-0005).
-_Avoid_: treating a safe action as a bare scalar or a magic keyword; it is a typed value.
+on-chip safe state cannot drift from what was declared. A command port states its role
+explicitly with a required **`has_safe_action`** boolean: `true` ⇒ floored, a safe action
+is required and a floor is generated; `false` ⇒ a non-floored actuator (e.g. an LED), no
+safe action. Because the flag is required, a floored port is never silently floorless — a
+forgotten safe action is a compile error, not a missing dead-man (ADR-0005).
+_Avoid_: treating a safe action as a bare scalar or a magic keyword (it is a typed value),
+or inferring "floored" from whether a safe action happens to be present (it is the explicit
+`has_safe_action` role).
 
 ### Born-disarmed
 

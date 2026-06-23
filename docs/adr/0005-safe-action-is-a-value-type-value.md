@@ -61,12 +61,22 @@ instance of the same value-type the command carries. So:
   **never knew the value was a torque** and now doesn't pretend to. The `_drive` hook
   receives the packed value and the device-specific code unpacks it (mirroring how a
   sense hook already packs into a struct). The scalar case is just `N = 4`.
-- **Verifier — validate and require.** `safe_action` is validated as any value-type
-  value (every layout field present, right types) → an unknown field or wrong shape
-  is a **compile error**, not a silent default. And `safe_action` is **required** on
-  every floored command port; a `dir: :in` port that should be floored can no longer
-  lose its dead-man by omission. (A genuinely non-floored actuator — e.g. an LED —
-  remains expressible, but as an explicit role, not as the absence of a keyword.)
+- **A `dir: :in` port declares its role explicitly with `has_safe_action`.** The
+  floored-vs-not distinction is no longer inferred from whether `safe_action` happens
+  to be present — it is a **required boolean** on every command port. `has_safe_action:
+true` means the port is floored: a `safe_action` value **must** be given and the port
+  gets a Floor. `has_safe_action: false` means a non-floored actuator (e.g. the LED):
+  `safe_action` must be **absent** and the port is direct-drive. Because the flag is
+  required, **omitting it is a compile error** — a motor can no longer silently lose
+  its dead-man by a forgotten keyword. (The name says exactly what it gates; it reads
+  truer than "floored.")
+- **Verifier — validate and require.** When `has_safe_action: true`, `safe_action` is
+  validated as any value-type value (every layout field present, right types) → an
+  unknown field or wrong shape is a **compile error**, not a silent default; and it
+  must be present. When `has_safe_action: false`, a stray `safe_action` is a compile
+  error (the role and the value must agree). A genuinely non-floored actuator remains
+  expressible — but as the explicit `has_safe_action: false` role, never as the absence
+  of a keyword.
 
 The net effect: the safe-state contract becomes a value the user states once, the
 verifier checks, and the generator renders identically into C and into the parity
