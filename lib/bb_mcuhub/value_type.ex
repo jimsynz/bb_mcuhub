@@ -54,6 +54,22 @@ defmodule BBMcuhub.ValueType do
   @doc "The inverse of `lift/1`: a typed `BB.Message` payload → a raw `%{field => number}` map."
   @callback unlift(struct() | map()) :: map()
 
+  @doc """
+  The `BB.Message` command struct this value-type accepts, or `nil`.
+
+  A **command** value-type (placed on a `dir: :in` port) overrides this to return
+  the `BB.Message` struct module its `unlift/1` pattern-matches — the same struct a
+  BeamBots controller publishes. The actuator **Component** derives its PubSub
+  subscribe `message_types` from this, so a consumer's own command flows through the
+  generic view, never a hard-coded `Effort` (finding #1 / the agnostic Component).
+
+  A **sense/status** value-type leaves it `nil` (the overridable default): it puts
+  no command on the wire, so it has no command message. The verifier requires a
+  non-`nil` `command_message` on every `dir: :in` port, so a sense value-type on a
+  command port fails loud at compile time.
+  """
+  @callback command_message() :: module() | nil
+
   # The stock value-types the library ships (ADR-0003: imu, effort, status).
   # Anything else is a CONSUMER-defined value-type, named by MODULE (the example's
   # SegbyV1.ValueTypes.{Range,Led}, the fixture's Scalar) — resolved by the
@@ -84,6 +100,15 @@ defmodule BBMcuhub.ValueType do
       @behaviour BBMcuhub.ValueType
 
       import BBMcuhub.ValueType, only: [layout: 1]
+
+      # Every value-type gets `command_message/0` without being forced to implement
+      # it — a sense/status value-type leaves this nil; a COMMAND value-type defines
+      # its own `def command_message`, which overrides this default (the
+      # `defoverridable` idiom). The verifier requires a non-nil command_message on
+      # every command (:in) port, so the default is only valid on sense/status ports.
+      @impl BBMcuhub.ValueType
+      def command_message, do: nil
+      defoverridable command_message: 0
     end
   end
 

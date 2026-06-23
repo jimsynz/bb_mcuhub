@@ -103,6 +103,22 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     end
   end
 
+  defmodule SenseCommandHub do
+    @moduledoc """
+    A hub whose `:in` (command) port is typed with a SENSE value-type (`:imu`),
+    which declares no `command_message` (the overridable nil default). A command
+    port's value-type MUST name the BB.Message struct it accepts (finding #1 / the
+    agnostic Component), so placing this in a robot must trip
+    `verify_command_messages`. `has_safe_action: false` clears the floored-role
+    check, so we reach the command_message check alone.
+    """
+    use BBMcuhub.Hub
+
+    ports do
+      port(:cmd, dir: :in, type: :imu, rate: 50, has_safe_action: false)
+    end
+  end
+
   defmodule CollideHub do
     @moduledoc """
     A hub whose two REAL port names hash to the same `port_id` (0xA6) — a genuine
@@ -256,6 +272,28 @@ defmodule BBMcuhub.Dsl.VerifierTest do
 
       assert err.message =~ "{:led, :cmd}"
       assert err.message =~ "has_safe_action: false"
+    end
+
+    test "sense value-type on a command port: a :in port whose value-type names no command_message is rejected (finding #1)" do
+      err =
+        assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.SenseCommand do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:motor, BBMcuhub.Dsl.VerifierTest.SenseCommandHub, node: 0x05)
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+        end
+
+      # names the offending (hub, port), the sense value-type, and command_message
+      assert err.message =~ "{:motor, :cmd}"
+      assert err.message =~ ":imu"
+      assert err.message =~ "command_message"
     end
 
     test "unknown port: a view naming a port no hub declares is rejected (§06)" do

@@ -19,4 +19,9 @@ defmodule BBMcuhub.ValueType.Effort do
 
   @impl BBMcuhub.ValueType
   def unlift(%BB.Message.Actuator.Command.Effort{effort: nm}), do: %{nm: nm * 1.0}
+
+  # The command struct this value-type accepts — the same struct unlift/1 matches.
+  # The actuator view derives its PubSub subscribe from this (finding #1).
+  @impl BBMcuhub.ValueType
+  def command_message, do: BB.Message.Actuator.Command.Effort
 end

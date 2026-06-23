@@ -164,12 +164,42 @@ defmodule BBMcuhub.Dsl.Verifier do
     with :ok <- verify_nodes(hubs, module),
          :ok <- verify_fresh_for(views, module),
          :ok <- verify_safe_actions(ir, module),
+         :ok <- verify_command_messages(ir, module),
          :ok <- verify_reconciliation(views, ir, module),
          :ok <- verify_no_id_collision(ir, module),
          :ok <- verify_frame_sizes(ir, module) do
       :ok
     end
   end
+
+  # The agnostic-Component contract (finding #1), per command port: every `dir: :in`
+  # (command) port's value-type MUST name the `BB.Message` command struct it accepts
+  # via `command_message/0` (non-nil). The actuator view derives its PubSub subscribe
+  # from that struct, so a sense value-type (which leaves command_message nil) on a
+  # command port would silently subscribe to `nil` and never receive a command — a
+  # misconfiguration the verifier catches at compile time, not at runtime.
+  defp verify_command_messages(ir, module) do
+    Enum.reduce_while(ir, :ok, fn row, :ok ->
+      case verify_command_message(row, module) do
+        :ok -> {:cont, :ok}
+        {:error, _} = err -> {:halt, err}
+      end
+    end)
+  end
+
+  defp verify_command_message(%{dir: :in} = row, module) do
+    if is_nil(BBMcuhub.ValueType.resolve(row.type).command_message()) do
+      error(
+        module,
+        [:hubs, row.hub],
+        "command port #{inspect({row.hub, row.port})} uses value-type #{inspect(row.type)} which declares no command_message — a command value-type must name the BB.Message struct it accepts (finding #1 / agnostic Component)"
+      )
+    else
+      :ok
+    end
+  end
+
+  defp verify_command_message(%{dir: :out}, _module), do: :ok
 
   # The floored-role contract (ADR-0005), per port:
   #

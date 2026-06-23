@@ -8,11 +8,14 @@ defmodule SegbyV1.ValueTypes.Led do
   library edit. A port names it BY MODULE (`type: SegbyV1.ValueTypes.Led`), which
   `BBMcuhub.ValueType.resolve/1` passes through unchanged.
 
-  Led is a command value-type with **no `BB.Message` form on any current value
-  path**: segby_v1's `status_led` port is declared (`dir: :in`) but no actuator view
-  is wired to it, so `unlift/1` is never called today. So `lift/1`/`unlift/1` are an
-  identity passthrough on the raw field map. (A real example could unlift from a
-  typed command message.)
+  Led is a command value-type that names its OWN command message,
+  `SegbyV1.Messages.LedColor` (`command_message/0`) — a consumer-defined `BB.Message`
+  the EXAMPLE provides, since the library ships no LED/color struct. This is the full
+  consumer-defined-command demonstration: an own value-type AND its own command. The
+  command-port verifier requires this non-nil command_message; an actuator view may or
+  may not be wired to the `status_led` port, but the value-type now has a real command
+  contract either way. `lift/1`/`unlift/1` are the genuine mapping between the typed
+  `LedColor` struct and the wire field map.
   """
   use BBMcuhub.ValueType
 
@@ -24,8 +27,13 @@ defmodule SegbyV1.ValueTypes.Led do
   )
 
   @impl BBMcuhub.ValueType
-  def lift(map) when is_map(map), do: map
+  def lift(%{r: r, g: g, b: b}), do: %SegbyV1.Messages.LedColor{r: r, g: g, b: b}
 
   @impl BBMcuhub.ValueType
-  def unlift(map) when is_map(map), do: map
+  def unlift(%SegbyV1.Messages.LedColor{r: r, g: g, b: b}), do: %{r: r, g: g, b: b}
+
+  # The command struct this value-type accepts — the same struct unlift/1 matches.
+  # An actuator view (if wired to status_led) derives its PubSub subscribe from this.
+  @impl BBMcuhub.ValueType
+  def command_message, do: SegbyV1.Messages.LedColor
 end

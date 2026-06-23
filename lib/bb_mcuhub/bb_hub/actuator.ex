@@ -48,14 +48,21 @@ defmodule BBMcuhub.BBHub.Actuator do
 
     with {:ok, {node_id, port_id}} <- PortIndex.resolve(hub, port),
          {:ok, {^node_id, status_id}} <- PortIndex.resolve(hub, status_port) do
-      # Subscribe to our own command topic so a controller's published Effort (the
+      # Resolve the command port's value-type module FIRST, so the subscribe can
+      # derive its message_types from the value-type rather than hard-coding one.
+      value_type = command_value_type(node_id, port_id)
+
+      # Subscribe to our own command topic so a controller's published command (the
       # §04 single-writer flow: a controller is a pure producer, the view is the
-      # sole slot writer) reaches `handle_info/2`. `BB.publish(robot, [:actuator |
-      # path], %Effort{})` lands here; we write the slot and notify the link owner.
-      # (The direct `{:command, msg}` cast — set_effort!/3 — is also handled.)
-      BB.subscribe(bb.robot, [:actuator | bb.path],
-        message_types: [BB.Message.Actuator.Command.Effort]
-      )
+      # sole slot writer) reaches `handle_info/2`. The subscribe filters by the
+      # struct the value-type NAMES (`command_message/0`) — derived, never the
+      # literal `Effort` — so a consumer's own command surfaces through this same
+      # view (finding #1 / the agnostic Component). The verifier guarantees a
+      # command port's value-type declares a non-nil command_message, so this is
+      # safe. `BB.publish(robot, [:actuator | path], %Cmd{})` lands here; we write
+      # the slot and notify the link owner. (The direct `{:command, msg}` cast —
+      # set_effort!/3 — is also handled.)
+      BB.subscribe(bb.robot, [:actuator | bb.path], message_types: [value_type.command_message()])
 
       # the status slot is read THROUGH a born-stale monitor (§05): a stale "not
       # floored" must never read as driving, so the view ticks the monitor on its
@@ -68,7 +75,7 @@ defmodule BBMcuhub.BBHub.Actuator do
          node_id: node_id,
          port_id: port_id,
          status_id: status_id,
-         value_type: command_value_type(node_id, port_id),
+         value_type: value_type,
          seq: opts[:command_seq_start] || 1,
          status_mon: Monitor.new(node_id, status_id, opts[:status_fresh_for] || 5)
        }}
