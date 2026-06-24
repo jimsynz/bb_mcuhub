@@ -13,10 +13,9 @@ defmodule SegbyV1Nerves.Application do
   COMPILE time into `@target` (`Mix.target()` runs during compilation). The
   `SegbyV1.Host` child is added ONLY when `@target != :host`. On host the child
   is `nil` and `Enum.reject(&is_nil/1)` drops it, leaving a tree that boots
-  cleanly with no hardware. This mirrors the `master_firmware` reference's
-  nil-child pattern, but uses a compile-time gate instead of a config-driven
-  Stub transport because `SegbyV1.Host` opens a real UART (`circuits_uart`)
-  with no host stub.
+  cleanly with no hardware. It uses a compile-time gate (rather than a
+  config-driven stub transport) because `SegbyV1.Host` opens a real UART
+  (`circuits_uart`) with no host stub.
 
   ## Target boot
 
@@ -27,8 +26,8 @@ defmodule SegbyV1Nerves.Application do
   `SegbyV1.Host` (a thin wrapper over `BBMCUHub.Host`) stands up
   `BB.Supervisor` + the `LinkOwner` over `BBMCUHub.Host.Transport.UART`, which
   opens `/dev/ttyAMA0`. 115200 baud is the proven-good Pi<->Blaster baud — at
-  1 Mbit/s the link lost ~95% of frames on this hardware (see the reference's
-  config/target.exs note). It MUST match the Blaster's firmware UART baud.
+  1 Mbit/s the link lost ~95% of frames on this hardware. It MUST match the
+  Blaster's firmware UART baud.
 
   ## Firmware validation (OTA auto-rollback)
 

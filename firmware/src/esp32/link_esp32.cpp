@@ -1,7 +1,6 @@
 /* ESP32 link layer (§03, ADR-0006): the host↔root UART seam and the per-hub
- * LOCAL LINKS, all carrying the SAME COBS+CRC frame. Mirrors the reference
- * climber transport but conforms to the design: one frame, big-endian body,
- * end-to-end CRC across the re-framing boundary.
+ * LOCAL LINKS, all carrying the SAME COBS+CRC frame: one frame, big-endian
+ * body, end-to-end CRC across the re-framing boundary.
  *
  * Links are per-hub-local INDICES (ADR-0006): link 0 is the up-link (the host
  * UART on the root, the parent backplane on a leaf); downlinks are 1..N. The
@@ -77,7 +76,7 @@ extern "C" {
 
 /* The host↔root-hub seam is UART1 (Serial1) on dedicated GPIO pins — NOT Serial
  * (UART0), which on the ESP32 is the USB-bridge console (GPIO 1/3) and is not
- * wired to the host. Pins match the proven reference wiring: the Blaster
+ * wired to the host. Pins match the proven wiring: the Blaster
  * receives the host on RX 16 and transmits on TX 17 (the two ends crossed by
  * wiring). The Pi's PL011 (/dev/ttyAMA0) is the other end. Overridable per
  * board. */

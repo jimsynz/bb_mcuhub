@@ -80,8 +80,8 @@ defmodule SegbyV1.Host do
       i.e. `/dev/ttyAMA0` (the PL011, not the mini-UART — disable the serial
       console and `enable_uart=1` so the PL011 is routed to the GPIO header).
     * **Baud** — `115_200` on this Pi↔Blaster link (passed via `transport_opts`,
-      overriding the library's `1_000_000` default): the reference deployment
-      documented ~95% frame loss at 1 Mbit/s on this wiring/ground, so 115200 is
+      overriding the library's `1_000_000` default): the deployed hardware
+      showed ~95% frame loss at 1 Mbit/s on this wiring/ground, so 115200 is
       the proven-safe baud here. It MUST match the root hub (the Blaster, NODE
       0x02) firmware's `HOST_UART_BAUD`. A consumer with verified-solid wiring can
       raise both ends back to 1 Mbit/s.

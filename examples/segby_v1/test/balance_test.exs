@@ -4,9 +4,9 @@ defmodule SegbyV1.BalanceTest do
 
   Two layers:
 
-    * the PURE cores — `step/3` (the PID, ported from the prior reference's tests),
+    * the PURE cores — `step/3` (the PID),
       `step_pitch/4` (the accel/gyro complementary filter — the LIVE pitch source),
-      `pitch_from_imu/1` (quaternion → pitch — an unused reference helper), and
+      `pitch_from_imu/1` (quaternion → pitch — an unused helper), and
       `mix/4` (teleop forward/turn) — exercised directly, no process.
     * an integration layer — the controller driven by synthetic pose messages
       through the real BB PubSub seam, asserting it publishes `Effort` to BOTH
@@ -21,7 +21,7 @@ defmodule SegbyV1.BalanceTest do
   alias BB.Math.{Quaternion, Vec3}
 
   # ---------------------------------------------------------------------------
-  # Pure PID core — ported from the prior reference (pid_balance_test.exs)
+  # Pure PID core
   # ---------------------------------------------------------------------------
   describe "step/3 — pure PID" do
     test "zero gains -> zero output" do
@@ -190,7 +190,7 @@ defmodule SegbyV1.BalanceTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Pure teleop mix — ported from the prior reference
+  # Pure teleop mix
   # ---------------------------------------------------------------------------
   describe "mix/4 — teleop forward/turn" do
     test "zero teleop preserves the base torque" do
@@ -320,7 +320,7 @@ defmodule SegbyV1.BalanceTest do
   # --- helpers ---------------------------------------------------------------
 
   # The quaternion-pitch helper still exercises pitch_from_imu/1 (an unused
-  # reference helper) with a tilt orientation + a fixed level accel.
+  # helper) with a tilt orientation + a fixed level accel.
   defp imu(%Quaternion{} = q) do
     %BB.Message.Sensor.Imu{
       orientation: q,

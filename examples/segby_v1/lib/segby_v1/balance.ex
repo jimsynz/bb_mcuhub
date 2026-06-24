@@ -3,8 +3,8 @@ defmodule SegbyV1.Balance do
   The segby_v1 host balance controller (§09, Phase) — a `BB.Controller` that
   closes the self-balancing loop on the host.
 
-  This is the host's control pipeline ported from the prior reference firmware
-  (`pid_balance` + `imu_estimator` + `teleop_input`), adapted to the BeamBots
+  This is the host's control pipeline (a PID balance loop + a complementary-filter
+  IMU estimator + a teleop mixer), wired to the BeamBots
   seam: it is a **consumer** of the chassis IMU pose and a **producer** of
   per-wheel effort commands. It NEVER writes a hub command slot — that is the
   actuator view's job (§04 single-writer). It publishes typed
@@ -24,20 +24,20 @@ defmodule SegbyV1.Balance do
   quaternion and ships the REAL accel (m/s²) + gyro (rad/s) in the
   `BB.Message.Sensor.Imu`'s `linear_acceleration` / `angular_velocity` Vec3s
   (the MPU-9250 read scaled to engineering units in firmware). So pitch is
-  recovered HERE by the reference's complementary filter (`ImuEstimator.step/4`),
-  blending the gyro-integrated pitch with the accel-derived absolute pitch:
+  recovered HERE by the complementary filter, blending the gyro-integrated pitch
+  with the accel-derived absolute pitch:
 
       accel_pitch = atan2(-ax, sqrt(ay² + az²))     # absolute, drift-free, noisy
       gyro_pitch  = pitch + wy · dt                  # smooth short-term, drifts
       pitch'      = α · gyro_pitch + (1-α) · accel_pitch   # α = 0.98
 
-  `α = 0.98` (gyro-heavy short-term, accel-anchored long-term) matches the
-  reference. The gyro is already in rad/s on the wire, so `step_pitch/4`
-  integrates `wy · dt` directly (no deg→rad conversion — that scaling happened
-  in firmware). `step_pitch/4` is a pure function; `state.pitch` carries the
-  running estimate between ticks. The quaternion is identity now, so
-  `pitch_from_imu/1` (the quaternion term) is kept only as an unused reference
-  helper; the live loop reads accel/gyro.
+  `α = 0.98` (gyro-heavy short-term, accel-anchored long-term) is a standard
+  complementary-filter blend. The gyro is already in rad/s on the wire, so
+  `step_pitch/4` integrates `wy · dt` directly (no deg→rad conversion — that
+  scaling happened in firmware). `step_pitch/4` is a pure function; `state.pitch`
+  carries the running estimate between ticks. The quaternion is identity now, so
+  `pitch_from_imu/1` (the quaternion term) is kept only as an unused helper; the
+  live loop reads accel/gyro.
 
   ## Gains (segby_v1 config)
 
@@ -78,10 +78,10 @@ defmodule SegbyV1.Balance do
 
   ## Pure functional cores (tested directly)
 
-    * `step/3` — the PID step (ported verbatim from the reference).
+    * `step/3` — the PID step.
     * `step_pitch/4` — accel/gyro complementary filter → pitch (radians).
     * `pitch_from_accel/3` — accel-only absolute pitch (the filter's anchor term).
-    * `pitch_from_imu/1` — quaternion → pitch (radians); unused reference helper.
+    * `pitch_from_imu/1` — quaternion → pitch (radians); unused helper.
     * `mix/4` — teleop forward/turn mixing onto a `{left, right}` torque.
   """
 
@@ -122,7 +122,7 @@ defmodule SegbyV1.Balance do
   alias BB.Message.Geometry.Twist
 
   # Complementary-filter blend factor (gyro-heavy short-term, accel-anchored
-  # long-term), matching the reference ImuEstimator default.
+  # long-term) — a standard complementary-filter default.
   @filter_alpha 0.98
 
   # The PID functional core — its own struct so `step/3` stays pure and testable.
@@ -152,7 +152,7 @@ defmodule SegbyV1.Balance do
   # ----------------------------------------------------------------------------
 
   @doc """
-  Pure PID step (ported verbatim from the prior reference). Given a `%Pid{}`
+  Pure PID step. Given a `%Pid{}`
   state, the current `error` (target - measured), and `dt_s` since the last
   update, return `{output, new_pid}`.
 
@@ -186,8 +186,8 @@ defmodule SegbyV1.Balance do
   end
 
   @doc """
-  Pure accel/gyro complementary-filter pitch step (ported from the reference
-  `ImuEstimator.step/4`). Given the previous `pitch` (radians), a
+  Pure accel/gyro complementary-filter pitch step. Given the previous `pitch`
+  (radians), a
   `BB.Message.Sensor.Imu` carrying the real accel (m/s²) + gyro (rad/s), the
   time delta `dt_s` (seconds), and the blend factor `alpha`, return the new
   pitch (radians, body-Y rotation, positive = nose up):
@@ -229,8 +229,8 @@ defmodule SegbyV1.Balance do
   (ZYX) pitch term `asin(2*(w*y - z*x))` clamped for gimbal-lock safety.
 
   UNUSED by the live loop: the segby MCU ships an identity quaternion and the
-  real accel/gyro, so the live path runs `step_pitch/4`. Kept as a pure
-  reference helper for a world where a fused orientation IS on the wire.
+  real accel/gyro, so the live path runs `step_pitch/4`. Kept as a pure helper
+  for a world where a fused orientation IS on the wire.
   """
   @spec pitch_from_imu(BB.Message.Sensor.Imu.t()) :: float()
   def pitch_from_imu(%BB.Message.Sensor.Imu{orientation: %Quaternion{} = q}) do
@@ -244,7 +244,7 @@ defmodule SegbyV1.Balance do
   end
 
   @doc """
-  Pure teleop mix (ported from the prior reference). Given a base `%{left, right}`
+  Pure teleop mix. Given a base `%{left, right}`
   torque and a teleop intent `%{forward, turn}` (both clamped to `[-1, 1]`),
   apply forward bias to BOTH wheels and a turn differential between them:
 
@@ -334,8 +334,8 @@ defmodule SegbyV1.Balance do
   end
 
   # A pose tick while DISABLED: zero BALANCE torque (so the wheels rest), but
-  # still mix teleop on top — with balance off, teleop drives the wheels directly
-  # (the reference behaviour). Do NOT advance the PID (no windup while off), but
+  # still mix teleop on top — with balance off, teleop drives the wheels directly.
+  # Do NOT advance the PID (no windup while off), but
   # DO advance the complementary filter so the pitch estimate stays live for a
   # clean re-enable (no settling jump on the first enabled tick).
   @impl BB.Controller
@@ -396,7 +396,7 @@ defmodule SegbyV1.Balance do
   end
 
   # Live enable/disable. Resets the integrator on any toggle so re-enabling
-  # starts clean (no windup carryover), mirroring the reference. Accepted both
+  # starts clean (no windup carryover). Accepted both
   # as a `handle_info` (a raw `send`, e.g. in tests) and a `handle_cast` (the
   # `enable/1` / `disable/1` helpers, which `BB.Process.cast`).
   def handle_info({:balance_enable, on?}, state) when is_boolean(on?) do

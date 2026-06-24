@@ -12,9 +12,8 @@ defmodule SegbyV1Nerves.MixProject do
   ## What it does
 
   On `MIX_TARGET=rpi0_2` it boots straight into `SegbyV1.Host` talking to the
-  Blaster (the root hub, NODE 0x02) over `/dev/ttyAMA0` at 115200 baud. It drops
-  the Phoenix/web/config-system baggage of the proven `master_firmware` reference
-  and keeps only the Nerves network + OTA + ssh stack.
+  Blaster (the root hub, NODE 0x02) over `/dev/ttyAMA0` at 115200 baud. It carries
+  no web endpoint or config system — just the Nerves network + OTA + ssh stack.
 
   ## Nested path deps (how they resolve)
 
@@ -28,7 +27,7 @@ defmodule SegbyV1Nerves.MixProject do
   library's `Host.Transport.UART` uses circuits_uart). We also list
   `:circuits_uart` directly so the dep is explicit for the firmware build.
 
-  ## UART invariants (DO NOT regress — carried verbatim from master_firmware)
+  ## UART invariants (DO NOT regress — hardware-verified)
 
     * `dtoverlay=miniuart-bt` in `config/config.txt` — puts the real PL011 on
       GPIO 14/15 as `/dev/ttyAMA0`. `disable-bt` silently renames it to ttyAMA1.

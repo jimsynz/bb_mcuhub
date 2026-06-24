@@ -18,7 +18,7 @@
  *     only; control never reads it). This OVERRIDES the glue's weak no-op
  * default, and the glue calls it at the end of every control_tick.
  *
- * The real FOC port is from climber's SimpleFocNode.cpp. Every SimpleFOC call
+ * The real FOC drive is a SimpleFOC port. Every SimpleFOC call
  * is ARDUINO-guarded (this whole file is), so off-target the drive hooks are
  * absent and the floors + decode are exercised by the host C harnesses (which
  * never compile this). Including wheels.glue.h pulls in the generated
@@ -35,8 +35,8 @@
 #define WHEELS_POST_CONTROL_OVERRIDE
 #include "wheels.glue.h"
 
-/* --- Bench-verified electrical params (climber foc_bench/PARAMS.md, status
- * "alignment ✓ · current sense ✓ · closed-loop velocity-mode working"). The MKS
+/* --- Bench-verified electrical params (status "alignment ✓ · current sense ✓ ·
+ * closed-loop velocity-mode working"). The MKS
  * Dual FOC v3.2 runs a 30-slot/20-pole outrunner (10 pole pairs,
  * cross-confirmed OLS slope 10.105 + A5@P11 motion) at 12 V. Leaving
  * phase_resistance UNSET keeps the PID/target in VOLTS, which matches our
@@ -49,7 +49,7 @@ static const float kMotorVLimit = 4.0f;  /* caps the applied q-axis voltage */
 static const float kMotorVAlign = 8.0f;  /* dominates this rotor's cogging */
 static const uint32_t kI2cHz = 400000;
 
-/* --- Low-side current sense (verified on the bench, foc_bench/PARAMS.md:
+/* --- Low-side current sense (bench-verified):
  * INA181A2 ×50 V/V, 0.01 Ω shunt; M0 IA/IB = ADC 39/36, M1 IA/IB = ADC 35/34;
  * IC = NOT_SET (2-shunt, phase C reconstructed via KCL). Read OUT-OF-BAND for
  * telemetry ONLY — control stays torque-voltage, so a flaky sense never
@@ -65,9 +65,9 @@ static const float kCurrLpfTf =
 #define M1_CS_IB 34
 
 /* --- MKS Dual FOC v3.2 pin map ---
- * Driver pins from climber's SimpleFocNode constructor (mirrors the board's
- * reference): M0 = pwm a/b/c 32/33/25, M1 = pwm a/b/c 26/27/14, shared
- * enable 12. AS5600 encoders from bots/segby_v1/README.md: each AS5600 shares
+ * Driver pins (the board's standard layout): M0 = pwm a/b/c 32/33/25,
+ * M1 = pwm a/b/c 26/27/14, shared
+ * enable 12. AS5600 encoders: each AS5600 shares
  * addr 0x36, so each rides its OWN I²C bus — M0 on Wire (SDA 19 / SCL 18), M1
  * on Wire1 (SDA 23 / SCL 5). */
 #define M0_PWM_A 32
@@ -114,8 +114,7 @@ static float m1_ia_a = 0.0f, m1_ib_a = 0.0f;
 
 /* AS5600 presence probe: a single, bounded I²C address-poll. GATES initFOC() —
  * calling initFOC on an absent encoder spins SimpleFOC's sensor-align on a
- * NACKing bus and hangs boot (no link, no telemetry). Lifted from the reference
- * (SimpleFocNode.cpp::as5600_present_). */
+ * NACKing bus and hangs boot (no link, no telemetry). */
 static const uint8_t kAs5600Addr = 0x36;
 static bool as5600_present(TwoWire &w) {
   w.beginTransmission(kAs5600Addr);
@@ -130,7 +129,7 @@ static void configure_motor(BLDCMotor &m) {
 }
 
 /* In torque-voltage mode SimpleFOC takes motor.target as Uq directly; we reuse
- * the floor's torque output as a q-axis voltage (the reference's honest
+ * the floor's torque output as a q-axis voltage (an honest
  * first-cut), clamped to the motor voltage limit. */
 static float torque_to_uq(float t) {
   if (t > kMotorVLimit)
@@ -147,7 +146,7 @@ static float torque_to_uq(float t) {
  * --- */
 extern "C" void wheels_device_setup(void) {
   /* arduino-esp32 3.x i2c-ng needs the HAL settled before Wire.begin (800 ms is
-   * the empirical floor — climber foc_bench). Two AS5600s share addr 0x36, so
+   * the empirical floor, bench-verified). Two AS5600s share addr 0x36, so
    * each rides its own bus. */
   delay(800);
   Wire.begin(M0_ENC_SDA, M0_ENC_SCL, kI2cHz);
@@ -212,7 +211,7 @@ extern "C" void wheels_motor_right_drive(float effort) {
 }
 
 /* --- device: sample the low-side current sense for telemetry ONLY (the
- * reference's sample_currents_). One raw ADC read per linked phase, smoothed by
+ * current-sense read). One raw ADC read per linked phase, smoothed by
  * a one-pole LPF into a stable amps value. A motor with no linked sense
  * (encoder absent or init failed) holds at 0. This NEVER feeds control — a
  * flaky sense can't destabilise the torque-voltage loop. The v1 :status layout
@@ -220,8 +219,7 @@ extern "C" void wheels_motor_right_drive(float effort) {
  * telemetry port, not put on the wire (that would be a contract change).
  *
  * This OVERRIDES the glue's weak wheels_post_control() default; the generated
- * control_tick calls it at the end of every loop, AFTER both FOC loops run —
- * exactly where the hand-written control_loop_tick called sample_currents().
+ * control_tick calls it at the end of every loop, AFTER both FOC loops run.
  * --- */
 extern "C" void wheels_post_control(void) {
   if (m0_cs_ready) {

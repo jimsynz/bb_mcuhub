@@ -15,15 +15,13 @@
  *   * blaster_range_front_read()   — the REAL HC-SR04 trig/echo → Range struct.
  *   * blaster_status_led_drive()   — apply an RGB triple to the WS2812 strip.
  *
- * The IMU read is the REAL MPU-9250 I²C driver, ported verbatim from climber's
- * Mpu9250Backend.cpp (the bot deployed on hardware): WHO_AM_I sanity-check,
- * wake
+ * The IMU read is the REAL MPU-9250 I²C driver: WHO_AM_I sanity-check, wake
  * + PLL clock, then a 14-byte burst from ACCEL_XOUT_H, big-endian hi/lo. The
  * raw int16 LSB are scaled HERE into the BB.Message.Sensor.Imu engineering
  * units the :imu layout wants — accel m/s², gyro rad/s — with an IDENTITY
  * orientation quaternion (the MCU does not fuse; the host's complementary
  * filter recovers pitch from accel+gyro). The HC-SR04 range read is the real
- * trig/echo dance, ported from climber's Hcsr04Component.cpp. WS2812 pixel push
+ * trig/echo dance. WS2812 pixel push
  * is still a no-op (the decode path is fully wired; only the RMT/NeoPixel write
  * is unbound — a decorative LED has no floor, §09).
  *
@@ -37,11 +35,10 @@
 
 #include "blaster.glue.h"
 
-/* --- segby_v1 Blaster pin map (DOIT V1 ESP32), from bots/segby_v1/README.md
- * "Pin map" + blaster/BoardSupport.cpp — hardware-verified on the deployed bot.
+/* --- segby_v1 Blaster pin map (DOIT V1 ESP32) — hardware-verified.
  * The host UART (Serial) and the UART backplane (Serial2) pins are owned by the
- * link layer (link_esp32.cpp): backplane defaults TX 26 / RX 27 on a root hub,
- * which matches the README's backplane UART (TX 26 / RX 27, UART2). --- */
+ * link layer (link_esp32.cpp): backplane defaults TX 26 / RX 27 on a root hub
+ * (backplane UART on UART2). --- */
 #ifndef IMU_I2C_SDA_PIN
 #define IMU_I2C_SDA_PIN 21 /* MPU-9250 SDA (ESP32 chip-default I²C) */
 #endif
@@ -58,23 +55,22 @@
 #define STATUS_LED_PIN 25 /* WS2812 data */
 #endif
 
-/* --- MPU-9250 register map + scaling (InvenSense datasheet §3; verified on the
- * deployed bot via climber's Mpu9250Backend.cpp + ImuEstimator defaults). ---
- */
+/* --- MPU-9250 register map + scaling (InvenSense datasheet §3;
+ * hardware-verified). --- */
 #define MPU9250_ADDR 0x68         /* AD0 → GND */
 #define MPU9250_REG_WHO_AM_I 0x75 /* → 0x71 (9250) / 0x73 (9255) */
 #define MPU9250_REG_PWR_MGMT_1 0x6B
 #define MPU9250_REG_ACCEL_XOUT_H 0x3B /* 14-byte burst → GYRO_ZOUT_L */
 #define MPU9250_CLKSEL_PLL 0x01       /* PWR_MGMT_1: clear sleep, PLL clock */
 #define MPU9250_I2C_HZ 400000u
-/* ±2g full-scale → 16384 LSB/g; ±250°/s → 131 LSB/(°/s) (ImuEstimator
- * defaults). */
+/* ±2g full-scale → 16384 LSB/g; ±250°/s → 131 LSB/(°/s) (MPU-9250
+ * datasheet defaults). */
 #define MPU9250_ACCEL_LSB_PER_G 16384.0f
 #define MPU9250_GYRO_LSB_PER_DPS 131.0f
 #define MPU9250_G_MS2 9.80665f                   /* one g in m/s² */
 #define MPU9250_DEG_TO_RAD 0.017453292519943295f /* π/180 */
 
-/* --- MPU-9250 I²C helpers, lifted verbatim from the reference. --- */
+/* --- MPU-9250 I²C helpers. --- */
 static bool mpu_write_u8(uint8_t reg, uint8_t val) {
   Wire.beginTransmission(MPU9250_ADDR);
   Wire.write(reg);
@@ -106,8 +102,8 @@ extern "C" void blaster_device_setup(void) {
       &off); /* strip dark at boot (no floor; just a clean start) */
 }
 
-/* --- device: the REAL MPU-9250 read on Wire(SDA 21 / SCL 22) @ addr 0x68,
- * ported from climber's Mpu9250Backend.cpp (deployed on this rig). Lazy
+/* --- device: the REAL MPU-9250 read on Wire(SDA 21 / SCL 22) @ addr 0x68.
+ * Lazy
  * one-time bring-up (open the bus, WHO_AM_I sanity-check, wake + PLL clock); a
  * failed init retries next tick. The 14-byte burst from ACCEL_XOUT_H keeps the
  * sample coherent: accel hi/lo (6) · temp (2, skipped) · gyro hi/lo (6), all
@@ -162,8 +158,8 @@ extern "C" bool blaster_pose_read(Imu *out) {
   return true;
 }
 
-/* --- device: the REAL HC-SR04 range read on TRIG 18 / ECHO 32, ported from
- * climber's Hcsr04Component.cpp. The trig dance (2 µs low, 10 µs high, low)
+/* --- device: the REAL HC-SR04 range read on TRIG 18 / ECHO 32.
+ * The trig dance (2 µs low, 10 µs high, low)
  * then a HARD-timeout pulseIn on ECHO; pulse width → metres via the speed of
  * sound (≈343 m/s, /2 for the round trip). pulseIn returns 0 on no echo within
  * the timeout (bounded by construction, never spins) → return false so
@@ -192,11 +188,11 @@ extern "C" bool blaster_range_front_read(Range *out) {
 }
 
 /* --- device: apply an RGB triple to the WS2812 status strip. Decorative — no
- * floor, a stale LED command is harmless (§09). The pixel PUSH is still a no-op
- * (mirroring the reference Ws2812Component's hw_show_pixels_ no-op hook); the
- * decode path (on the command port) is fully wired, only the RMT/NeoPixel write
- * is unbound. The hook takes the packed Led struct (the value-type owns the
- * signature — a multi-field value → a struct pointer). --- */
+ * floor, a stale LED command is harmless (§09). The pixel PUSH is still a
+ * no-op; the decode path (on the command port) is fully wired, only the
+ * RMT/NeoPixel write is unbound. The hook takes the packed Led struct (the
+ * value-type owns the signature — a multi-field value → a struct pointer). ---
+ */
 extern "C" void blaster_status_led_drive(const Led *v) {
   /* The decode is wired; binding the WS2812 strip on STATUS_LED_PIN (25) via
    * Adafruit_NeoPixel or the RMT peripheral is the only remaining hardware step

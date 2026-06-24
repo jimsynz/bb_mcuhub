@@ -9,11 +9,10 @@ This is its OWN Mix project (app `:segby_v1_nerves`, namespace
 a path dep of `:segby_v1` — it depends on `:segby_v1`, never the other way
 around — so it does not interfere with `cd examples/segby_v1 && mix test`.
 
-It reuses the proven Nerves rpi0_2 config from `climber`'s `master_firmware`
-(VintageNet wifi, mdns_lite, nerves_ssh, shoehorn, the custom fwup.conf +
-config.txt + cmdline-{a,b}.txt that route the PL011 to ttyAMA0) and **drops** the
-prior reference's runtime, Phoenix endpoint, config system, and `BOT`-env
-parameterization.
+It is a focused Nerves rpi0_2 config (VintageNet wifi, mdns_lite, nerves_ssh,
+shoehorn, the custom fwup.conf + config.txt + cmdline-{a,b}.txt that route the
+PL011 to ttyAMA0) — just the network + OTA + ssh stack, with no web endpoint,
+config system, or multi-bot parameterization.
 
 ## Dep chain (nested path deps)
 

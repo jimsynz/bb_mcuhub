@@ -515,7 +515,7 @@ Effort` with Nx-tensor-backed `Quaternion`/`Vec3`.
 
 ### Implementation bugs fixed alongside (code, not design)
 
-These were defects in the reference implementation relative to the (correct)
+These were defects in an earlier implementation relative to the (correct)
 design, fixed in the same pass:
 
 - **`Actuator.live/1` was not freshness-gated** — a stale "not floored" status

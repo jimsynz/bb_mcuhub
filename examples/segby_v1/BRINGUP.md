@@ -169,16 +169,14 @@ both wheels, turn differentials them). Arm/disarm from the safety panel; recall
 the on-chip floor is the real safe-state — disarm/silence both resolve to wheels
 de-energising within 100 ms.
 
-## Real (ported from the hardware-deployed reference)
+## Real (hardware-verified values)
 
-These carry the values verified on the reference bot (`SimpleFocNode.cpp`,
-`Mpu9250Backend.cpp`, `foc_bench/PARAMS.md`) — not placeholders:
+These carry bench- and board-verified values — not placeholders:
 
 - **MPU-9250 IMU**: the real I²C driver (WHO_AM_I → wake PLL → 14-byte burst @
   0x3B), addr 0x68, SDA 21 / SCL 22 @ 400 kHz. Scaled on the MCU to engineering
   units (±2g → ÷16384·g m/s², ±250°/s → ÷131·π/180 rad/s); orientation shipped as
-  identity — the **host** fuses pitch via a complementary filter (α=0.98), exactly
-  as the reference fused on the Master.
+  identity — the **host** fuses pitch via a complementary filter (α=0.98).
 - **HC-SR04 range**: real (TRIG 18 pulse → bounded `pulseIn` ECHO 32 → metres).
 - **Dual FOC**: pole_pairs **10** (cross-confirmed), Vbus 12 V, driver/motor
   V-limits 6/4, align 8, torque-voltage mode, AS5600 (0x36) M0 on Wire (19/18) /
@@ -190,10 +188,10 @@ These carry the values verified on the reference bot (`SimpleFocNode.cpp`,
 Hardware to confirm at bring-up (verify against your actual board/motors):
 
 - The MKS v3.2 silkscreen vs. the pin map above (a per-channel enable M0 22 / M1 12
-  appears in PARAMS.md's table, but the _deployed_ firmware uses a shared enable 12
-  for both — we follow the deployed code; double-check on your board).
+  is one documented variant, but this firmware uses a shared enable 12
+  for both — double-check on your board).
 - `zero_electric_angle` is NOT fixed — `initFOC()` re-aligns each boot (correct).
-- **torque→Uq** is the reference's honest first-cut (effort = q-axis voltage,
+- **torque→Uq** is an honest first-cut (effort = q-axis voltage,
   clamped to 4 V); a real Nm→V map needs the motor's Kt once measured.
 
 ## Still a no-op
