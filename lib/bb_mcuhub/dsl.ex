@@ -42,6 +42,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
   alias BBMcuhub.Contract
   alias BBMcuhub.ValueType
   alias Spark.Dsl.Transformer
+  alias Spark.Error.DslError
 
   # Run after BeamBots' topology is assembled so the view child_specs are present.
   @impl true
@@ -54,14 +55,50 @@ defmodule BBMcuhub.Dsl.IrTransformer do
   def transform(dsl_state) do
     hubs = Transformer.get_entities(dsl_state, [:hubs])
     views = collect_views(Transformer.get_entities(dsl_state, [:topology]))
+    module = Transformer.get_persisted(dsl_state, :module)
 
-    rows =
-      for hub <- hubs, port <- BBMcuhub.Hub.Info.ports(hub.module) do
-        ir_row(hub, port, views)
+    # Parse-don't-scan (finding #6): resolve every port's `type:` to a REAL
+    # value-type module BEFORE projection reads its layout. A typo'd type atom
+    # (`:effor`) is just any atom to the DSL schema; left unchecked it would crash
+    # late with an UndefinedFunctionError on `.layout()`. Caught here, it is a
+    # named compile error pointing at the offending (hub, port).
+    with :ok <- validate_value_types(hubs, module) do
+      rows =
+        for hub <- hubs, port <- BBMcuhub.Hub.Info.ports(hub.module) do
+          ir_row(hub, port, views)
+        end
+        |> Enum.sort_by(&{&1.node, &1.port_id})
+
+      {:ok, Transformer.persist(dsl_state, :bb_mcuhub_ir, rows)}
+    end
+  end
+
+  # Every port names a value-type that resolves to a real BBMcuhub.ValueType
+  # module (one that exports layout/0). The first offender is a named DslError.
+  defp validate_value_types(hubs, module) do
+    Enum.reduce_while(hubs, :ok, fn hub, :ok ->
+      bad =
+        Enum.find(BBMcuhub.Hub.Info.ports(hub.module), fn port ->
+          not ValueType.resolved?(port.type)
+        end)
+
+      case bad do
+        nil ->
+          {:cont, :ok}
+
+        port ->
+          {:halt,
+           {:error,
+            DslError.exception(
+              module: module,
+              path: [:hubs, hub.name],
+              message:
+                "port #{inspect({hub.name, port.name})} names value-type #{inspect(port.type)}, " <>
+                  "which is not a known value-type — a stock atom (:imu, :effort, :status) or a " <>
+                  "module that `use BBMcuhub.ValueType` (defines layout/0). Check for a typo (§06)"
+            )}}
       end
-      |> Enum.sort_by(&{&1.node, &1.port_id})
-
-    {:ok, Transformer.persist(dsl_state, :bb_mcuhub_ir, rows)}
+    end)
   end
 
   # One IR row: producer facts from the hub port, the consumer window (fresh_for)

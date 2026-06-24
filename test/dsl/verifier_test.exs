@@ -134,6 +134,20 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     end
   end
 
+  defmodule TypoTypeHub do
+    @moduledoc """
+    A hub whose port names a value-type that does NOT exist — `:effor`, a typo of
+    `:effort`. The DSL schema accepts any atom for `type:`, so this compiles; the
+    transformer must reject it BEFORE reading its (non-existent) layout, with a
+    named error (parse-don't-scan, finding #6).
+    """
+    use BBMcuhub.Hub
+
+    ports do
+      port(:pose, dir: :out, type: :effor, rate: 50)
+    end
+  end
+
   # --- the five checks -------------------------------------------------------
 
   describe "the verifier rejects broken topologies (it fires)" do
@@ -186,6 +200,35 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       assert err.message =~ "0x00"
       assert err.message =~ "reserved"
       assert err.message =~ "broadcast"
+    end
+
+    test "unknown value-type: a port naming a typo'd type (:effor) is rejected (§06)" do
+      # This check lives in the TRANSFORMER, not the verifier — it must run before
+      # projection reads the (non-existent) layout. A transformer's DslError is
+      # RAISED at compile (unlike a verifier's, which Spark.Test downgrades to
+      # data), so we assert with assert_raise on a compiled module string.
+      err =
+        assert_raise Spark.Error.DslError, fn ->
+          Code.eval_string("""
+          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.TypoType do
+            use BB, extensions: [BBMcuhub.Dsl]
+
+            hubs do
+              hub(:motor, BBMcuhub.Dsl.VerifierTest.TypoTypeHub, node: 0x02, parent: :host)
+            end
+
+            topology do
+              link(:base_link, do: nil)
+            end
+          end
+          """)
+        end
+
+      # names the offending (hub, port), the bad type, and points at the fix
+      assert err.message =~ ":motor"
+      assert err.message =~ ":pose"
+      assert err.message =~ ":effor"
+      assert err.message =~ "not a known value-type"
     end
 
     test "fresh_for < 1: a view with fresh_for 0 is rejected (§04)" do

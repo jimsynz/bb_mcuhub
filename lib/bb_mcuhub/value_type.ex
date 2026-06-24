@@ -96,6 +96,21 @@ defmodule BBMcuhub.ValueType do
   def resolve(ref) when is_map_key(@stock, ref), do: Map.fetch!(@stock, ref)
   def resolve(module) when is_atom(module), do: module
 
+  @doc """
+  Does this reference resolve to a REAL value-type module?
+
+  A reference is real iff `resolve/1` yields a loaded module that implements the
+  value-type behaviour — i.e. exports `layout/0`. A typo'd stock atom (`:effor`)
+  resolves to the bare atom `:effor`, which exports no `layout/0`, so this returns
+  `false` — letting the verifier reject it at compile time with a named error
+  rather than crashing late in the generator/codec (parse-don't-scan, finding #6).
+  """
+  @spec resolved?(atom() | module()) :: boolean()
+  def resolved?(ref) do
+    module = resolve(ref)
+    Code.ensure_loaded?(module) and function_exported?(module, :layout, 0)
+  end
+
   @doc "The stock atom → module aliases (read-only; for introspection/tests)."
   @spec stock() :: %{atom() => module()}
   def stock, do: @stock
