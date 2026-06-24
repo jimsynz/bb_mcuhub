@@ -6,11 +6,18 @@ defmodule BBMcuhub.Wire.Stats do
   becomes a slot value (which would poison freshness, §04). These counters are
   the legible record of that: "fail into legibility", never silent loss.
 
+  The inbound drops (`rx_drop`, `crc_fail`, `cobs_truncated`, `decode_fail`) live
+  here alongside the one outbound drop, `encode_fail`: a command whose value can't
+  be packed to the wire (a malformed value-type value) is counted and skipped
+  rather than crashing the link drain — the floor still backstops the unsent
+  command, but the *cause* stays legible instead of surfacing distantly as a floor
+  firing.
+
   Backed by `:counters`, so `bump/1` is safe to call from the framing layer with
   no GenServer round-trip.
   """
 
-  @counters [:rx_drop, :crc_fail, :decode_fail, :cobs_truncated]
+  @counters [:rx_drop, :crc_fail, :decode_fail, :cobs_truncated, :encode_fail]
   @ref_key {__MODULE__, :ref}
 
   @doc "Allocate the counter array. Idempotent; safe to call at app start."

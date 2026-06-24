@@ -112,6 +112,38 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
     assert_eventually(fn -> length(LoopbackTransport.sent(transport)) == 2 end)
   end
 
+  test "outbound: a malformed command value is counted as encode_fail and skipped, the drain survives" do
+    {:ok, {node, port_id}} = PortIndex.resolve(:act_hub, :effort_cmd)
+    %{owner: owner, transport: transport} = start_link_owner(command_slots: [{node, port_id}])
+    before = Stats.get(:encode_fail)
+
+    # the :effort layout is %{nm: f32}; a value MISSING that field cannot be packed
+    # (encode_fields' Map.fetch! would raise). The link owner must count it and
+    # carry on, NOT crash the drain (which would take down telemetry + every slot).
+    NodeRegistry.put(node, port_id, %{wrong: 0.5}, 1, 100)
+    LinkOwner.notify_command_slot(owner, node, port_id)
+
+    assert_eventually(fn -> Stats.get(:encode_fail) >= before + 1 end)
+    # nothing reached the wire, and the owner is still alive
+    assert LoopbackTransport.sent(transport) == []
+    assert Process.alive?(owner)
+
+    # a SUBSEQUENT well-formed command on the same slot still drains — the bad one
+    # did not poison the drain (the floor backstopped the gap meanwhile).
+    NodeRegistry.put(node, port_id, %{nm: 0.5}, 2, 200)
+    LinkOwner.notify_command_slot(owner, node, port_id)
+
+    assert_eventually(fn ->
+      case LoopbackTransport.sent(transport) do
+        [body | _] ->
+          match?({:ok, %{node: ^node, port_id: ^port_id, seq: 2}}, Codec.decode_body(body))
+
+        [] ->
+          false
+      end
+    end)
+  end
+
   test "outbound: a notification for an unwatched slot is ignored (never written by the owner)" do
     {:ok, {node, port_id}} = PortIndex.resolve(:act_hub, :effort_cmd)
     # start with NO command slots registered

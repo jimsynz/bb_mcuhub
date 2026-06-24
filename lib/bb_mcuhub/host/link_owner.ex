@@ -21,7 +21,10 @@ defmodule BBMcuhub.Host.LinkOwner do
   """
   use GenServer
 
+  require Logger
+
   alias BBMcuhub.Contract
+  alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host.NodeRegistry
   alias BBMcuhub.Wire.{Codec, Stats}
 
@@ -160,13 +163,33 @@ defmodule BBMcuhub.Host.LinkOwner do
 
   # --- internals ---
 
+  # Encode one command slot's value and send it. DEFENSIVE: a malformed value (a
+  # value-type value missing a layout field, or an unknown (node, port_id)) is a
+  # producer bug, but it must not crash the link drain — that would take down
+  # telemetry and every other slot's draining over one bad command. So an encode
+  # failure is counted as `encode_fail` and the command is skipped: the floor
+  # still backstops the unsent command, but the CAUSE stays legible (a counter)
+  # rather than surfacing distantly as a floor firing (robustness candidate 4).
   defp send_value(st, node, port_id, seq, t_dev, value) do
-    alias BBMcuhub.Contract.PortIndex
+    case PortIndex.type_for(node, port_id) do
+      {:ok, type} ->
+        stamped? = PortIndex.stamped?(node, port_id)
+        body = Codec.encode_body(node, port_id, seq, t_dev, type, value, stamped?)
+        st.transport_mod.send(st.transport, body)
 
-    with {:ok, type} <- PortIndex.type_for(node, port_id) do
-      stamped? = PortIndex.stamped?(node, port_id)
-      body = Codec.encode_body(node, port_id, seq, t_dev, type, value, stamped?)
-      st.transport_mod.send(st.transport, body)
+      :error ->
+        # a watched slot with no port-index entry — should never happen, count it
+        Stats.bump(:encode_fail)
     end
+  rescue
+    e ->
+      # a malformed value-type value (e.g. encode_fields' Map.fetch! on a missing
+      # field) — count and skip, never crash the drain.
+      Stats.bump(:encode_fail)
+
+      Logger.warning(
+        "command for #{inspect({node, port_id})} could not be encoded (#{Exception.message(e)}) — " <>
+          "skipped, floor will backstop; check the value-type value"
+      )
   end
 end
