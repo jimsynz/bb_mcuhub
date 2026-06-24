@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Dsl.Hub do
+defmodule BBMCUHub.Dsl.Hub do
   @moduledoc """
   One hub placed in the robot (§06, ADR-0006): its symbolic `name`, the hub
   `module` that declares its ports, its whole-tree-unique `node` id (§03), the
@@ -24,12 +24,12 @@ defmodule BBMcuhub.Dsl.Hub do
         }
 end
 
-defmodule BBMcuhub.Dsl.IrTransformer do
+defmodule BBMCUHub.Dsl.IrTransformer do
   @moduledoc """
   Projects the authored model into the frozen IR (§06) at compile time.
 
   Reads the placed `hub` entities (`[:hubs]`), each hub module's intrinsic port
-  facts (`BBMcuhub.Hub.Info.ports/1`), and the reader views nested in the BeamBots
+  facts (`BBMCUHub.Hub.Info.ports/1`), and the reader views nested in the BeamBots
   `topology` (sensors/actuators under links/joints). It joins them — producer
   facts from the hub module, the consumer `fresh_for` from the view that targets a
   port — into one row per port, sorted by `{node, port_id}`, and persists it under
@@ -39,8 +39,8 @@ defmodule BBMcuhub.Dsl.IrTransformer do
   """
   use Spark.Dsl.Transformer
 
-  alias BBMcuhub.Contract
-  alias BBMcuhub.ValueType
+  alias BBMCUHub.Contract
+  alias BBMCUHub.ValueType
   alias Spark.Dsl.Transformer
   alias Spark.Error.DslError
 
@@ -64,7 +64,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
     # named compile error pointing at the offending (hub, port).
     with :ok <- validate_value_types(hubs, module) do
       rows =
-        for hub <- hubs, port <- BBMcuhub.Hub.Info.ports(hub.module) do
+        for hub <- hubs, port <- BBMCUHub.Hub.Info.ports(hub.module) do
           ir_row(hub, port, views)
         end
         |> Enum.sort_by(&{&1.node, &1.port_id})
@@ -73,12 +73,12 @@ defmodule BBMcuhub.Dsl.IrTransformer do
     end
   end
 
-  # Every port names a value-type that resolves to a real BBMcuhub.ValueType
+  # Every port names a value-type that resolves to a real BBMCUHub.ValueType
   # module (one that exports layout/0). The first offender is a named DslError.
   defp validate_value_types(hubs, module) do
     Enum.reduce_while(hubs, :ok, fn hub, :ok ->
       bad =
-        Enum.find(BBMcuhub.Hub.Info.ports(hub.module), fn port ->
+        Enum.find(BBMCUHub.Hub.Info.ports(hub.module), fn port ->
           not ValueType.resolved?(port.type)
         end)
 
@@ -95,7 +95,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
               message:
                 "port #{inspect({hub.name, port.name})} names value-type #{inspect(port.type)}, " <>
                   "which is not a known value-type — a stock atom (:imu, :effort, :status) or a " <>
-                  "module that `use BBMcuhub.ValueType` (defines layout/0). Check for a typo (§06)"
+                  "module that `use BBMCUHub.ValueType` (defines layout/0). Check for a typo (§06)"
             )}}
       end
     end)
@@ -106,7 +106,7 @@ defmodule BBMcuhub.Dsl.IrTransformer do
   # so a malformed projection fails loud HERE (naming the (hub, port)), never as a
   # late KeyError in the generator (candidate 1).
   defp ir_row(hub, port, views) do
-    BBMcuhub.Contract.IrRow.new(%{
+    BBMCUHub.Contract.IrRow.new(%{
       hub: hub.name,
       node: hub.node,
       parent: hub.parent,
@@ -174,14 +174,14 @@ defmodule BBMcuhub.Dsl.IrTransformer do
   defp view_from(_other), do: []
 end
 
-defmodule BBMcuhub.Dsl.Verifier do
+defmodule BBMCUHub.Dsl.Verifier do
   @moduledoc """
   Verifies the authored hub-gateway contract after IR projection (§06).
 
   A thin Spark adapter: it pulls the placed hubs, the projected IR, and the reader
-  view refs out of the DSL state, runs the pure `BBMcuhub.Dsl.Checks.all/3`, and
+  view refs out of the DSL state, runs the pure `BBMCUHub.Dsl.Checks.all/3`, and
   maps any returned violation into a `Spark.Error.DslError` for the offending
-  module. All the check LOGIC lives in `BBMcuhub.Dsl.Checks`, which knows nothing
+  module. All the check LOGIC lives in `BBMCUHub.Dsl.Checks`, which knows nothing
   about Spark and is unit-testable over plain data (candidate 3).
 
   Raises a `Spark.Error.DslError` on any of:
@@ -201,7 +201,7 @@ defmodule BBMcuhub.Dsl.Verifier do
   """
   use Spark.Dsl.Verifier
 
-  alias BBMcuhub.Dsl.Checks
+  alias BBMCUHub.Dsl.Checks
   alias Spark.Dsl.Verifier
   alias Spark.Error.DslError
 
@@ -258,10 +258,10 @@ defmodule BBMcuhub.Dsl.Verifier do
   defp refs_from(_other), do: []
 end
 
-defmodule BBMcuhub.Dsl do
+defmodule BBMCUHub.Dsl do
   @moduledoc """
   The hub-gateway DSL extension (§06) — composed alongside `BB.Dsl` via
-  `use BB, extensions: [BBMcuhub.Dsl]`.
+  `use BB, extensions: [BBMCUHub.Dsl]`.
 
   It owns a sibling top-level `hubs do … end` section (the BeamBots `topology`
   section is not patchable, so hub placement lives here rather than as a patch
@@ -273,11 +273,11 @@ defmodule BBMcuhub.Dsl do
   @hub %Spark.Dsl.Entity{
     name: :hub,
     describe: "Place a hub on a whole-tree-unique NODE id.",
-    target: BBMcuhub.Dsl.Hub,
+    target: BBMCUHub.Dsl.Hub,
     args: [:name, :module],
     schema: [
       name: [type: :atom, required: true, doc: "the symbolic hub name"],
-      module: [type: :module, required: true, doc: "the hub module (use BBMcuhub.Hub)"],
+      module: [type: :module, required: true, doc: "the hub module (use BBMCUHub.Hub)"],
       node: [
         type: {:in, 0..255},
         required: true,
@@ -306,20 +306,20 @@ defmodule BBMcuhub.Dsl do
 
   use Spark.Dsl.Extension,
     sections: [@hubs],
-    transformers: [BBMcuhub.Dsl.IrTransformer],
-    verifiers: [BBMcuhub.Dsl.Verifier]
+    transformers: [BBMCUHub.Dsl.IrTransformer],
+    verifiers: [BBMCUHub.Dsl.Verifier]
 end
 
-defmodule BBMcuhub.Robot.Info do
+defmodule BBMCUHub.Robot.Info do
   @moduledoc """
   Read a robot's projected hub-gateway IR (§06): `ir(robot_module) :: [ir_row]`.
 
-  The IR is the single model the generator (`BBMcuhub.Gen.WireGen`) and the
+  The IR is the single model the generator (`BBMCUHub.Gen.WireGen`) and the
   runtime `PortIndex` consume. It is persisted at compile time by
-  `BBMcuhub.Dsl.IrTransformer`.
+  `BBMCUHub.Dsl.IrTransformer`.
   """
 
-  alias BBMcuhub.Contract
+  alias BBMCUHub.Contract
 
   @doc "The frozen IR rows for a robot, sorted by `{node, port_id}`."
   @spec ir(module()) :: [Contract.ir_row()]

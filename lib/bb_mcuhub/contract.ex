@@ -1,9 +1,9 @@
-defmodule BBMcuhub.Contract do
+defmodule BBMCUHub.Contract do
   @moduledoc """
   The wire contract's frozen primitives (§06): the IR row shape, the header
   layout that frames every value, the reserved-id facts, and the stable `port_id`
   hash. The IR itself is authored in the BeamBots DSL and projected by
-  `BBMcuhub.Dsl.IrTransformer` (a hub module's ports for the producer facts, the
+  `BBMCUHub.Dsl.IrTransformer` (a hub module's ports for the producer facts, the
   topology's reader views for the consumer freshness window); this module is the
   shared vocabulary those rows are built from and the renderers consume.
 
@@ -26,7 +26,7 @@ defmodule BBMcuhub.Contract do
   (`PortIndex`), so an unstamped frame is never misread as a stamped one.
   """
 
-  alias BBMcuhub.Contract.Layouts
+  alias BBMCUHub.Contract.Layouts
 
   # The header before the payload (§03). LEN precedes it and CRC follows; both are
   # added by the frame codec, not part of the CRC-covered "body header". The CRC
@@ -42,9 +42,9 @@ defmodule BBMcuhub.Contract do
   @type dir :: :in | :out
 
   # An IR row is a typed value (candidate 1): the struct + its smart constructor
-  # live in `BBMcuhub.Contract.IrRow`, which fails loud at projection time on a
+  # live in `BBMCUHub.Contract.IrRow`, which fails loud at projection time on a
   # malformed row. This alias keeps the existing `Contract.ir_row()` spec name.
-  @type ir_row :: BBMcuhub.Contract.IrRow.t()
+  @type ir_row :: BBMCUHub.Contract.IrRow.t()
 
   @doc """
   The header field layout that frames a payload, for a `stamped?` port.

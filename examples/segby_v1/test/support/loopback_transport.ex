@@ -1,7 +1,7 @@
 defmodule SegbyV1.Test.LoopbackTransport do
   @moduledoc """
   An in-process transport for the example's tests (§07): it carries outbound
-  bodies through the *real* `BBMcuhub.Wire.FramingCOBS` encode→bytes→decode path
+  bodies through the *real* `BBMCUHub.Wire.FramingCOBS` encode→bytes→decode path
   and back to the owner, so the host stack is exercised over the actual COBS+CRC
   seam without any hardware.
 
@@ -10,25 +10,25 @@ defmodule SegbyV1.Test.LoopbackTransport do
   the same message shape the UART transport delivers.
 
   This is the CONSUMER's own copy of a loopback transport over the library's
-  public `BBMcuhub.Host.Transport` behaviour. (The library ships no consumer
+  public `BBMCUHub.Host.Transport` behaviour. (The library ships no consumer
   loopback transport; see the host launcher's `:transport` option — a missing
   public dev/test helper the library could offer downstream.)
   """
-  @behaviour BBMcuhub.Host.Transport
+  @behaviour BBMCUHub.Host.Transport
   use GenServer
   import Kernel, except: [send: 2]
 
-  alias BBMcuhub.Wire.FramingCOBS
+  alias BBMCUHub.Wire.FramingCOBS
 
   # --- Transport behaviour ---
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def start_link(owner, _opts), do: GenServer.start_link(__MODULE__, owner)
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def send(pid, body), do: GenServer.call(pid, {:send, body})
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def close(pid), do: GenServer.stop(pid)
 
   # --- test helpers ---

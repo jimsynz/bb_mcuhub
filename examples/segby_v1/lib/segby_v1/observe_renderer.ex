@@ -1,10 +1,10 @@
 defmodule SegbyV1.ObserveRenderer do
   @moduledoc """
   Teaches `bb_tui` how to render this robot's observer-plane samples — without
-  `bb_tui` knowing anything about `BBMcuhub.Observer.Sample` (ADR-0004).
+  `bb_tui` knowing anything about `BBMCUHub.Observer.Sample` (ADR-0004).
 
   The observer plane republishes sampled slots on `[:observe | hub, port]`
-  carrying a `BBMcuhub.Observer.Sample` payload (the raw value + context). `bb_tui`
+  carrying a `BBMCUHub.Observer.Sample` payload (the raw value + context). `bb_tui`
   is a generic dashboard; it must not depend on this library's payload structs. So
   the dependency is inverted via `BB.TUI.Renderer`: `bb_tui` exposes the seam, and
   *this* module — which legitimately owns the `Observer.Sample` shape, because it
@@ -17,7 +17,7 @@ defmodule SegbyV1.ObserveRenderer do
 
   @behaviour BB.TUI.Renderer
 
-  alias BBMcuhub.Observer.Sample
+  alias BBMCUHub.Observer.Sample
 
   @doc """
   A one-line event-log summary for an observer sample: `hub.port` + a short

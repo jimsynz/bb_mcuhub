@@ -4,8 +4,8 @@ defmodule SegbyV1.Robot do
   BeamBots DSL over a UART backplane (no CAN transceiver on hand).
 
   BeamBots sees ordinary components; it never sees the root hub or the wire tree
-  below it. Each hub port surfaces as a thin `BBMcuhub.BBHub.Sensor` /
-  `BBMcuhub.BBHub.Actuator` view; below that seam runs our COBS+CRC frame over
+  below it. Each hub port surfaces as a thin `BBMCUHub.BBHub.Sensor` /
+  `BBMCUHub.BBHub.Actuator` view; below that seam runs our COBS+CRC frame over
   UART, carrying `seq` and (for the IMU) `t_dev`, with the floor on the wheels
   hub's own chip.
 
@@ -25,11 +25,11 @@ defmodule SegbyV1.Robot do
   consumer+producer across the BeamBots seam; the actuator views remain the
   single writers of the command slots, §04). It starts DISABLED.
 
-  The hub-gateway DSL (`BBMcuhub.Dsl`) composes alongside BeamBots' own: the
+  The hub-gateway DSL (`BBMCUHub.Dsl`) composes alongside BeamBots' own: the
   `hubs do` block places each hub on a NODE id and the views in `topology` name
   the hub+port they read.
   """
-  use BB, extensions: [BBMcuhub.Dsl]
+  use BB, extensions: [BBMCUHub.Dsl]
 
   hubs do
     # The root (parent: :host) owns the host UART; the wheels leaf hangs off it
@@ -87,13 +87,13 @@ defmodule SegbyV1.Robot do
       # the chassis IMU — a BB.Sensor view over the blaster hub's pose port
       sensor(
         :chassis_imu,
-        {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :pose, fresh_for: 3, beat_ms: 10}
+        {BBMCUHub.BBHub.Sensor, hub: :blaster, port: :pose, fresh_for: 3, beat_ms: 10}
       )
 
       # the forward rangefinder — a BB.Sensor view over the blaster's range port
       sensor(
         :range_front,
-        {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :range_front, fresh_for: 3, beat_ms: 50}
+        {BBMCUHub.BBHub.Sensor, hub: :blaster, port: :range_front, fresh_for: 3, beat_ms: 50}
       )
 
       # left wheel — a BB.Actuator view over the wheels hub's left command port,
@@ -112,7 +112,7 @@ defmodule SegbyV1.Robot do
 
         actuator(
           :left_drive,
-          {BBMcuhub.BBHub.Actuator,
+          {BBMCUHub.BBHub.Actuator,
            hub: :wheels, port: :motor_left, status_port: :status_left, fresh_for: 5}
         )
 
@@ -134,7 +134,7 @@ defmodule SegbyV1.Robot do
 
         actuator(
           :right_drive,
-          {BBMcuhub.BBHub.Actuator,
+          {BBMCUHub.BBHub.Actuator,
            hub: :wheels, port: :motor_right, status_port: :status_right, fresh_for: 5}
         )
 

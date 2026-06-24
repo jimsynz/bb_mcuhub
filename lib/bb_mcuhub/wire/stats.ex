@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Wire.Stats do
+defmodule BBMCUHub.Wire.Stats do
   @moduledoc """
   Tiny lock-free counter for wire-level drop/fail events (§03).
 

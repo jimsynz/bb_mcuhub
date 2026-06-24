@@ -24,8 +24,8 @@ defmodule SegbyV1.GoldenFramesTest do
   """
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Wire.{Codec, CRC16, FramingCOBS}
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Wire.{Codec, CRC16, FramingCOBS}
   alias SegbyV1.Robot
 
   @robot Robot

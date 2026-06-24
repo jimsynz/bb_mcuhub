@@ -3,7 +3,7 @@ defmodule SegbyV1Nerves.Application do
   Top-level supervision tree for the segby_v1 Nerves firmware.
 
   Boots straight into `SegbyV1.Host` on TARGET — the self-balancing bot's host
-  stack (the BeamBots tree for `SegbyV1.Robot` + the `BBMcuhub.Host.LinkOwner`
+  stack (the BeamBots tree for `SegbyV1.Robot` + the `BBMCUHub.Host.LinkOwner`
   that owns the host<->root-hub UART). On HOST it skips that child so `iex -S
   mix` / `mix compile` don't try to open a real UART that doesn't exist.
 
@@ -24,8 +24,8 @@ defmodule SegbyV1Nerves.Application do
 
       {SegbyV1.Host, [transport_opts: [port: "ttyAMA0", baud: 115_200]]}
 
-  `SegbyV1.Host` (a thin wrapper over `BBMcuhub.Host`) stands up
-  `BB.Supervisor` + the `LinkOwner` over `BBMcuhub.Host.Transport.UART`, which
+  `SegbyV1.Host` (a thin wrapper over `BBMCUHub.Host`) stands up
+  `BB.Supervisor` + the `LinkOwner` over `BBMCUHub.Host.Transport.UART`, which
   opens `/dev/ttyAMA0`. 115200 baud is the proven-good Pi<->Blaster baud — at
   1 Mbit/s the link lost ~95% of frames on this hardware (see the reference's
   config/target.exs note). It MUST match the Blaster's firmware UART baud.
@@ -127,7 +127,7 @@ defmodule SegbyV1Nerves.Application do
              [:safety]
            ],
            # Teach the (generic) dashboard how to render OUR observer samples
-           # (ADR-0004): bb_tui knows nothing of BBMcuhub.Observer.Sample; our
+           # (ADR-0004): bb_tui knows nothing of BBMCUHub.Observer.Sample; our
            # renderer — which owns that shape — plugs into the [:observe] prefix.
            renderers: %{[:observe] => SegbyV1.ObserveRenderer}
          ]}
@@ -149,7 +149,7 @@ defmodule SegbyV1Nerves.Application do
   defp start_observer(sup) do
     if @target != :host do
       spec =
-        {BBMcuhub.Observer,
+        {BBMCUHub.Observer,
          [
            id: :dashboard_observer,
            name: SegbyV1.DashboardObserver,
@@ -163,7 +163,7 @@ defmodule SegbyV1Nerves.Application do
              {:wheels, :status_right}
            ],
            sample_ms: 100,
-           sink: BBMcuhub.Observer.Sink.PubSub.new(robot: SegbyV1.Robot, topic: [:observe])
+           sink: BBMCUHub.Observer.Sink.PubSub.new(robot: SegbyV1.Robot, topic: [:observe])
          ]}
 
       case Supervisor.start_child(sup, spec) do

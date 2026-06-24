@@ -1,12 +1,12 @@
-defmodule BBMcuhub.Contract.Layouts do
+defmodule BBMCUHub.Contract.Layouts do
   @moduledoc """
   The wire-primitive types and their byte widths (§06).
 
   This module owns the *primitives* a value-type's layout is built from — the
   `wire_type`/`layout` typespecs and the byte width of each wire type. The
   per-value-type layouts themselves no longer live here: each value-type module
-  (`use BBMcuhub.ValueType`) owns its own ordered `[{field, wire_type}]` layout, and
-  `BBMcuhub.ValueType.resolve/1` resolves a port's value-type atom to its module.
+  (`use BBMCUHub.ValueType`) owns its own ordered `[{field, wire_type}]` layout, and
+  `BBMCUHub.ValueType.resolve/1` resolves a port's value-type atom to its module.
   The Elixir codec, the C struct, and the parity-vector bytes are still all derived
   from that one declaration, so a reordered field is a single-line change that
   ripples everywhere consistently.

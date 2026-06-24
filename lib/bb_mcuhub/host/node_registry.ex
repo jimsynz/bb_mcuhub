@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Host.NodeRegistry do
+defmodule BBMCUHub.Host.NodeRegistry do
   @moduledoc """
   The host's small truth (§07): one row per `(node, port)` holding exactly one
   value plus two stamps — `{value, seq, t_dev}`.
@@ -30,10 +30,10 @@ defmodule BBMcuhub.Host.NodeRegistry do
   @doc """
   Mint the **sole** write capability for a `(node, port)` slot (candidate 5).
 
-  Returns a `BBMcuhub.Host.Registry.Writer` bound to this slot — the holder can
+  Returns a `BBMCUHub.Host.Registry.Writer` bound to this slot — the holder can
   write only this slot, never another. Enforces "exactly one writer per slot"
   (§07): a second live mint for the same slot raises
-  `BBMcuhub.Host.Registry.Writer.Taken`. The calling process is registered as the
+  `BBMCUHub.Host.Registry.Writer.Taken`. The calling process is registered as the
   slot's writer and monitored, so if it crashes the slot is freed and its
   replacement (a restarted view) can re-mint.
 
@@ -41,14 +41,14 @@ defmodule BBMcuhub.Host.NodeRegistry do
   link owner for each inbound slot) and thereafter writes through the capability,
   never naming `put/5` directly.
   """
-  @spec writer!(node_id(), port_id()) :: BBMcuhub.Host.Registry.Writer.t()
+  @spec writer!(node_id(), port_id()) :: BBMCUHub.Host.Registry.Writer.t()
   def writer!(node, port) do
     case GenServer.call(__MODULE__, {:claim_writer, {node, port}, self()}) do
       :ok ->
-        BBMcuhub.Host.Registry.Writer.new(node, port)
+        BBMCUHub.Host.Registry.Writer.new(node, port)
 
       {:taken, pid} ->
-        raise BBMcuhub.Host.Registry.Writer.Taken,
+        raise BBMCUHub.Host.Registry.Writer.Taken,
           message:
             "slot #{inspect({node, port})} already has a live writer (#{inspect(pid)}) — " <>
               "exactly one writer per slot (§07)"
@@ -59,7 +59,7 @@ defmodule BBMcuhub.Host.NodeRegistry do
   Write a `(node, port)` row. The `seq` comes **from the producer** — the writer
   never invents it (§04). One atomic insert of the whole row.
 
-  Prefer minting a `BBMcuhub.Host.Registry.Writer` via `writer!/2` and writing
+  Prefer minting a `BBMCUHub.Host.Registry.Writer` via `writer!/2` and writing
   through it — that makes "one writer per slot" structural. This raw entry point
   remains for the writer capability to delegate to (and is still reachable, since
   the table is `:public` by design — see `writer!/2`).

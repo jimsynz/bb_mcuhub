@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Test.Fixtures.SensorHub do
+defmodule BBMCUHub.Test.Fixtures.SensorHub do
   @moduledoc """
   The fixture's sense hub (test-only) — a coverage-maximizing producer.
 
@@ -7,7 +7,7 @@ defmodule BBMcuhub.Test.Fixtures.SensorHub do
     * `:pose` — an `:imu` value (stock type), `t_dev: true` (STAMPED), 50 Hz. This
       is the port `slice_test`'s sensor path exercises: a born-stale publish of a
       `BB.Message.Sensor.Imu`. Mirrors the retired Follower IMU's `:pose`.
-    * `:scalar` — a CUSTOM value-type (`BBMcuhub.Test.Fixtures.ValueType.Scalar`,
+    * `:scalar` — a CUSTOM value-type (`BBMCUHub.Test.Fixtures.ValueType.Scalar`,
       named by MODULE, not a stock atom), `t_dev: false` (UNSTAMPED), 10 Hz. This
       proves the value-type extension seam in the library's own suite: the codec,
       the C struct, the parity bytes, and the generated glue all flow from a
@@ -16,7 +16,7 @@ defmodule BBMcuhub.Test.Fixtures.SensorHub do
   Placed on the ROOT node with a `:can` backplane (see the robot), so it covers
   the CAN/stamped side of the wire surface.
   """
-  use BBMcuhub.Hub
+  use BBMCUHub.Hub
 
   ports do
     port(:pose,
@@ -28,7 +28,7 @@ defmodule BBMcuhub.Test.Fixtures.SensorHub do
 
     port(:scalar,
       dir: :out,
-      type: BBMcuhub.Test.Fixtures.ValueType.Scalar,
+      type: BBMCUHub.Test.Fixtures.ValueType.Scalar,
       rate: 10
     )
   end

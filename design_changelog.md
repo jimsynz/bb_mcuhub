@@ -55,7 +55,7 @@ only command that could flow through a BeamBots controller.
 Resolved by giving a **command value-type** one more piece of its own contract:
 
 - A new optional `command_message/0` on the **value-type** behaviour, defaulting to
-  `nil` (overridable in `use BBMcuhub.ValueType`). A command value-type overrides it
+  `nil` (overridable in `use BBMCUHub.ValueType`). A command value-type overrides it
   to return the `BB.Message` command struct it accepts; a sense-only value-type leaves
   it `nil`.
 - The actuator view **derives its subscribe `message_types` from the value-type's
@@ -174,7 +174,7 @@ observability cadence was tied to the main loop. Resolved by making observabilit
 - **Not part of the wire contract** — pure host runtime, no firmware/artifact/drift
   impact, freely additive. One job: sample → reduce → hand to a sink (PubSub
   republish / disk log / event DB / UI feed are all sinks). Authored imperatively
-  (`BBMcuhub.Observer`); a declarative `observers do` section is later sugar over it.
+  (`BBMCUHub.Observer`); a declarative `observers do` section is later sugar over it.
 - **Library owns the observer plane; the example demonstrates adoption** — wiring
   bb_tui onto an observer's slow topic (instead of the broad `[:sensor]` firehose it
   subscribes to) is a consumer use case in the worked example, not a constraint the
@@ -189,7 +189,7 @@ observability cadence was tied to the main loop. Resolved by making observabilit
   holds the truth; would muddy the recursive-hub model). CONTEXT.md gains the terms
   Observer + Control plane · observability plane.
 - **Deferred to implementation:** this is the design pass (ADR-0004 + §09 +
-  CONTEXT.md). The `BBMcuhub.Observer` core (sample-state, sink model) and the
+  CONTEXT.md). The `BBMCUHub.Observer` core (sample-state, sink model) and the
   example's bb_tui-onto-observer use case are the build.
 - **Refined after an architecture review** (five-lens, against the real code): the
   original framing claimed both modes were one pure registry-sampling reader — false,
@@ -210,7 +210,7 @@ observability cadence was tied to the main loop. Resolved by making observabilit
 ## 2026-06-18 — `bb_mcuhub` becomes a reusable library + a `segby_v1` consumer example (§06, §08, §09, §10; ADR-0003)
 
 The system was one Mix app with the example tangled into the library namespace
-(`BBMcuhub.Robots.{Follower,SegbyV1}`, `BBMcuhub.Segby.Balance`, `hubs/*`,
+(`BBMCUHub.Robots.{Follower,SegbyV1}`, `BBMCUHub.Segby.Balance`, `hubs/*`,
 `robots/*` compiled into `:bb_mcuhub`) and the firmware glue hand-written per hub.
 The design now draws a real consumer boundary, with two load-bearing seams.
 
@@ -219,10 +219,10 @@ The design now draws a real consumer boundary, with two load-bearing seams.
   the library exactly as a downstream consumer would — a Mix `path` dep (host) and
   a PlatformIO `lib_deps` dep on the chassis packaged as a `library.json` library
   (firmware). The example owns its own root namespace `SegbyV1.*` and references
-  `BBMcuhub.*` only for library seams.
+  `BBMCUHub.*` only for library seams.
 - **Value-type is the extensibility spine (Option C).** A wire value-type
   (`imu`/`effort`/`status`/…) is no longer a library-internal `@layouts` map entry;
-  it is a standalone `use BBMcuhub.ValueType` module owning its layout, host
+  it is a standalone `use BBMCUHub.ValueType` module owning its layout, host
   `lift`/`unlift`, and firmware-hook signature. A port names its type by module;
   the library ships a lean stock set (imu, effort, status) and a consumer adds
   their own with no library edit. The host views become value-type-agnostic
@@ -247,7 +247,7 @@ The design now draws a real consumer boundary, with two load-bearing seams.
 - **Consumer ergonomics.** `@default_robot` defaults (which pointed at the
   now-external Follower) are removed — generation is always explicit-robot;
   `WireGen` takes an explicit output-base so each app generates into its own tree;
-  the library ships `mix wire.gen --robot <Mod>`; a generic `BBMcuhub.Host`
+  the library ships `mix wire.gen --robot <Mod>`; a generic `BBMCUHub.Host`
   launcher (taking `robot:`, deriving command slots from the IR) absorbs the
   LinkOwner/slot-resolution supervisor a consumer otherwise hand-writes.
 
@@ -269,10 +269,10 @@ The design now draws a real consumer boundary, with two load-bearing seams.
 
 ## 2026-06-18 — Host command drain is event-driven, not polled (§07)
 
-- **Was:** `BBMcuhub.Host.LinkOwner` drained watched command slots on a 5 ms
+- **Was:** `BBMCUHub.Host.LinkOwner` drained watched command slots on a 5 ms
   `Process.send_after` poll (`@default_drain_ms`).
 - **Now:** the drain is **event-driven**. The actuator view
-  (`BBMcuhub.BBHub.Actuator`) — the sole writer of its command slot — calls
+  (`BBMCUHub.BBHub.Actuator`) — the sole writer of its command slot — calls
   `LinkOwner.notify_command_slot(node, port_id)` (a `cast`) after each write; the
   link owner then drains that one slot. The poll/timer is removed entirely.
 - **Invariants preserved (§04):** the notification carries only the
@@ -306,13 +306,13 @@ library owns the communication logic (wire, floor, freshness, segmentation).
 
 ### What changes
 
-- **Hub modules.** A hub is a reusable module (`use BBMcuhub.Hub`, a small Spark
+- **Hub modules.** A hub is a reusable module (`use BBMCUHub.Hub`, a small Spark
   DSL) declaring its ports' **intrinsic wire facts** — `dir`, `type`, `rate`,
   `t_dev`, `safe_action`, and the pure `sample`/`step` core. Everything true about
-  the device, deployment-independent. Read back via `BBMcuhub.Hub.Info`.
+  the device, deployment-independent. Read back via `BBMCUHub.Hub.Info`.
 - **Placement in a sibling `hubs do` block.** A `hub :name, Module, node: 0xNN`
   entity lives in a top-level `hubs do` section our extension owns, composed onto
-  `use BB, extensions: [BBMcuhub.Dsl]` (no `bb` fork). It places hubs on nodes;
+  `use BB, extensions: [BBMCUHub.Dsl]` (no `bb` fork). It places hubs on nodes;
   the existing `topology do` wires their ports to components. (The first-choice
   shape — injecting `hub` directly into BeamBots' `topology` section via
   `Spark.Dsl.Patch.AddEntity` — is blocked: `bb` 0.20.3's `topology` section is
@@ -323,7 +323,7 @@ library owns the communication logic (wire, floor, freshness, segmentation).
 - **IR is projected, not authored.** A Spark **transformer** in the extension
   walks the `hub` + `sensor`/`actuator` entities, reads producer facts via
   `Hub.Info`, and **persists the IR row shape** into the robot's DSL state, read
-  back via `BBMcuhub.Robot.Info`. The IR row shape (the seam `WireGen`/`PortIndex`
+  back via `BBMCUHub.Robot.Info`. The IR row shape (the seam `WireGen`/`PortIndex`
   and the parity/drift tests already trust) is **kept unchanged** — only its
   source changes — so the entire C/firmware/parity side stays green.
 - **`build_ir`, `Source`, `contract.exs` are dissolved.** There is no file to

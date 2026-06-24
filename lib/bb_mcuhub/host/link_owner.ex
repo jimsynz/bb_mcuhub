@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Host.LinkOwner do
+defmodule BBMCUHub.Host.LinkOwner do
   @moduledoc """
   Owns the link to the root hub and is the one decode + route seam (§07).
 
@@ -23,11 +23,11 @@ defmodule BBMcuhub.Host.LinkOwner do
 
   require Logger
 
-  alias BBMcuhub.Contract
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.NodeRegistry
-  alias BBMcuhub.Host.Registry.Writer
-  alias BBMcuhub.Wire.{Codec, Stats}
+  alias BBMCUHub.Contract
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.NodeRegistry
+  alias BBMCUHub.Host.Registry.Writer
+  alias BBMCUHub.Wire.{Codec, Stats}
 
   @type cmd_slot :: {node :: 0..255, port_id :: 0..255}
 
@@ -37,8 +37,8 @@ defmodule BBMcuhub.Host.LinkOwner do
   Start the link owner.
 
   Options:
-    * `:transport` — a `BBMcuhub.Host.Transport` module (default
-      `BBMcuhub.Host.Transport.UART`).
+    * `:transport` — a `BBMCUHub.Host.Transport` module (default
+      `BBMCUHub.Host.Transport.UART`).
     * `:transport_opts` — passed to the transport's `start_link/2`.
     * `:command_slots` — `[{node, port_id}]` to drain outbound (the actuator
       views' command slots).
@@ -84,7 +84,7 @@ defmodule BBMcuhub.Host.LinkOwner do
   @impl true
   def init(opts) do
     Stats.setup()
-    transport_mod = Keyword.get(opts, :transport, BBMcuhub.Host.Transport.UART)
+    transport_mod = Keyword.get(opts, :transport, BBMCUHub.Host.Transport.UART)
     transport_opts = Keyword.get(opts, :transport_opts, [])
     command_slots = Keyword.get(opts, :command_slots, [])
 

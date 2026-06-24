@@ -1,10 +1,10 @@
-defmodule BBMcuhub.Wire.CodecTest do
+defmodule BBMCUHub.Wire.CodecTest do
   use ExUnit.Case, async: true
-  alias BBMcuhub.Wire.Codec
-  alias BBMcuhub.Contract.PortIndex
+  alias BBMCUHub.Wire.Codec
+  alias BBMCUHub.Contract.PortIndex
 
   setup_all do
-    PortIndex.build(BBMcuhub.Test.Fixtures.Robot)
+    PortIndex.build(BBMCUHub.Test.Fixtures.Robot)
     :ok
   end
 

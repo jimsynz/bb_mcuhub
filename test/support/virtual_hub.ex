@@ -1,8 +1,8 @@
-defmodule BBMcuhub.Test.VirtualHub do
+defmodule BBMCUHub.Test.VirtualHub do
   @moduledoc """
   A test transport that plays the role of the ESP32 hub tree behind the wire, using
-  the **real firmware C floor + C wire path** (Option B, via `BBMcuhub.Test.VHubNif`).
-  It implements `BBMcuhub.Host.Transport`, so the *real* host stack (LinkOwner,
+  the **real firmware C floor + C wire path** (Option B, via `BBMCUHub.Test.VHubNif`).
+  It implements `BBMCUHub.Host.Transport`, so the *real* host stack (LinkOwner,
   views, registry) drives it end-to-end over genuine COBS+CRC bytes — and the
   safety behaviour it exhibits is the ACTUAL C floor, not an Elixir mock that could
   drift.
@@ -35,12 +35,12 @@ defmodule BBMcuhub.Test.VirtualHub do
   Time is explicit: nothing here reads a real clock. `tick(vhub, now_ms)` is the
   only thing that advances floors and emits status, so e2e tests are deterministic.
   """
-  @behaviour BBMcuhub.Host.Transport
+  @behaviour BBMCUHub.Host.Transport
   use GenServer
 
-  alias BBMcuhub.Test.VHubNif
-  alias BBMcuhub.ValueType
-  alias BBMcuhub.Wire.{Codec, FramingCOBS}
+  alias BBMCUHub.Test.VHubNif
+  alias BBMCUHub.ValueType
+  alias BBMCUHub.Wire.{Codec, FramingCOBS}
 
   # The fixture actuator's value-type is :effort (a single f32). ADR-0005: the
   # floor is byte-generic, so the VirtualHub packs every command value and the
@@ -78,13 +78,13 @@ defmodule BBMcuhub.Test.VirtualHub do
 
   # --- Transport behaviour ---
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def start_link(owner, opts), do: GenServer.start_link(__MODULE__, {owner, opts})
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def send(pid, body), do: GenServer.call(pid, {:send, body})
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def close(pid), do: GenServer.stop(pid)
 
   # --- test/fault API ---

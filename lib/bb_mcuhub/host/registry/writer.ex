@@ -1,7 +1,7 @@
-defmodule BBMcuhub.Host.Registry.Writer do
+defmodule BBMCUHub.Host.Registry.Writer do
   @moduledoc """
   A **slot-scoped write capability** — the write-side mirror of
-  `BBMcuhub.Host.Registry.Reader` (candidate 5 of the architecture review).
+  `BBMCUHub.Host.Registry.Reader` (candidate 5 of the architecture review).
 
   "Exactly one writer per slot" (§07) is the precondition that makes `seq`-as-trust
   sound: freshness and the on-chip floor both arm on "did `seq` advance?", so a
@@ -13,8 +13,8 @@ defmodule BBMcuhub.Host.Registry.Writer do
   structurally: it is bound to ONE `(node, port_id)` at mint time and its `put/4`
   takes no node/port argument, so "write some OTHER slot" is *unrepresentable* — a
   holder can only ever write the slot it was minted for. It is minted by
-  `BBMcuhub.Host.NodeRegistry.writer!/2`, which also enforces **uniqueness**: a
-  second live mint for the same slot raises (`BBMcuhub.Host.Registry.Writer.Taken`),
+  `BBMCUHub.Host.NodeRegistry.writer!/2`, which also enforces **uniqueness**: a
+  second live mint for the same slot raises (`BBMCUHub.Host.Registry.Writer.Taken`),
   so two writers of one slot cannot coexist.
 
   ## What this does and does not guarantee
@@ -30,7 +30,7 @@ defmodule BBMcuhub.Host.Registry.Writer do
   directly.
   """
 
-  alias BBMcuhub.Host.NodeRegistry
+  alias BBMCUHub.Host.NodeRegistry
 
   defmodule Taken do
     @moduledoc "Raised when a slot already has a live writer (the uniqueness guard)."

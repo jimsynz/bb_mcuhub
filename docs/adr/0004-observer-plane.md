@@ -51,7 +51,7 @@ edges), **filter** (a value/event predicate), **project** (which fields). v1
 implements **sample + select**; **filter** and **project** are designed as extensions
 of the same shape. Crucially, `filter` and `project` operate on a value's _fields_,
 which only the **value-type** knows (ADR-0003) — so they MUST resolve the slot's
-value-type via `PortIndex.type_for` + `BBMcuhub.ValueType` exactly as the Component
+value-type via `PortIndex.type_for` + `BBMCUHub.ValueType` exactly as the Component
 view does (`sensor.ex`), never duplicate field knowledge. The v1 `sample + select`
 API leaves room for this (a per-slot value-type handle), so adding `filter`/`project`
 is additive, not a breaking change.
@@ -129,7 +129,7 @@ structurally hard to build by accident.
   `(node, port)` must fail at startup, not silently observe `nil` forever
   (indistinguishable from a real-but-never-written slot).
 - **The library owns the observer plane; the example demonstrates adoption.**
-  `BBMcuhub.Observer` (imperative core; a declarative `observers do` section is later
+  `BBMCUHub.Observer` (imperative core; a declarative `observers do` section is later
   sugar over it) lives in the library. Wiring `bb_tui` onto an observer's slow topic —
   so the dashboard stops drinking the control firehose — is a consumer use case in
   the worked example.

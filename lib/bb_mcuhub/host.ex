@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Host do
+defmodule BBMCUHub.Host do
   @moduledoc """
   The generic host launcher (§07/§09) — one place that stands up everything a
   robot needs on the host, so a consumer runs ONE thing instead of hand-writing a
@@ -9,17 +9,17 @@ defmodule BBMcuhub.Host do
 
     * the **BeamBots supervision tree** for that robot — the views, controllers,
       and commands, plus the PubSub + process registries; and
-    * the **`LinkOwner`** (`BBMcuhub.Host.LinkOwner`) — the one process that owns
+    * the **`LinkOwner`** (`BBMCUHub.Host.LinkOwner`) — the one process that owns
       the host↔root-hub UART, decodes inbound frames into the registry, and drains
       the robot's command slots outbound.
 
   `LinkOwner` is kept here, beside the robot tree, NOT under
-  `BBMcuhub.Application` — so it survives a view or law crash and the link stays
+  `BBMCUHub.Application` — so it survives a view or law crash and the link stays
   open through a fault (§07). It is started AFTER the BB tree so the views exist
   before any inbound frame could be routed. Both are children of this one
   supervisor; if the whole robot is torn down, the UART is closed with it.
 
-  The `LinkOwner` is registered under its default name (`BBMcuhub.Host.LinkOwner`)
+  The `LinkOwner` is registered under its default name (`BBMCUHub.Host.LinkOwner`)
   so the actuator views — the sole writers of the command slots (§04) — can
   notify it on each write exactly as in production.
 
@@ -27,7 +27,7 @@ defmodule BBMcuhub.Host do
 
   A command slot is the wire `{node, port_id}` of every IR row that is an actuator
   command port: `dir: :in` AND `has_safe_action: true` — exactly the floored
-  command ports of §05/ADR-0005 (the same predicate `BBMcuhub.Gen.WireGen` uses to
+  command ports of §05/ADR-0005 (the same predicate `BBMCUHub.Gen.WireGen` uses to
   find actuators).
   Each such row already carries its `node` and `port_id`, so the slots are simply
   `Enum.map(actuator_rows, &{&1.node, &1.port_id})`. Deriving them from the IR
@@ -44,22 +44,22 @@ defmodule BBMcuhub.Host do
 
   ## Transport (parameterised)
 
-  The transport defaults to the production `BBMcuhub.Host.Transport.UART`, but is
-  parameterised so a test can inject `BBMcuhub.Host.Transport.Loopback` and run the
+  The transport defaults to the production `BBMCUHub.Host.Transport.UART`, but is
+  parameterised so a test can inject `BBMCUHub.Host.Transport.Loopback` and run the
   whole host stack with no hardware. Pass `transport:` / `transport_opts:`.
 
   ## Usage
 
-      BBMcuhub.Host.start_link(robot: MyRobot, transport_opts: [port: "ttyAMA0"])
+      BBMCUHub.Host.start_link(robot: MyRobot, transport_opts: [port: "ttyAMA0"])
 
   A consumer's robot-specific launcher can shrink to a thin wrapper that forwards
   to this one (see the worked example's `SegbyV1.Host` in `examples/segby_v1`).
   """
   use Supervisor
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.LinkOwner
-  alias BBMcuhub.Robot.Info
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.LinkOwner
+  alias BBMCUHub.Robot.Info
 
   @doc """
   Start the supervised host tree for `robot`: the BeamBots supervision tree plus
@@ -68,9 +68,9 @@ defmodule BBMcuhub.Host do
   ## Options
 
     * `:robot` — the robot module (REQUIRED).
-    * `:transport` — a `BBMcuhub.Host.Transport` module (default
-      `BBMcuhub.Host.Transport.UART`); tests inject
-      `BBMcuhub.Host.Transport.Loopback`.
+    * `:transport` — a `BBMCUHub.Host.Transport` module (default
+      `BBMCUHub.Host.Transport.UART`); tests inject
+      `BBMCUHub.Host.Transport.Loopback`.
     * `:transport_opts` — passed to the transport (`[port: "ttyAMA0", baud:
       1_000_000]` for the UART).
     * `:bb_opts` — extra options forwarded to `BB.Supervisor.start_link/2`
@@ -105,7 +105,7 @@ defmodule BBMcuhub.Host do
   @impl true
   def init(opts) do
     robot = Keyword.fetch!(opts, :robot)
-    transport = Keyword.get(opts, :transport, BBMcuhub.Host.Transport.UART)
+    transport = Keyword.get(opts, :transport, BBMCUHub.Host.Transport.UART)
     transport_opts = Keyword.get(opts, :transport_opts, [])
     bb_opts = Keyword.get(opts, :bb_opts, [])
 

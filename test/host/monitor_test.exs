@@ -1,6 +1,6 @@
-defmodule BBMcuhub.Host.MonitorTest do
+defmodule BBMCUHub.Host.MonitorTest do
   use ExUnit.Case, async: true
-  alias BBMcuhub.Host.Monitor
+  alias BBMCUHub.Host.Monitor
 
   defp row(seq), do: {%{nm: 0.0}, seq, 0}
 

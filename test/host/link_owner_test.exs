@@ -1,15 +1,15 @@
-defmodule BBMcuhub.Host.LinkOwnerTest do
+defmodule BBMCUHub.Host.LinkOwnerTest do
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
-  alias BBMcuhub.Host.Transport.Loopback, as: LoopbackTransport
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Wire.{Codec, Stats}
+  alias BBMCUHub.Host.{LinkOwner, NodeRegistry}
+  alias BBMCUHub.Host.Transport.Loopback, as: LoopbackTransport
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Wire.{Codec, Stats}
 
   setup do
     # NodeRegistry is started by the application supervisor; just clear it.
     NodeRegistry.reset()
-    PortIndex.build(BBMcuhub.Test.Fixtures.Robot)
+    PortIndex.build(BBMCUHub.Test.Fixtures.Robot)
     Stats.setup()
     :ok
   end

@@ -1,4 +1,4 @@
-defmodule BBMcuhub.BBHub.Actuator do
+defmodule BBMCUHub.BBHub.Actuator do
   @moduledoc """
   A `BB.Actuator` view over a hub's act port (§09).
 
@@ -35,10 +35,10 @@ defmodule BBMcuhub.BBHub.Actuator do
       beat_ms: [type: :pos_integer, default: 20, doc: "status-monitor beat period"]
     ]
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.{LinkOwner, Monitor, NodeRegistry}
-  alias BBMcuhub.Host.Registry.Writer
-  alias BBMcuhub.ValueType
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.{LinkOwner, Monitor, NodeRegistry}
+  alias BBMCUHub.Host.Registry.Writer
+  alias BBMCUHub.ValueType
 
   @impl BB.Actuator
   def init(opts) do

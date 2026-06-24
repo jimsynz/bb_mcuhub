@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Observer.Sink do
+defmodule BBMCUHub.Observer.Sink do
   @moduledoc """
   Where an observer's samples go (ADR-0004 · "hand to a sink").
 

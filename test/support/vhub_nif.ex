@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Test.VHubNif do
+defmodule BBMCUHub.Test.VHubNif do
   @moduledoc """
   TEST-ONLY NIF over the REAL firmware C chassis (Option B) — the floor + the wire
   framing/decode path, compiled from the same `firmware/src/*.c` the
@@ -30,7 +30,7 @@ defmodule BBMcuhub.Test.VHubNif do
   @doc """
   A born-disarmed floor with `window_ms` and the PACKED `safe_action` bytes
   already selected (ADR-0005: the floor is byte-generic — the safe action is the
-  port's value-type value, packed by `BBMcuhub.Wire.Codec.encode_fields/2`).
+  port's value-type value, packed by `BBMCUHub.Wire.Codec.encode_fields/2`).
   """
   @spec floor_init(non_neg_integer(), binary()) :: floor()
   def floor_init(_window_ms, _safe_bytes), do: nif_error()

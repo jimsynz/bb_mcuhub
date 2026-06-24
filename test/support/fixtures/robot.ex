@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Test.Fixtures.Robot do
+defmodule BBMCUHub.Test.Fixtures.Robot do
   @moduledoc """
   The library's **test fixture robot** (test-only — under `test/support/`, on
   `elixirc_paths` only in `:test`, so it is NOT compiled into the shipped library).
@@ -28,19 +28,19 @@ defmodule BBMcuhub.Test.Fixtures.Robot do
   actuator, and a consumer-style CUSTOM value-type — exactly the surface the
   library must test in isolation.
 
-  Like the real robots, the hub-gateway DSL (`BBMcuhub.Dsl`) composes alongside
+  Like the real robots, the hub-gateway DSL (`BBMCUHub.Dsl`) composes alongside
   BeamBots' own: `hubs do` places each hub on a NODE id; the views in `topology`
   name the hub+port they read; the extension projects both into one IR (§06).
   """
-  use BB, extensions: [BBMcuhub.Dsl]
+  use BB, extensions: [BBMCUHub.Dsl]
 
   hubs do
     # The ROOT comms hub (parent: :host) — owns the host UART (ADR-0006). It
     # senses pose/scalar; its one child act_hub hangs off it over a UART link.
-    hub(:sensor_hub, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+    hub(:sensor_hub, BBMCUHub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
     # UART leaf — its uplink to the root is UART (flips LINK1_TRANSPORT_UART to
     # 1); covers the floor + status.
-    hub(:act_hub, BBMcuhub.Test.Fixtures.ActuatorHub,
+    hub(:act_hub, BBMCUHub.Test.Fixtures.ActuatorHub,
       node: 0x05,
       parent: :sensor_hub,
       uplink: :uart
@@ -53,7 +53,7 @@ defmodule BBMcuhub.Test.Fixtures.Robot do
       # (the slice test's sensor path: a born-stale BB.Message.Sensor.Imu publish)
       sensor(
         :chassis_imu,
-        {BBMcuhub.BBHub.Sensor, hub: :sensor_hub, port: :pose, fresh_for: 3, beat_ms: 20}
+        {BBMCUHub.BBHub.Sensor, hub: :sensor_hub, port: :pose, fresh_for: 3, beat_ms: 20}
       )
 
       # a scalar telemetry view over the CUSTOM value-type port — proves the
@@ -61,7 +61,7 @@ defmodule BBMcuhub.Test.Fixtures.Robot do
       # (its lift/1 is a passthrough, so the published payload is the raw map).
       sensor(
         :scalar_telemetry,
-        {BBMcuhub.BBHub.Sensor, hub: :sensor_hub, port: :scalar, fresh_for: 3, beat_ms: 50}
+        {BBMCUHub.BBHub.Sensor, hub: :sensor_hub, port: :scalar, fresh_for: 3, beat_ms: 50}
       )
 
       # the actuator — a BB.Actuator view over the act hub's floored command port,
@@ -80,7 +80,7 @@ defmodule BBMcuhub.Test.Fixtures.Robot do
 
         actuator(
           :drive,
-          {BBMcuhub.BBHub.Actuator,
+          {BBMCUHub.BBHub.Actuator,
            hub: :act_hub, port: :effort_cmd, status_port: :act_status, fresh_for: 5}
         )
 

@@ -8,25 +8,25 @@ defmodule SegbyV1.Host do
     * the **BeamBots supervision tree** for `SegbyV1.Robot` — the views (the
       chassis IMU sensor, the two wheel actuators), the `:balance` controller
       (born DISABLED), and the `:teleop` command; and
-    * the **`LinkOwner`** (`BBMcuhub.Host.LinkOwner`) — the one process that owns
+    * the **`LinkOwner`** (`BBMCUHub.Host.LinkOwner`) — the one process that owns
       the host↔root-hub UART, decodes inbound frames into the registry, and drains
       the two wheel command slots outbound.
 
   `LinkOwner` is kept here, beside the robot tree, NOT under
-  `BBMcuhub.Application` — so it survives a view or law crash and the link stays
+  `BBMCUHub.Application` — so it survives a view or law crash and the link stays
   open through a fault (§07). It is started AFTER the BB tree (it depends on the
   PubSub registry only indirectly, but ordering it last means the views exist
   before any inbound frame could be routed). Both are children of this one
   supervisor; if the whole robot is torn down, the UART is closed with it.
 
-  The `LinkOwner` is registered under its default name (`BBMcuhub.Host.LinkOwner`)
+  The `LinkOwner` is registered under its default name (`BBMCUHub.Host.LinkOwner`)
   so the actuator views — the sole writers of the command slots (§04) — can
   notify it on each write exactly as in production.
 
   ## Command slots
 
   The two wheel command `(node, port_id)`s are resolved at boot from the segby
-  IR via `BBMcuhub.Contract.PortIndex` (`{:wheels, :motor_left}` and
+  IR via `BBMCUHub.Contract.PortIndex` (`{:wheels, :motor_left}` and
   `{:wheels, :motor_right}`), so a contract move can never desync the watched
   slots from the wire ids. `PortIndex.build/1` is pointed at segby (the generic
   launcher does it), and the resolved slots are passed to `LinkOwner` as
@@ -34,10 +34,10 @@ defmodule SegbyV1.Host do
 
   ## Transport (parameterised)
 
-  The transport defaults to the production `BBMcuhub.Host.Transport.UART`, but is
+  The transport defaults to the production `BBMCUHub.Host.Transport.UART`, but is
   parameterised so a test can inject a loopback transport (the example ships its
   own `SegbyV1.Test.LoopbackTransport`, built on the library's public
-  `BBMcuhub.Host.Transport` behaviour) and run the whole host stack with no
+  `BBMCUHub.Host.Transport` behaviour) and run the whole host stack with no
   hardware. Pass `transport:` / `transport_opts:`.
 
   ## Running it
@@ -85,7 +85,7 @@ defmodule SegbyV1.Host do
       the proven-safe baud here. It MUST match the root hub (the Blaster, NODE
       0x02) firmware's `HOST_UART_BAUD`. A consumer with verified-solid wiring can
       raise both ends back to 1 Mbit/s.
-    * **Framing** — COBS+CRC (`BBMcuhub.Wire.FramingCOBS`), owned below the
+    * **Framing** — COBS+CRC (`BBMCUHub.Wire.FramingCOBS`), owned below the
       transport seam; the `LinkOwner` only ever sees clean bodies.
     * **Ownership** — the `LinkOwner` (started here) owns that one UART. It is the
       single decode + route seam (§07); no other process touches the device.
@@ -101,14 +101,14 @@ defmodule SegbyV1.Host do
   ## Implementation
 
   This launcher is a thin wrapper over the generic library launcher
-  `BBMcuhub.Host` (ADR-0003): `start_link/1` just forwards `robot: @robot` plus
+  `BBMCUHub.Host` (ADR-0003): `start_link/1` just forwards `robot: @robot` plus
   the operator's `transport`/`transport_opts`/`bb_opts`/`name` to it. The generic
   launcher derives the wheel command slots from segby's IR and wires the standard
   `BB.Supervisor` + `LinkOwner` tree, so the slot-resolution supervisor does not
   live here.
   """
 
-  alias BBMcuhub.Host
+  alias BBMCUHub.Host
 
   @robot SegbyV1.Robot
 
@@ -119,17 +119,17 @@ defmodule SegbyV1.Host do
   @doc """
   Start the supervised host tree: the BeamBots supervision tree for segby plus
   the `LinkOwner` (which owns the host↔root-hub UART). Delegates to
-  `BBMcuhub.Host.start_link/1` with `robot: #{inspect(@robot)}`.
+  `BBMCUHub.Host.start_link/1` with `robot: #{inspect(@robot)}`.
 
   ## Options
 
-    * `:transport` — a `BBMcuhub.Host.Transport` module (default
-      `BBMcuhub.Host.Transport.UART`); tests inject `LoopbackTransport`.
+    * `:transport` — a `BBMCUHub.Host.Transport` module (default
+      `BBMCUHub.Host.Transport.UART`); tests inject `LoopbackTransport`.
     * `:transport_opts` — passed to the transport (`[port: "ttyAMA0", baud:
       1_000_000]` for the UART).
     * `:bb_opts` — extra options forwarded to `BB.Supervisor.start_link/2`
       (e.g. `:params`, `:simulation`).
-    * `:name` — this supervisor's name (default `BBMcuhub.Host`).
+    * `:name` — this supervisor's name (default `BBMCUHub.Host`).
   """
   @spec start_link(keyword()) :: Supervisor.on_start()
   def start_link(opts \\ []) do
@@ -155,7 +155,7 @@ defmodule SegbyV1.Host do
   The two wheel command `(node, port_id)` slots the `LinkOwner` drains, derived
   from the segby IR (every `dir: :in` command port with `has_safe_action: true`). Builds
   the `PortIndex` for segby as a side effect (it defaults to a fixture otherwise).
-  Delegates to `BBMcuhub.Host.command_slots/1`.
+  Delegates to `BBMCUHub.Host.command_slots/1`.
   """
   @spec command_slots() :: [{0..255, 0..255}]
   def command_slots, do: Host.command_slots(@robot)

@@ -17,7 +17,7 @@ defmodule Mix.Tasks.Wire.Gen.Run do
 
       mix wire.gen                       # all committed library robots
                                          #   (the test fixture)
-      mix wire.gen --robot BBMcuhub.Test.Fixtures.Robot   # just one robot
+      mix wire.gen --robot BBMCUHub.Test.Fixtures.Robot   # just one robot
 
   ## Output base (ADR-0003: each app generates into its OWN tree)
 
@@ -36,7 +36,7 @@ defmodule Mix.Tasks.Wire.Gen.Run do
   """
   use Mix.Task
 
-  alias BBMcuhub.Gen.WireGen
+  alias BBMCUHub.Gen.WireGen
 
   @impl Mix.Task
   def run(args) do

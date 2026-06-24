@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Observer do
+defmodule BBMCUHub.Observer do
   @moduledoc """
   A host-side **observer** — the observability plane's pure reader (ADR-0004,
   CONTEXT.md · *Observer*).
@@ -21,12 +21,12 @@ defmodule BBMcuhub.Observer do
 
   ## What this observer is, structurally
 
-    * **Pure reader.** It is handed a `BBMcuhub.Host.Registry.Reader` capability —
+    * **Pure reader.** It is handed a `BBMCUHub.Host.Registry.Reader` capability —
       `get` / `dump`, no `put` — so "an observer writes a slot" is *unrepresentable*,
       not merely forbidden (the registry is `:public` ETS). It also never issues a
       command (no command/publish call lives here — only the sink may publish, on
       the observer's *own* topic).
-    * **Born stale, by its own cadence.** It holds one `BBMcuhub.Host.Monitor` per
+    * **Born stale, by its own cadence.** It holds one `BBMCUHub.Host.Monitor` per
       slot at *its* `fresh_for` (in *its* beats). A value sitting in a slot from
       before this observer booted is NOT handed to the sink until the observer
       personally witnesses `seq` advance — so a restart never republishes a leftover
@@ -36,7 +36,7 @@ defmodule BBMcuhub.Observer do
     * **Fail-loud select.** Every selected `{hub, port}` is resolved via
       `PortIndex.resolve` at init; an unknown port **stops** the observer
       (`{:stop, {:unknown_port, {hub, port}}}`) — never silently observe a typo'd
-      port forever (mirrors `BBMcuhub.BBHub.Sensor`).
+      port forever (mirrors `BBMCUHub.BBHub.Sensor`).
     * **Sink in-process.** The sink runs in this observer's own process: a slow sink
       degrades only this observer (it falls behind its timer) and a crashing sink
       takes down only this observer's child — by design (ADR-0004 · Consequences).
@@ -45,12 +45,12 @@ defmodule BBMcuhub.Observer do
   ## Options (`start_link/1`)
 
     * `:robot` — the robot module (REQUIRED; `PortIndex` must be built for it, which
-      the `BBMcuhub.Host` launcher and test setups do).
+      the `BBMCUHub.Host` launcher and test setups do).
     * `:slots` — the slots to **select**, each the symbolic `{hub, port}` pair
       (REQUIRED, non-empty). The symbolic form matches the views and is friendlier
       than the wire `{node, port_id}`; it is resolved to the wire id at init.
     * `:sink` — where samples go: a `fun.(slot, value, meta)` (the primitive) or a
-      `{module, state}` stateful sink (`BBMcuhub.Observer.Sink`). REQUIRED.
+      `{module, state}` stateful sink (`BBMCUHub.Observer.Sink`). REQUIRED.
     * `:sample_ms` — the sample period in ms (default `100`, ~10 Hz, a UI cadence).
       Each tick samples every selected slot once.
     * `:fresh_for` — this observer's freshness window in *its own* beats (default
@@ -74,11 +74,11 @@ defmodule BBMcuhub.Observer do
   """
   use GenServer
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.Monitor
-  alias BBMcuhub.Host.Registry.Reader
-  alias BBMcuhub.Observer.Sink
-  alias BBMcuhub.ValueType
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.Monitor
+  alias BBMCUHub.Host.Registry.Reader
+  alias BBMCUHub.Observer.Sink
+  alias BBMCUHub.ValueType
 
   @default_sample_ms 100
   @default_fresh_for 3

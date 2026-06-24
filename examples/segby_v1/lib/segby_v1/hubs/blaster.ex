@@ -21,7 +21,7 @@ defmodule SegbyV1.Hubs.Blaster do
   The declared `sample` MFA refs are data only; the firmware has the on-device
   equivalents under `firmware/mcu/blaster.cpp`.
   """
-  use BBMcuhub.Hub
+  use BBMCUHub.Hub
 
   ports do
     port(:pose,

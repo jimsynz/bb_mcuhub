@@ -1,7 +1,7 @@
-defmodule BBMcuhub.Wire.CRC16Test do
+defmodule BBMCUHub.Wire.CRC16Test do
   use ExUnit.Case, async: true
-  alias BBMcuhub.Wire.CRC16
-  doctest BBMcuhub.Wire.CRC16
+  alias BBMCUHub.Wire.CRC16
+  doctest BBMCUHub.Wire.CRC16
 
   test "the pinned check value — the single test that catches a wrong variant" do
     # CRC-16/CCITT-FALSE check value is 0x29B1 over "123456789". If this fails,

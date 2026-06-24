@@ -1,6 +1,6 @@
-defmodule BBMcuhub.Wire.FramingCOBSTest do
+defmodule BBMCUHub.Wire.FramingCOBSTest do
   use ExUnit.Case, async: false
-  alias BBMcuhub.Wire.{FramingCOBS, Stats}
+  alias BBMCUHub.Wire.{FramingCOBS, Stats}
 
   setup do
     Stats.setup()

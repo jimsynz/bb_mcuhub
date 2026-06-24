@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Wire.FramingCOBS do
+defmodule BBMCUHub.Wire.FramingCOBS do
   @moduledoc """
   COBS + CRC-16 framing for the host↔root-hub UART — the `Circuits.UART.Framing`
   behaviour (§03).
@@ -6,7 +6,7 @@ defmodule BBMcuhub.Wire.FramingCOBS do
   This is the one place a byte stream becomes *whole, CRC-clean* frames. It
   accumulates bytes, splits on the `0x00` delimiter, COBS-decodes each piece,
   checks the trailing CRC-16, and passes up **only** the bodies that survive. Each
-  failure mode is dropped and counted *distinctly* in `BBMcuhub.Wire.Stats` — a
+  failure mode is dropped and counted *distinctly* in `BBMCUHub.Wire.Stats` — a
   CRC mismatch as `crc_fail`, a truncated COBS run as `cobs_truncated`, any other
   structural break as `rx_drop` — so nothing above the seam ever sees a corrupt
   frame (the codec, §06/§07, never has to defend against garbage and a corrupted
@@ -17,7 +17,7 @@ defmodule BBMcuhub.Wire.FramingCOBS do
   """
   @behaviour Circuits.UART.Framing
 
-  alias BBMcuhub.Wire.{COBS, CRC16, Stats}
+  alias BBMCUHub.Wire.{COBS, CRC16, Stats}
 
   @delim 0x00
 

@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Application do
+defmodule BBMCUHub.Application do
   @moduledoc """
   The library's OTP application.
 
@@ -15,13 +15,13 @@ defmodule BBMcuhub.Application do
 
   @impl true
   def start(_type, _args) do
-    BBMcuhub.Wire.Stats.setup()
+    BBMCUHub.Wire.Stats.setup()
 
     children = [
-      BBMcuhub.Host.NodeRegistry
+      BBMCUHub.Host.NodeRegistry
     ]
 
-    opts = [strategy: :one_for_one, name: BBMcuhub.Supervisor]
+    opts = [strategy: :one_for_one, name: BBMCUHub.Supervisor]
     Supervisor.start_link(children, opts)
   end
 end

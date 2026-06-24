@@ -1,4 +1,4 @@
-defmodule BBMcuhub.ValueType.Imu do
+defmodule BBMCUHub.ValueType.Imu do
   @moduledoc """
   The `imu` value-type (§09) — a unit quaternion `(w,x,y,z)` plus two `BB.Math.Vec3`s
   (angular velocity, linear acceleration), each component an `:f32` on the wire
@@ -9,7 +9,7 @@ defmodule BBMcuhub.ValueType.Imu do
   back through the accessors. `Quaternion.new` normalises, which is exact for the
   already-unit orientations an IMU produces.
   """
-  use BBMcuhub.ValueType
+  use BBMCUHub.ValueType
 
   alias BB.Math.{Quaternion, Vec3}
 
@@ -29,7 +29,7 @@ defmodule BBMcuhub.ValueType.Imu do
     az: :f32
   )
 
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def lift(%{
         qw: qw,
         qx: qx,
@@ -49,7 +49,7 @@ defmodule BBMcuhub.ValueType.Imu do
     }
   end
 
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def unlift(%BB.Message.Sensor.Imu{
         orientation: orientation,
         angular_velocity: angular_velocity,

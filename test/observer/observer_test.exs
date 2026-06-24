@@ -1,4 +1,4 @@
-defmodule BBMcuhub.ObserverTest do
+defmodule BBMCUHub.ObserverTest do
   @moduledoc """
   The observability plane's sample-state core (ADR-0004).
 
@@ -11,12 +11,12 @@ defmodule BBMcuhub.ObserverTest do
   # observer reads/writes the shared NodeRegistry ETS table.
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.NodeRegistry
-  alias BBMcuhub.Host.Registry.Reader
-  alias BBMcuhub.Observer
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.NodeRegistry
+  alias BBMCUHub.Host.Registry.Reader
+  alias BBMCUHub.Observer
 
-  @robot BBMcuhub.Test.Fixtures.Robot
+  @robot BBMCUHub.Test.Fixtures.Robot
   # never fire the auto-timer; we drive :sample by hand for determinism
   @never 3_600_000
 
@@ -167,7 +167,7 @@ defmodule BBMcuhub.ObserverTest do
       assert meta.seq == 2
       assert meta.t_dev == 222
       assert meta.freshness == :fresh
-      assert meta.value_type == BBMcuhub.ValueType.Imu
+      assert meta.value_type == BBMCUHub.ValueType.Imu
       assert meta.observer == :pose_obs
     end
   end

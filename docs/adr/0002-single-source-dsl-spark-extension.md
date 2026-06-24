@@ -2,10 +2,10 @@
 
 The hub-gateway library is a **Spark DSL extension to BeamBots (`bb`)**, not a
 parallel configuration system. A user imports the `bb` packages plus this library
-and authors **one model**: hubs are reusable modules (`use BBMcuhub.Hub`) that
+and authors **one model**: hubs are reusable modules (`use BBMCUHub.Hub`) that
 declare their ports' intrinsic wire facts (`type`, `rate`, `t_dev`, `safe_action`,
 the pure `sample`/`step`); the robot declares a sibling `hubs do` block (a top-level section our extension
-owns, composed via `use BB, extensions: [BBMcuhub.Dsl]` — no `bb` fork) that
+owns, composed via `use BB, extensions: [BBMCUHub.Dsl]` — no `bb` fork) that
 _places_ each hub on a `NODE`, and the existing `topology do` wires its ports to
 components. A
 Spark **transformer** projects that assembled model into the IR row shape and

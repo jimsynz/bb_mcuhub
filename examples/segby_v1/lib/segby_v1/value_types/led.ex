@@ -3,10 +3,10 @@ defmodule SegbyV1.ValueTypes.Led do
   The `led` value-type (§09) — a WS2812 status command, an RGB triple `{r, g, b}`
   as three `:u8`s (segby_v1's decorative status strip's command payload).
 
-  This is a CONSUMER-defined value-type (`use BBMcuhub.ValueType`): the library
+  This is a CONSUMER-defined value-type (`use BBMCUHub.ValueType`): the library
   ships only `imu`/`effort`/`status` as stock, and segby adds its own here with no
   library edit. A port names it BY MODULE (`type: SegbyV1.ValueTypes.Led`), which
-  `BBMcuhub.ValueType.resolve/1` passes through unchanged.
+  `BBMCUHub.ValueType.resolve/1` passes through unchanged.
 
   Led is a command value-type that names its OWN command message,
   `SegbyV1.Messages.LedColor` (`command_message/0`) — a consumer-defined `BB.Message`
@@ -17,7 +17,7 @@ defmodule SegbyV1.ValueTypes.Led do
   contract either way. `lift/1`/`unlift/1` are the genuine mapping between the typed
   `LedColor` struct and the wire field map.
   """
-  use BBMcuhub.ValueType
+  use BBMCUHub.ValueType
 
   layout(
     # WS2812 status command — an RGB triple (§09)
@@ -26,14 +26,14 @@ defmodule SegbyV1.ValueTypes.Led do
     b: :u8
   )
 
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def lift(%{r: r, g: g, b: b}), do: %SegbyV1.Messages.LedColor{r: r, g: g, b: b}
 
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def unlift(%SegbyV1.Messages.LedColor{r: r, g: g, b: b}), do: %{r: r, g: g, b: b}
 
   # The command struct this value-type accepts — the same struct unlift/1 matches.
   # An actuator view (if wired to status_led) derives its PubSub subscribe from this.
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def command_message, do: SegbyV1.Messages.LedColor
 end

@@ -192,4 +192,4 @@ static ErlNifFunc nif_funcs[] = {
     {"frame_decode_body", 2, nif_frame_decode_body, 0},
 };
 
-ERL_NIF_INIT(Elixir.BBMcuhub.Test.VHubNif, nif_funcs, NULL, NULL, NULL, NULL)
+ERL_NIF_INIT(Elixir.BBMCUHub.Test.VHubNif, nif_funcs, NULL, NULL, NULL, NULL)

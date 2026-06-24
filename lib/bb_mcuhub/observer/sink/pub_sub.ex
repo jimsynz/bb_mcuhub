@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Observer.Sink.PubSub do
+defmodule BBMCUHub.Observer.Sink.PubSub do
   @moduledoc """
   The PubSub-republish sink — re-publishes a sampled value on the observer's
   **own** slow topic (ADR-0004).
@@ -11,8 +11,8 @@ defmodule BBMcuhub.Observer.Sink.PubSub do
   control firehose. (Pointing a *specific* dashboard — `bb_tui` — at this topic is a
   consumer use case in the worked example, not built here.)
 
-  Mirrors `BBMcuhub.BBHub.Sensor`'s envelope shape (a `%BB.Message{}` via
-  `BB.publish/3`), but on its own topic and carrying a `BBMcuhub.Observer.Sample`
+  Mirrors `BBMCUHub.BBHub.Sensor`'s envelope shape (a `%BB.Message{}` via
+  `BB.publish/3`), but on its own topic and carrying a `BBMCUHub.Observer.Sample`
   payload (the raw slot value + context) rather than a typed control reading — the
   observability plane is separate from the control plane.
 
@@ -29,9 +29,9 @@ defmodule BBMcuhub.Observer.Sink.PubSub do
   every sample publishes and threads the same state.
   """
 
-  @behaviour BBMcuhub.Observer.Sink
+  @behaviour BBMCUHub.Observer.Sink
 
-  alias BBMcuhub.Observer.Sample
+  alias BBMCUHub.Observer.Sample
 
   @type state :: %{robot: module(), topic: [atom()]}
 
@@ -39,7 +39,7 @@ defmodule BBMcuhub.Observer.Sink.PubSub do
   Build the sink as a `{module, state}` pair ready to hand to an observer's
   `sink:` option.
 
-      sink: BBMcuhub.Observer.Sink.PubSub.new(robot: MyRobot, topic: [:observe, :ui])
+      sink: BBMCUHub.Observer.Sink.PubSub.new(robot: MyRobot, topic: [:observe, :ui])
   """
   @spec new(keyword()) :: {__MODULE__, state()}
   def new(opts) do
@@ -48,7 +48,7 @@ defmodule BBMcuhub.Observer.Sink.PubSub do
     {__MODULE__, %{robot: robot, topic: topic}}
   end
 
-  @impl BBMcuhub.Observer.Sink
+  @impl BBMCUHub.Observer.Sink
   def handle_sample({hub, port} = slot, value, meta, %{robot: robot, topic: topic} = state) do
     path = topic ++ [hub, port]
 

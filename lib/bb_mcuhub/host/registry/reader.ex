@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Host.Registry.Reader do
+defmodule BBMCUHub.Host.Registry.Reader do
   @moduledoc """
   A **read-only registry capability** for the observability plane (ADR-0004).
 
@@ -6,7 +6,7 @@ defmodule BBMcuhub.Host.Registry.Reader do
   latest value and never writes one. The registry is `:public` ETS, so "exactly
   one writer per slot" (§07) is otherwise just a comment. This struct closes that
   gap *structurally*: a `Reader` exposes only `get/3` and `dump/1` — there is no
-  `put` — so an observer handed a `Reader` instead of `BBMcuhub.Host.NodeRegistry`
+  `put` — so an observer handed a `Reader` instead of `BBMCUHub.Host.NodeRegistry`
   directly **cannot represent** a slot write. "An observer writes a slot" is made
   unrepresentable, not merely discouraged (ADR-0004, the protecting invariant).
 
@@ -19,7 +19,7 @@ defmodule BBMcuhub.Host.Registry.Reader do
   observer keeps one in its state and never names `NodeRegistry` in observer code.
   """
 
-  alias BBMcuhub.Host.NodeRegistry
+  alias BBMCUHub.Host.NodeRegistry
 
   @typedoc "A `(node, port_id)` slot row, or `nil` if the slot was never written."
   @type row :: NodeRegistry.row() | nil

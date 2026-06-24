@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Wire.Codec do
+defmodule BBMCUHub.Wire.Codec do
   @moduledoc """
   Encode/decode the on-wire body — `NODE · PORT · SEQ · T_DEV · PAYLOAD` — the
   part the CRC covers (§03). The frame codec (`FramingCOBS`) wraps a body with
@@ -7,10 +7,10 @@ defmodule BBMcuhub.Wire.Codec do
   ## One source of truth, no drift (§06)
 
   The byte layout is *read*, not hand-written: payload fields come from the port's
-  value-type (`BBMcuhub.ValueType.resolve(type).layout()`) and the header from
-  `BBMcuhub.Contract`. The same
+  value-type (`BBMCUHub.ValueType.resolve(type).layout()`) and the header from
+  `BBMCUHub.Contract`. The same
   tables render the C header, the per-hub schedule, and the parity vectors via
-  `BBMcuhub.Gen.WireGen`. Because this codec interprets those tables directly, it
+  `BBMCUHub.Gen.WireGen`. Because this codec interprets those tables directly, it
   cannot drift from them within Elixir; the parity-vector fixture is the
   cross-language witness that the C side agrees byte-for-byte.
 
@@ -22,9 +22,9 @@ defmodule BBMcuhub.Wire.Codec do
   to/from concrete `BB.Message` structs is the view's job (§09), not the codec's.
   """
 
-  alias BBMcuhub.Contract
-  alias BBMcuhub.Contract.{Layouts, PortIndex}
-  alias BBMcuhub.ValueType
+  alias BBMCUHub.Contract
+  alias BBMCUHub.Contract.{Layouts, PortIndex}
+  alias BBMCUHub.ValueType
 
   # The base header read before the per-port index reveals whether t_dev follows.
   @base_header [node: :u8, port: :u8, seq: :u16]

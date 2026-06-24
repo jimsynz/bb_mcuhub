@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Test.ViewHarness do
+defmodule BBMCUHub.Test.ViewHarness do
   @moduledoc """
   A minimal GenServer that drives a BB view callback module (`BB.Sensor` /
   `BB.Actuator`) in isolation for tests.

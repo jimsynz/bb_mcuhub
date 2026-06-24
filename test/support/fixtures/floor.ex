@@ -1,9 +1,9 @@
-defmodule BBMcuhub.Test.Fixtures.Floor do
+defmodule BBMCUHub.Test.Fixtures.Floor do
   @moduledoc """
   The host-side reference of the fixture actuator floor's decision (§05) — a
   test-only mirror of the on-chip floor, used to assert the born-disarmed /
   dead-man degradation on the host (the role the retired motor hub's
-  `BBMcuhub.Hubs.Motor.Floor` filled for the Follower).
+  `BBMCUHub.Hubs.Motor.Floor` filled for the Follower).
 
   Pure: `step/2` takes the floor state and an observation and returns the next
   state plus the value to drive. Born-disarmed, strict (a single command seq is a

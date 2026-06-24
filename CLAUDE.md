@@ -24,7 +24,7 @@ on it as a downstream consumer would. See `CONTEXT.md` for the domain glossary,
 Library (`bb_mcuhub`, repo root — every consumer gets this, never edits it):
 
 - `lib/bb_mcuhub/` — host platform: `wire/`, `contract/`, `value_type/` (+ the
-  `BBMcuhub.ValueType` behaviour), `dsl.ex` (the `hubs do` extension), `gen/` (the
+  `BBMCUHub.ValueType` behaviour), `dsl.ex` (the `hubs do` extension), `gen/` (the
   generator), `hub.ex`, `host.ex` (the generic launcher) + `host/`, `bb_hub/` (the
   value-type-agnostic BeamBots seam).
 - `firmware/` — the C chassis (`src/`, `include/`, `src/esp32/`) + `library.json`;
@@ -89,8 +89,8 @@ from the device the way an Elixir mock would.
   the same `firmware/src/*.c` the C harnesses host-compile (`floor`, `transport`,
   `frame`, `crc16`, `cobs`). Built by `elixir_make` **only in `:test`** (the
   `compilers:` gate in `mix.exs`); the `.so` is gitignored; the shipped library
-  needs no C. Loader: `BBMcuhub.Test.VHubNif`.
-- `test/support/virtual_hub.ex` — `BBMcuhub.Test.VirtualHub`, a `Host.Transport`
+  needs no C. Loader: `BBMCUHub.Test.VHubNif`.
+- `test/support/virtual_hub.ex` — `BBMCUHub.Test.VirtualHub`, a `Host.Transport`
   that plays the ESP32 hub tree: runs a real C floor per actuator port on **explicit
   simulated time** (`tick(vhub, now_ms)` is the only clock — no wall-clock sleeps),
   routes host-bound traffic through the real `FramingCOBS` seam, and injects faults

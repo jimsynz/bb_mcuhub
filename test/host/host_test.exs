@@ -1,4 +1,4 @@
-defmodule BBMcuhub.HostTest do
+defmodule BBMCUHub.HostTest do
   @moduledoc """
   Proves the generic launcher derives command slots from a robot's IR (ADR-0003),
   not from a hand-listed set of ports. A command slot is the wire `{node,
@@ -10,9 +10,9 @@ defmodule BBMcuhub.HostTest do
   # Not async: command_slots/1 builds the global PortIndex (:persistent_term).
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host
-  alias BBMcuhub.Test.Fixtures.Robot, as: FixtureRobot
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host
+  alias BBMCUHub.Test.Fixtures.Robot, as: FixtureRobot
 
   describe "command_slots/1 derives actuator command slots from the IR" do
     test "the fixture robot derives its single actuator command slot from the IR" do
@@ -27,7 +27,7 @@ defmodule BBMcuhub.HostTest do
     end
 
     test "every derived slot is a floored command port (dir: :in, has_safe_action: true)" do
-      ir = BBMcuhub.Robot.Info.ir(FixtureRobot)
+      ir = BBMCUHub.Robot.Info.ir(FixtureRobot)
       derived = MapSet.new(Host.command_slots(FixtureRobot))
 
       for row <- ir, MapSet.member?(derived, {row.node, row.port_id}) do

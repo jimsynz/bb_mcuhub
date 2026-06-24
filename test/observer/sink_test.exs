@@ -1,17 +1,17 @@
-defmodule BBMcuhub.Observer.SinkTest do
+defmodule BBMCUHub.Observer.SinkTest do
   @moduledoc """
   The sink behaviour + stock sinks (ADR-0004): the function-sink primitive and the
   PubSub-republish sink (the dashboard's slow topic).
   """
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.NodeRegistry
-  alias BBMcuhub.Observer
-  alias BBMcuhub.Observer.Sample
-  alias BBMcuhub.Observer.Sink
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.NodeRegistry
+  alias BBMCUHub.Observer
+  alias BBMCUHub.Observer.Sample
+  alias BBMCUHub.Observer.Sink
 
-  @robot BBMcuhub.Test.Fixtures.Robot
+  @robot BBMCUHub.Test.Fixtures.Robot
   @never 3_600_000
 
   setup do
@@ -75,7 +75,7 @@ defmodule BBMcuhub.Observer.SinkTest do
 
   describe "a stateful behaviour sink accumulates across samples" do
     defmodule CountingSink do
-      @behaviour BBMcuhub.Observer.Sink
+      @behaviour BBMCUHub.Observer.Sink
       @impl true
       def handle_sample(_slot, _value, _meta, %{count: c, test: t}) do
         st = %{count: c + 1, test: t}
@@ -146,7 +146,7 @@ defmodule BBMcuhub.Observer.SinkTest do
       assert payload.seq == 2
       assert payload.t_dev == 42
       assert payload.freshness == :fresh
-      assert payload.value_type == BBMcuhub.ValueType.Imu
+      assert payload.value_type == BBMCUHub.ValueType.Imu
       assert payload.observer == :ui_obs
     end
 

@@ -65,7 +65,7 @@ build_flags =
   ; this hub's NODE id; REQUIRED. Equals ROOT_NODE here, so this is the root.
   -DMY_NODE=0xNN
   ; host<->root UART baud; ROOT ENV ONLY. Must match the host's transport baud
-  ; (the `transport_opts` your host launcher passes to BBMcuhub.Host).
+  ; (the `transport_opts` your host launcher passes to BBMCUHub.Host).
   -DHOST_UART_BAUD=<baud>
 build_src_filter =
   ; compile ONLY this hub's hand-written device file for this env.

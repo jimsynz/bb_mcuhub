@@ -1,4 +1,4 @@
-defmodule BBMcuhub.BBHub.ActuatorCommandTest do
+defmodule BBMCUHub.BBHub.ActuatorCommandTest do
   @moduledoc """
   Tier-2 validation (the design-review test for finding #1): a REAL, multi-field
   command value-type — NOT `:effort`, NOT an identity passthrough — flowing end-to-
@@ -32,11 +32,11 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
   """
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.BBHub
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
-  alias BBMcuhub.Host.Transport.Loopback, as: LoopbackTransport
-  alias BBMcuhub.Wire.Codec
+  alias BBMCUHub.BBHub
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.{LinkOwner, NodeRegistry}
+  alias BBMCUHub.Host.Transport.Loopback, as: LoopbackTransport
+  alias BBMCUHub.Wire.Codec
 
   # --- a REAL multi-field, non-Effort command value-type ---------------------
 
@@ -48,14 +48,14 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
     resolves it subscribes to `Position` and a published `Position` reaches the
     view. Proves the un-hard-coding (finding #1).
     """
-    use BBMcuhub.ValueType
+    use BBMCUHub.ValueType
 
     layout(
       position: :f32,
       velocity: :f32
     )
 
-    @impl BBMcuhub.ValueType
+    @impl BBMCUHub.ValueType
     def lift(%{position: p, velocity: v}) do
       # a REAL struct build, not an identity map; the optional BB hints are nil
       %BB.Message.Actuator.Command.Position{
@@ -66,13 +66,13 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
       }
     end
 
-    @impl BBMcuhub.ValueType
+    @impl BBMCUHub.ValueType
     def unlift(%BB.Message.Actuator.Command.Position{position: p, velocity: v}) do
       # generic unlift the view calls — pulls the two wire fields out of the struct
       %{position: p * 1.0, velocity: (v || 0.0) * 1.0}
     end
 
-    @impl BBMcuhub.ValueType
+    @impl BBMCUHub.ValueType
     def command_message, do: BB.Message.Actuator.Command.Position
   end
 
@@ -82,12 +82,12 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
     non-Effort command. Floored, with a safe_action over BOTH layout fields. Reports
     its own status for liveness.
     """
-    use BBMcuhub.Hub
+    use BBMCUHub.Hub
 
     ports do
       port(:pos_cmd,
         dir: :in,
-        type: BBMcuhub.BBHub.ActuatorCommandTest.PositionVT,
+        type: BBMCUHub.BBHub.ActuatorCommandTest.PositionVT,
         rate: 50,
         has_safe_action: true,
         safe_action: %{position: 0.0, velocity: 0.0}
@@ -99,10 +99,10 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
 
   defmodule Robot do
     @moduledoc "A one-hub robot carrying the multi-field `PositionVT` command port."
-    use BB, extensions: [BBMcuhub.Dsl]
+    use BB, extensions: [BBMCUHub.Dsl]
 
     hubs do
-      hub(:pos_hub, BBMcuhub.BBHub.ActuatorCommandTest.PositionHub, node: 0x0A, parent: :host)
+      hub(:pos_hub, BBMCUHub.BBHub.ActuatorCommandTest.PositionHub, node: 0x0A, parent: :host)
     end
 
     topology do
@@ -152,7 +152,7 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
       transport = :sys.get_state(owner).transport
 
       {:ok, view} =
-        BBMcuhub.Test.ViewHarness.start(
+        BBMCUHub.Test.ViewHarness.start(
           BBHub.Actuator,
           bb: %{robot: Robot, path: [:base_link, :drive_joint, :drive]},
           hub: :pos_hub,
@@ -185,7 +185,7 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
 
       [body | _] = LoopbackTransport.sent(transport)
       {:ok, decoded} = Codec.decode_body(body)
-      assert decoded.type == BBMcuhub.BBHub.ActuatorCommandTest.PositionVT
+      assert decoded.type == BBMCUHub.BBHub.ActuatorCommandTest.PositionVT
       assert_in_delta decoded.value.position, 1.57, 1.0e-5
       assert_in_delta decoded.value.velocity, 0.5, 1.0e-5
     end
@@ -196,7 +196,7 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
       # no LinkOwner here: assert directly on what the view WROTE to the slot, so
       # the multi-field generic unlift is checked without the wire roundtrip.
       {:ok, view} =
-        BBMcuhub.Test.ViewHarness.start(
+        BBMCUHub.Test.ViewHarness.start(
           BBHub.Actuator,
           bb: %{robot: Robot, path: [:base_link, :drive_joint, :drive]},
           hub: :pos_hub,

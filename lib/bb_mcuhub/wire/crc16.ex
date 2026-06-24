@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Wire.CRC16 do
+defmodule BBMCUHub.Wire.CRC16 do
   @moduledoc """
   CRC-16/CCITT-FALSE — the **one** pinned variant, so the C and Elixir sides
   cannot differ (§03, §06).
@@ -6,7 +6,7 @@ defmodule BBMcuhub.Wire.CRC16 do
       poly 0x1021 · init 0xFFFF · NO input/output reflection · xorout 0x0000
 
   The check value MUST be `0x29B1` over the ASCII bytes `"123456789"`. That is
-  asserted by a test, not by faith (`BBMcuhub.Wire.CRC16Test`).
+  asserted by a test, not by faith (`BBMCUHub.Wire.CRC16Test`).
 
   ## Why this module exists
 
@@ -23,10 +23,10 @@ defmodule BBMcuhub.Wire.CRC16 do
 
   ## Examples
 
-      iex> BBMcuhub.Wire.CRC16.crc("123456789")
+      iex> BBMCUHub.Wire.CRC16.crc("123456789")
       0x29B1
 
-      iex> BBMcuhub.Wire.CRC16.crc(<<>>)
+      iex> BBMCUHub.Wire.CRC16.crc(<<>>)
       0xFFFF
   """
   @spec crc(binary()) :: 0..0xFFFF

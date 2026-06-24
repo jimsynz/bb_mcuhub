@@ -6,7 +6,7 @@ defmodule SegbyV1.MixProject do
 
   It depends on the library via a Mix `path` dep (a hex/registry dep later, with
   no change to this app's shape) and owns its own root namespace (`SegbyV1.*`),
-  referencing `BBMcuhub.*` only for library seams. It defines its OWN `Range` /
+  referencing `BBMCUHub.*` only for library seams. It defines its OWN `Range` /
   `Led` value-types (the extension seam) and its own robot/hubs/controllers — the
   library carries the machinery; this app supplies device-specific logic.
   """

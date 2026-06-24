@@ -1,13 +1,13 @@
-defmodule BBMcuhub.Contract.IrRow do
+defmodule BBMCUHub.Contract.IrRow do
   @moduledoc """
   One projected IR row — a **typed value**, not a loose map (candidate 1 of the
   architecture review; the same direction ADR-0005 set for `safe_action`).
 
-  An IR row is the frozen, per-port unit the generator (`BBMcuhub.Gen.WireGen`),
-  the verifier (`BBMcuhub.Dsl.Verifier`), and the runtime `PortIndex` all consume.
+  An IR row is the frozen, per-port unit the generator (`BBMCUHub.Gen.WireGen`),
+  the verifier (`BBMCUHub.Dsl.Verifier`), and the runtime `PortIndex` all consume.
   It is the safety-critical single source of truth that feeds the C generator, so
   an incomplete or mis-shaped row must fail at **projection time** (in
-  `BBMcuhub.Dsl.IrTransformer`, with a clear message) — never late, as a `KeyError`
+  `BBMCUHub.Dsl.IrTransformer`, with a clear message) — never late, as a `KeyError`
   deep inside a 1300-line emitter.
 
   ## Structural completeness vs. logical rules
@@ -21,7 +21,7 @@ defmodule BBMcuhub.Contract.IrRow do
   It deliberately does **not** re-implement the *logical, cross-field* rules — the
   `has_safe_action` floored-role contract (ADR-0005), topology well-formedness
   (ADR-0006), reader↔producer reconciliation, the frame-size ceiling. Those stay in
-  `BBMcuhub.Dsl.Verifier`, which already raises a `Spark.Error.DslError` naming the
+  `BBMCUHub.Dsl.Verifier`, which already raises a `Spark.Error.DslError` naming the
   offending `(hub, port)`. The split is: the struct guarantees the row is
   *well-formed*; the verifier guarantees the model is *well-configured*.
 
@@ -29,7 +29,7 @@ defmodule BBMcuhub.Contract.IrRow do
   consumer that reads a row is unchanged — only construction is now gated.
   """
 
-  alias BBMcuhub.Contract.Layouts
+  alias BBMCUHub.Contract.Layouts
 
   @enforce_keys [
     :hub,
@@ -79,7 +79,7 @@ defmodule BBMcuhub.Contract.IrRow do
     if missing != [] do
       raise ArgumentError,
             "IR row #{label(fields)} is missing field(s) #{inspect(missing)} — " <>
-              "the projection (BBMcuhub.Dsl.IrTransformer) must populate every IR field"
+              "the projection (BBMCUHub.Dsl.IrTransformer) must populate every IR field"
     end
 
     row = struct!(__MODULE__, fields)

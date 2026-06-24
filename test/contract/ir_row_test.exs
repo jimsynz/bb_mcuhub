@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Contract.IrRowTest do
+defmodule BBMCUHub.Contract.IrRowTest do
   @moduledoc """
   The IR row is a typed value (candidate 1): a malformed projection must fail loud
   at construction, naming the offending (hub, port) — never reach the generator as
@@ -8,7 +8,7 @@ defmodule BBMcuhub.Contract.IrRowTest do
   """
   use ExUnit.Case, async: true
 
-  alias BBMcuhub.Contract.IrRow
+  alias BBMCUHub.Contract.IrRow
 
   # A minimal well-formed row (a floored scalar-effort command port).
   defp valid_fields do

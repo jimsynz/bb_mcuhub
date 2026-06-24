@@ -1,4 +1,4 @@
-defmodule BBMcuhub.MixProject do
+defmodule BBMCUHub.MixProject do
   use Mix.Project
 
   def project do
@@ -28,7 +28,7 @@ defmodule BBMcuhub.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {BBMcuhub.Application, []}
+      mod: {BBMCUHub.Application, []}
     ]
   end
 

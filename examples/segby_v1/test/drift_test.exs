@@ -3,7 +3,7 @@ defmodule SegbyV1.DriftTest do
   The example's OWN drift test (ADR-0003): the build is red if segby's committed
   firmware artifacts (`firmware/gen/segby_v1/*`) or its parity fixture
   (`test/fixtures/segby_v1/parity_vectors.exs`) could disagree with what the
-  library's generator (`BBMcuhub.Gen.WireGen`) emits for `SegbyV1.Robot` NOW.
+  library's generator (`BBMCUHub.Gen.WireGen`) emits for `SegbyV1.Robot` NOW.
 
   This is the CONSUMER side of the generation seam: the example invokes the
   library's WireGen with its OWN output base (the example's `firmware/gen` +
@@ -18,9 +18,9 @@ defmodule SegbyV1.DriftTest do
   # Not async: the decode round-trip builds the global PortIndex (:persistent_term).
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Gen.WireGen
-  alias BBMcuhub.Wire.{Codec, CRC16}
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Gen.WireGen
+  alias BBMCUHub.Wire.{Codec, CRC16}
 
   @robot SegbyV1.Robot
 

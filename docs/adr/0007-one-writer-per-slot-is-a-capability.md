@@ -2,7 +2,7 @@
 
 The "exactly one writer per slot" rule (§07) — the precondition that makes
 `seq`-as-trust sound — is enforced **structurally** by a slot-scoped **write
-capability** (`BBMcuhub.Host.Registry.Writer`), the write-side mirror of the
+capability** (`BBMCUHub.Host.Registry.Writer`), the write-side mirror of the
 read-only `Registry.Reader` that ADR-0004 gave observers. A writer is minted for
 one `(node, port_id)` via `NodeRegistry.writer!/2`; its `put/4` carries no node/port
 argument (writing another slot is unrepresentable), and a second live mint for the
@@ -37,13 +37,13 @@ running **two** writers on one command slot — the exact anti-pattern.)
 
 A **write capability** scoped to one slot, symmetric with the Reader:
 
-- **`BBMcuhub.Host.Registry.Writer`** is bound to one `(node, port_id)` at mint time.
+- **`BBMCUHub.Host.Registry.Writer`** is bound to one `(node, port_id)` at mint time.
   Its `put/4` takes `(writer, value, seq, t_dev)` — **no node/port** — so a holder
   can write only the slot it was minted for. "Write some _other_ slot" is
   unrepresentable, not merely discouraged.
 - **`NodeRegistry.writer!/2`** mints it and enforces **uniqueness**: the registry
   process tracks `slot → {writer_pid, monitor_ref}`; a second _live_ mint for a slot
-  raises `BBMcuhub.Host.Registry.Writer.Taken`. The claimant is **monitored**, so a
+  raises `BBMCUHub.Host.Registry.Writer.Taken`. The claimant is **monitored**, so a
   crashed writer's slot is freed for its replacement (a restarted view), and a
   claim-time liveness check makes this robust to monitor-message timing.
 - The **two real writers** mint and write through it: the actuator view mints its

@@ -1,6 +1,6 @@
 /* Consistent Overhead Byte Stuffing (§03). Standard COBS: 254-byte blocks, code
  * 0xFF marks a full block with no implied trailing zero. Encoding is null-free,
- * so a lone 0x00 is an unambiguous frame delimiter. Mirrors BBMcuhub.Wire.COBS;
+ * so a lone 0x00 is an unambiguous frame delimiter. Mirrors BBMCUHub.Wire.COBS;
  * the round-trip is verified on the host and the parity vectors cross-check. */
 #ifndef BB_MCUHUB_COBS_H
 #define BB_MCUHUB_COBS_H

@@ -1,8 +1,8 @@
-defmodule BBMcuhub.Wire.COBSTest do
+defmodule BBMCUHub.Wire.COBSTest do
   use ExUnit.Case, async: true
   use ExUnitProperties
-  alias BBMcuhub.Wire.COBS
-  doctest BBMcuhub.Wire.COBS
+  alias BBMCUHub.Wire.COBS
+  doctest BBMCUHub.Wire.COBS
 
   describe "encode/decode round-trip on the edge cases (§03)" do
     test "empty body" do

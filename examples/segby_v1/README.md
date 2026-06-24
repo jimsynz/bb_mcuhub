@@ -5,22 +5,22 @@ A two-wheel self-balancing bot, built as a **separate Mix app that consumes
 PlatformIO `lib_deps` dependency on the firmware side. This is the worked example
 for the library/example split ([ADR-0003](../../docs/adr/0003-library-example-split.md)):
 it supplies only device-specific logic and reaches the library through its public
-seams (`BBMcuhub.Hub`, `BBMcuhub.BBHub.{Sensor,Actuator}`, `BBMcuhub.Host`,
-`BBMcuhub.Dsl`, `BBMcuhub.ValueType`). Nothing here lives in the library's
+seams (`BBMCUHub.Hub`, `BBMCUHub.BBHub.{Sensor,Actuator}`, `BBMCUHub.Host`,
+`BBMCUHub.Dsl`, `BBMCUHub.ValueType`). Nothing here lives in the library's
 namespace — it owns `SegbyV1.*`.
 
 ## What it demonstrates (the consumer experience)
 
-- **Own value-types.** `SegbyV1.ValueTypes.{Range,Led}` (`use BBMcuhub.ValueType`)
+- **Own value-types.** `SegbyV1.ValueTypes.{Range,Led}` (`use BBMCUHub.ValueType`)
   define wire vocabulary the library does _not_ ship, named by module on the hub
   ports — the proof a consumer extends the wire with no library edit.
-- **Own hubs.** `SegbyV1.Hubs.{Blaster,Wheels}` (`use BBMcuhub.Hub`) — the Blaster
+- **Own hubs.** `SegbyV1.Hubs.{Blaster,Wheels}` (`use BBMCUHub.Hub`) — the Blaster
   root hub (MPU-9250 pose + HC-SR04 range + WS2812 LED, UART backplane) and the
   Wheels leaf (one MKS Dual FOC board driving both wheels behind two on-chip
   floors).
-- **A robot.** `SegbyV1.Robot` (`use BB, extensions: [BBMcuhub.Dsl]`) places the
+- **A robot.** `SegbyV1.Robot` (`use BB, extensions: [BBMCUHub.Dsl]`) places the
   hubs and wires the views; `SegbyV1.Host` is a thin wrapper over the generic
-  `BBMcuhub.Host` launcher.
+  `BBMCUHub.Host` launcher.
 - **Host control.** `SegbyV1.Balance` (a `BB.Controller`: complementary-filter
   pitch → PID → per-wheel effort) and `SegbyV1.Teleop` (operator drive as a
   declared BB command).

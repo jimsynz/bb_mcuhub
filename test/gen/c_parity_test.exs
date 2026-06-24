@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Gen.CParityTest do
+defmodule BBMCUHub.Gen.CParityTest do
   @moduledoc """
   Runs the host-compiled C parity + floor harnesses as part of `mix test`, so the
   cross-language witness (§03/§06) is checked on every test run, not just in CI.

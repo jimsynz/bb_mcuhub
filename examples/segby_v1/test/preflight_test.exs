@@ -34,9 +34,9 @@ defmodule SegbyV1.PreflightTest do
   use ExUnit.Case, async: false
 
   alias BB.Math.{Quaternion, Vec3}
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
-  alias BBMcuhub.Wire.Codec
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.{LinkOwner, NodeRegistry}
+  alias BBMCUHub.Wire.Codec
   alias SegbyV1.{Balance, Host, Robot}
   alias SegbyV1.Test.LoopbackTransport
 
@@ -187,7 +187,7 @@ defmodule SegbyV1.PreflightTest do
       on_exit(fn -> if Process.alive?(sup), do: Supervisor.stop(sup) end)
 
       {:ok, view} =
-        SegbyV1.Test.ViewHarness.start(BBMcuhub.BBHub.Actuator,
+        SegbyV1.Test.ViewHarness.start(BBMCUHub.BBHub.Actuator,
           bb: %{robot: twin, path: [:base_link, :left_wheel, :left_drive]},
           hub: :wheels,
           port: :motor_left,
@@ -199,7 +199,7 @@ defmodule SegbyV1.PreflightTest do
       on_exit(fn -> if Process.alive?(view), do: GenServer.stop(view) end)
 
       st = SegbyV1.Test.ViewHarness.view_state(view)
-      assert BBMcuhub.BBHub.Actuator.live(st) == :floored_or_unknown
+      assert BBMCUHub.BBHub.Actuator.live(st) == :floored_or_unknown
     end
   end
 

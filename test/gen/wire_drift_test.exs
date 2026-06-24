@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Gen.WireDriftTest do
+defmodule BBMCUHub.Gen.WireDriftTest do
   @moduledoc """
   The build is red if the committed artifacts could disagree with the contract,
   or if the Elixir codec disagrees with the committed parity bytes (§06).
@@ -12,15 +12,15 @@ defmodule BBMcuhub.Gen.WireDriftTest do
   # (:persistent_term), so two robots' decode tests must not race on it.
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Gen.WireGen
-  alias BBMcuhub.Wire.{Codec, CRC16}
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Gen.WireGen
+  alias BBMCUHub.Wire.{Codec, CRC16}
 
   # Every robot whose artifacts the LIBRARY commits (§09). Adding a robot here
   # makes the drift test guard its generated dir too. The library's drift/C-parity
   # witness is the test FIXTURE robot (ADR-0003); segby_v1 moved to the example
   # app (Phase 5), which has its own drift test.
-  @robots [BBMcuhub.Test.Fixtures.Robot]
+  @robots [BBMCUHub.Test.Fixtures.Robot]
 
   describe "generated artifacts are not stale (a hand-edit or stale checkout fails here)" do
     for robot <- @robots do
@@ -86,7 +86,7 @@ defmodule BBMcuhub.Gen.WireDriftTest do
         # The codec decodes via the global PortIndex, which is per-robot; build it
         # for THIS robot so its (node, port_id) pairs resolve to the right type.
         PortIndex.build(@robot)
-        on_exit(fn -> PortIndex.build(BBMcuhub.Test.Fixtures.Robot) end)
+        on_exit(fn -> PortIndex.build(BBMCUHub.Test.Fixtures.Robot) end)
 
         for row <- parity_rows(@robot) do
           assert {:ok, decoded} = Codec.decode_body(row.body)

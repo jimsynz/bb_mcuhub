@@ -68,7 +68,7 @@ C and Elixir sides cannot drift. A hub's contract is its public face.
 
 ### Hub module
 
-A reusable building block: an Elixir module (`use BBMcuhub.Hub`) that declares one hub's
+A reusable building block: an Elixir module (`use BBMCUHub.Hub`) that declares one hub's
 ports and their **intrinsic wire facts** — `dir`, value `type`, `rate`, `t_dev`,
 `safe_action`, and the pure `sample`/`step` core. Everything true about the _device_,
 independent of where it is deployed. A user imports a stock hub module, extends it, or
@@ -79,7 +79,7 @@ segmentation); the hub module owns the device-specific logic. A port names a
 
 ### Value-type
 
-A standalone, reusable unit (`use BBMcuhub.ValueType`) defining _what bytes a kind of
+A standalone, reusable unit (`use BBMCUHub.ValueType`) defining _what bytes a kind of
 value puts on the wire and how those bytes become a typed `BB.Message`_ — and nothing
 else. It carries an ordered `[{field, wire_type}]` **layout** plus a `lift`/`unlift` pair
 (raw field-map ↔ `BB.Message`). A **command** value-type also names the one `BB.Message`
@@ -333,7 +333,7 @@ four optional axes — **sample** (rate/time decimation; state mode only), **sel
 (which fields). v1 implements **sample + select**; **filter** and **project** are named
 extensions of the same concept. Because `filter`/`project` act on a value's _fields_ —
 which only the **value-type** knows — they resolve the slot's value-type (via `PortIndex` +
-`BBMcuhub.ValueType`, exactly as a Component does), never duplicating field knowledge. Many
+`BBMCUHub.ValueType`, exactly as a Component does), never duplicating field knowledge. Many
 observers run at once, each on its own flow and cadence.
 
 A slow observer's freshness is **not** the control plane's: `fresh_for` is relative to its
@@ -362,7 +362,7 @@ without regenerating anything (this is what makes it freely additive). Its one j
 **sample + reduce + hand to a sink**: the observer mechanism is type-agnostic; what to _do_
 with the sampled value/event lives in a pluggable **sink** (republish to PubSub on the
 observer's own topic, append to a disk log, insert into an event database, feed a UI). A
-robot starts observers imperatively (`BBMcuhub.Observer`); a declarative `observers do`
+robot starts observers imperatively (`BBMCUHub.Observer`); a declarative `observers do`
 section is later sugar over the same core — still host-runtime, never contract.
 
 The observer plane is a **library** concept (general and dep-agnostic — it serves any sink:

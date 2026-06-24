@@ -1,4 +1,4 @@
-/* The framing seam, C side (§03) — the analog of BBMcuhub.Wire.FramingCOBS.
+/* The framing seam, C side (§03) — the analog of BBMCUHub.Wire.FramingCOBS.
  *
  * Outbound: a CRC-covered body in → COBS(body || CRC16(body)) || 0x00 out.
  * Inbound: a streaming decoder accumulates bytes, splits on 0x00, COBS-decodes,

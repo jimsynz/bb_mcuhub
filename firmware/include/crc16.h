@@ -1,7 +1,7 @@
 /* CRC-16/CCITT-FALSE — the one pinned variant (§03).
  *   poly 0x1021 · init 0xFFFF · no reflection · xorout 0x0000
  *   check value 0x29B1 over the ASCII bytes "123456789".
- * Identical math to BBMcuhub.Wire.CRC16; the parity vectors (§06) prove both
+ * Identical math to BBMCUHub.Wire.CRC16; the parity vectors (§06) prove both
  * sides hash the same bytes. */
 #ifndef BB_MCUHUB_CRC16_H
 #define BB_MCUHUB_CRC16_H

@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Host.Monitor do
+defmodule BBMCUHub.Host.Monitor do
   @moduledoc """
   Clock-free freshness (§04): trust is a counter, not a clock.
 
@@ -23,7 +23,7 @@ defmodule BBMcuhub.Host.Monitor do
   testable without a clock, a socket, or a process.
   """
 
-  alias BBMcuhub.Host.NodeRegistry
+  alias BBMCUHub.Host.NodeRegistry
 
   @enforce_keys [:node, :port_id, :fresh_for]
   defstruct [

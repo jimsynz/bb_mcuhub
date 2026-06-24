@@ -1,4 +1,4 @@
-defmodule BBMcuhub.BBHub.Sensor do
+defmodule BBMCUHub.BBHub.Sensor do
   @moduledoc """
   A `BB.Sensor` view over a hub's sense port (§09).
 
@@ -29,9 +29,9 @@ defmodule BBMcuhub.BBHub.Sensor do
       beat_ms: [type: :pos_integer, default: 20, doc: "sample period for this view"]
     ]
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.{Monitor, NodeRegistry}
-  alias BBMcuhub.ValueType
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.{Monitor, NodeRegistry}
+  alias BBMCUHub.ValueType
 
   @impl BB.Sensor
   def init(opts) do

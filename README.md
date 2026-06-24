@@ -34,9 +34,9 @@ What a consumer writes vs. what the library provides:
 
 | You write (your project)                                     | The library provides                                    |
 | ------------------------------------------------------------ | ------------------------------------------------------- |
-| **Value-types** (`use BBMcuhub.ValueType`) — your wire vocab | a stock set (`imu`, `effort`, `status`)                 |
-| **Hub modules** (`use BBMcuhub.Hub`) — your ports            | the DSL, the IR projection + compile-time verifier      |
-| **A robot** (`use BB, extensions: [BBMcuhub.Dsl]`)           | the generic `BBMcuhub.Host` launcher                    |
+| **Value-types** (`use BBMCUHub.ValueType`) — your wire vocab | a stock set (`imu`, `effort`, `status`)                 |
+| **Hub modules** (`use BBMCUHub.Hub`) — your ports            | the DSL, the IR projection + compile-time verifier      |
+| **A robot** (`use BB, extensions: [BBMCUHub.Dsl]`)           | the generic `BBMCUHub.Host` launcher                    |
 | **Device hooks** (`<hub>_<port>_read`/`_drive`, in C)        | the **generated** per-hub firmware glue + the C chassis |
 
 The two extensibility spines: a **value-type** is a standalone, cross-bot module
@@ -73,11 +73,11 @@ lib/bb_mcuhub/        the library — every consumer gets this, never edits it
   wire/               crc16 · cobs · framing_cobs · codec · stats
   contract/           layouts (wire-type widths) · port_index   (+ contract.ex)
   value_type/         imu · effort · status — the stock value-types (§06)
-  value_type.ex       the `use BBMcuhub.ValueType` behaviour + atom→module resolve
+  value_type.ex       the `use BBMCUHub.ValueType` behaviour + atom→module resolve
   dsl.ex              the `hubs do` extension: IR projection + compile-time verifier
   gen/                wire_gen — the one generator (§06)
-  hub.ex              `use BBMcuhub.Hub` — declare a hub's ports
-  host.ex             the generic `BBMcuhub.Host` launcher (derives slots from the IR)
+  hub.ex              `use BBMCUHub.Hub` — declare a hub's ports
+  host.ex             the generic `BBMCUHub.Host` launcher (derives slots from the IR)
   host/               node_registry · monitor · link_owner · transport (+ loopback)
   bb_hub/             sensor · actuator — the value-type-agnostic BeamBots seam (§09)
 firmware/             the C chassis, packaged as a PlatformIO library (library.json)
@@ -89,7 +89,7 @@ test/support/fixtures/  a coverage-maximizing fixture robot — the library self
 
 examples/segby_v1/    the worked example — a separate Mix app (a path-dep consumer)
   lib/segby_v1/       SegbyV1.Robot · Hubs.{Blaster,Wheels} · ValueTypes.{Range,Led}
-                      · Balance · Teleop · Host (a thin wrapper over BBMcuhub.Host)
+                      · Balance · Teleop · Host (a thin wrapper over BBMCUHub.Host)
   firmware/mcu/       the hand-authored device hooks (the only firmware a consumer writes)
   firmware/gen/       the example's generated glue + headers (drift-tested)
   firmware/platformio.ini   blaster_root + wheels_leaf — consume the chassis via lib_deps

@@ -1,4 +1,4 @@
-defmodule BBMcuhub.ValueType do
+defmodule BBMCUHub.ValueType do
   @moduledoc """
   A value-type — the wire-vocabulary extensibility seam (§06/ADR-0003).
 
@@ -24,7 +24,7 @@ defmodule BBMcuhub.ValueType do
   ## Authoring one
 
       defmodule MyApp.ValueType.Range do
-        use BBMcuhub.ValueType
+        use BBMCUHub.ValueType
 
         layout distance_m: :f32
 
@@ -35,7 +35,7 @@ defmodule BBMcuhub.ValueType do
         def unlift(%BB.Message.Sensor.Range{range: d}), do: %{distance_m: d}
       end
 
-  `use BBMcuhub.ValueType` defines `layout/0` from the `layout ...` declaration and
+  `use BBMCUHub.ValueType` defines `layout/0` from the `layout ...` declaration and
   registers the behaviour; `lift/1` and `unlift/1` are normal `@impl` functions the
   module implements.
 
@@ -47,8 +47,8 @@ defmodule BBMcuhub.ValueType do
   views, and generator all reach `layout/0`/`lift/1`/`unlift/1` through one seam.
   """
 
-  @type wire_type :: BBMcuhub.Contract.Layouts.wire_type()
-  @type layout :: BBMcuhub.Contract.Layouts.layout()
+  @type wire_type :: BBMCUHub.Contract.Layouts.wire_type()
+  @type layout :: BBMCUHub.Contract.Layouts.layout()
 
   @doc "The ordered `{field, wire_type}` layout — the bytes this value puts on the wire."
   @callback layout() :: layout()
@@ -80,9 +80,9 @@ defmodule BBMcuhub.ValueType do
   # SegbyV1.ValueTypes.{Range,Led}, the fixture's Scalar) — resolved by the
   # module-passthrough clause below, no stock entry needed.
   @stock %{
-    imu: BBMcuhub.ValueType.Imu,
-    effort: BBMcuhub.ValueType.Effort,
-    status: BBMcuhub.ValueType.Status
+    imu: BBMCUHub.ValueType.Imu,
+    effort: BBMCUHub.ValueType.Effort,
+    status: BBMCUHub.ValueType.Status
   }
 
   @doc """
@@ -117,16 +117,16 @@ defmodule BBMcuhub.ValueType do
 
   defmacro __using__(_opts) do
     quote do
-      @behaviour BBMcuhub.ValueType
+      @behaviour BBMCUHub.ValueType
 
-      import BBMcuhub.ValueType, only: [layout: 1]
+      import BBMCUHub.ValueType, only: [layout: 1]
 
       # Every value-type gets `command_message/0` without being forced to implement
       # it — a sense/status value-type leaves this nil; a COMMAND value-type defines
       # its own `def command_message`, which overrides this default (the
       # `defoverridable` idiom). The verifier requires a non-nil command_message on
       # every command (:in) port, so the default is only valid on sense/status ports.
-      @impl BBMcuhub.ValueType
+      @impl BBMCUHub.ValueType
       def command_message, do: nil
       defoverridable command_message: 0
     end
@@ -141,7 +141,7 @@ defmodule BBMcuhub.ValueType do
   """
   defmacro layout(fields) do
     quote do
-      @impl BBMcuhub.ValueType
+      @impl BBMCUHub.ValueType
       def layout, do: unquote(fields)
     end
   end

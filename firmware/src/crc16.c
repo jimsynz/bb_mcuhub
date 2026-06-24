@@ -1,7 +1,7 @@
 #include "crc16.h"
 
 /* Bit-by-bit, no table — frames are tiny (≤ ~52 bytes) so the table buys
- * nothing. Mirrors the byte-at-a-time form of BBMcuhub.Wire.CRC16. */
+ * nothing. Mirrors the byte-at-a-time form of BBMCUHub.Wire.CRC16. */
 uint16_t crc16_ccitt_false(const uint8_t *data, size_t len) {
   uint16_t crc = 0xFFFF;
   for (size_t i = 0; i < len; i++) {

@@ -1,8 +1,8 @@
-defmodule BBMcuhub.Host.SoftFaultE2ETest do
+defmodule BBMCUHub.Host.SoftFaultE2ETest do
   @moduledoc """
   The soft-fault resilience catalog, end-to-end against the **real firmware C
-  floor + C wire path** (Option B — `BBMcuhub.Test.VirtualHub` over
-  `BBMcuhub.Test.VHubNif`). Unlike the C harnesses (which test the floor in
+  floor + C wire path** (Option B — `BBMCUHub.Test.VirtualHub` over
+  `BBMCUHub.Test.VHubNif`). Unlike the C harnesses (which test the floor in
   isolation) and preflight (which models the floor host-side), this drives the
   REAL host stack — LinkOwner draining command slots through genuine COBS+CRC
   bytes — into the ACTUAL C floor, and reads the floor's authoritative status back
@@ -27,13 +27,13 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
   """
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.BBHub
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.{LinkOwner, Monitor, NodeRegistry}
-  alias BBMcuhub.Test.{ViewHarness, VirtualHub}
-  alias BBMcuhub.Wire.{Codec, Stats}
+  alias BBMCUHub.BBHub
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.{LinkOwner, Monitor, NodeRegistry}
+  alias BBMCUHub.Test.{ViewHarness, VirtualHub}
+  alias BBMCUHub.Wire.{Codec, Stats}
 
-  @robot BBMcuhub.Test.Fixtures.Robot
+  @robot BBMCUHub.Test.Fixtures.Robot
   # The fixture actuator's floor window (FLOOR_MISSES × CMD_PERIOD; §05). The exact
   # number is a generated contract detail — what matters is that silence past it fires.
   @window_ms 100
@@ -428,7 +428,7 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
       }
 
       pose_body = Codec.encode_body(p_node, p_port, 5, 5, :imu, pose, true)
-      sensor = BBMcuhub.Test.VHubNif.transport_encode(pose_body)
+      sensor = BBMCUHub.Test.VHubNif.transport_encode(pose_body)
 
       NodeRegistry.delete(ctx.a_node, ctx.status_port)
 
@@ -464,7 +464,7 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
       # starts no production actuator view to contend with the harness view we
       # drive here — the harness view is the SOLE writer of the command slot (§07,
       # candidate 5). Its hubs/PortIndex are identical to @robot.
-      harness_robot = BBMcuhub.Test.Fixtures.HarnessRobot
+      harness_robot = BBMCUHub.Test.Fixtures.HarnessRobot
 
       start_supervised!(%{
         id: BB.Supervisor,

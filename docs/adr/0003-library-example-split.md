@@ -5,7 +5,7 @@ root) and a **separate example application** (`:segby_v1`, at `examples/segby_v1
 that depends on the library exactly as a real downstream consumer would — a Mix
 `path` dependency on the host side, a PlatformIO `lib_deps` dependency on the
 firmware side. The example owns its own root namespace (`SegbyV1.*`) and only
-references `BBMcuhub.*` for library seams. The library carries the machinery (wire,
+references `BBMCUHub.*` for library seams. The library carries the machinery (wire,
 floor, freshness, segmentation, the DSL, the generator, the host runtime, the C
 chassis); the consumer supplies only device-specific logic. The boundary is the
 product: if the example can't be built cleanly _as a consumer_, the library has
@@ -13,7 +13,7 @@ failed its purpose.
 
 Two design choices give the boundary teeth, and are the reason this is recorded:
 
-**A value-type is the extensibility spine (`use BBMcuhub.ValueType`).** A kind of
+**A value-type is the extensibility spine (`use BBMCUHub.ValueType`).** A kind of
 wire value (`imu`, `effort`, …) is a standalone, cross-bot-reusable module owning
 its `layout` (the ordered `{field, wire_type}` list), its host `lift`/`unlift`
 (raw field-map ↔ `BB.Message`), _and_ the firmware-hook signature for ports of its
@@ -41,7 +41,7 @@ per hub.
 ## Considered Options
 
 - **One app, example inside the library namespace** (the pre-split state:
-  `hubs/*`, `robots/follower`, `BBMcuhub.Robots.SegbyV1`, `BBMcuhub.Segby.Balance`
+  `hubs/*`, `robots/follower`, `BBMCUHub.Robots.SegbyV1`, `BBMCUHub.Segby.Balance`
   all compiled into `:bb_mcuhub`) — rejected: the example tangled into the library
   namespace models the wrong thing and can't prove the import boundary.
 - **Value-types as a library-internal map** (today's `Contract.Layouts`) — rejected:
@@ -84,7 +84,7 @@ per hub.
   port's value-type module (`type_module.lift/unlift`); `BBHub.Lift`'s functions
   move into the stock value-type modules. A consumer's own value-type surfaces
   through the same `BBHub.Sensor`/`Actuator` views unchanged.
-- **A generic host launcher moves into the library.** `BBMcuhub.Host` takes
+- **A generic host launcher moves into the library.** `BBMCUHub.Host` takes
   `robot:` and derives the command slots from that robot's IR, wiring the standard
   `BB.Supervisor` + `LinkOwner` tree — so a consumer no longer hand-writes the
   slot-resolution supervisor. The example's `Host` shrinks to a thin wrapper.

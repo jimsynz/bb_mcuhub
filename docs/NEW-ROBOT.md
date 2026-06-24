@@ -54,7 +54,7 @@ defp deps do
 end
 ```
 
-**Why this order:** everything else is authored against `BBMcuhub.*` and `BB.*`
+**Why this order:** everything else is authored against `BBMCUHub.*` and `BB.*`
 modules, so the deps come first. The boundary between what you write and what the
 library provides is the product (ADR-0003); the [`README`](../README.md) table
 "What a consumer writes vs. what the library provides" is the map.
@@ -63,7 +63,7 @@ library provides is the product (ADR-0003); the [`README`](../README.md) table
 
 ## Step 1 — Value-types (your wire vocabulary)
 
-A **value-type** (`use BBMcuhub.ValueType`) is a standalone, reusable module that
+A **value-type** (`use BBMCUHub.ValueType`) is a standalone, reusable module that
 owns _what bytes a kind of value puts on the wire and how those bytes become a
 typed `BB.Message`_ — and nothing else (§06, CONTEXT.md → **Value-type**). It
 carries:
@@ -83,16 +83,16 @@ Worked reference — the example's `range` value-type, a sense-only `:f32`
 
 ```elixir
 defmodule SegbyV1.ValueTypes.Range do
-  use BBMcuhub.ValueType
+  use BBMCUHub.ValueType
 
   layout(
     distance_m: :f32
   )
 
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def lift(map) when is_map(map), do: map
 
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def unlift(map) when is_map(map), do: map
 end
 ```
@@ -105,7 +105,7 @@ own `BB.Message` command
 
 ```elixir
 defmodule SegbyV1.ValueTypes.Led do
-  use BBMcuhub.ValueType
+  use BBMCUHub.ValueType
 
   layout(
     r: :u8,
@@ -113,16 +113,16 @@ defmodule SegbyV1.ValueTypes.Led do
     b: :u8
   )
 
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def lift(%{r: r, g: g, b: b}), do: %SegbyV1.Messages.LedColor{r: r, g: g, b: b}
 
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def unlift(%SegbyV1.Messages.LedColor{r: r, g: g, b: b}), do: %{r: r, g: g, b: b}
 
   # The command struct this value-type accepts; an actuator view derives its
   # PubSub subscribe from this — the view never hard-codes a struct (the
   # value-type names it).
-  @impl BBMcuhub.ValueType
+  @impl BBMCUHub.ValueType
   def command_message, do: SegbyV1.Messages.LedColor
 end
 ```
@@ -137,7 +137,7 @@ composes across many hubs and robots, so it is the unit you author first and reu
 
 ## Step 2 — Hub modules (the ports on a node)
 
-A **hub module** (`use BBMcuhub.Hub`) declares one hub's ports and their
+A **hub module** (`use BBMCUHub.Hub`) declares one hub's ports and their
 **intrinsic wire facts** — everything true about the _device_, independent of where
 it is deployed (CONTEXT.md → **Hub module**). Each `port(:name, ...)` in a
 `ports do ... end` block names its `dir` (`:in` command / `:out` produced), value
@@ -164,7 +164,7 @@ floored to zero torque) + two `:status` ports
 
 ```elixir
 defmodule SegbyV1.Hubs.Wheels do
-  use BBMcuhub.Hub
+  use BBMCUHub.Hub
 
   ports do
     port(:motor_left,
@@ -191,7 +191,7 @@ And the root **Blaster** hub — sense ports + a non-floored LED actuator
 
 ```elixir
 defmodule SegbyV1.Hubs.Blaster do
-  use BBMcuhub.Hub
+  use BBMCUHub.Hub
 
   ports do
     port(:pose, dir: :out, type: :imu, rate: 100, t_dev: true,
@@ -207,7 +207,7 @@ end
 ```
 
 A port names a stock value-type by atom (`type: :imu`) or a consumer value-type by
-module (`type: SegbyV1.ValueTypes.Led`); `BBMcuhub.ValueType.resolve/1` maps atoms
+module (`type: SegbyV1.ValueTypes.Led`); `BBMCUHub.ValueType.resolve/1` maps atoms
 to modules and passes modules through unchanged. The `sample`/`step` MFA refs are
 **declared data only** — the host never invokes them; they travel into the
 generated per-hub schedule for the firmware.
@@ -219,8 +219,8 @@ robot (Step 3) places these hub modules on nodes.
 
 ## Step 3 — The robot (place hubs, declare topology)
 
-The robot is a `use BB, extensions: [BBMcuhub.Dsl]` module. The hub-gateway DSL
-(`BBMcuhub.Dsl`) adds two blocks alongside BeamBots' own. The canonical, complete
+The robot is a `use BB, extensions: [BBMCUHub.Dsl]` module. The hub-gateway DSL
+(`BBMCUHub.Dsl`) adds two blocks alongside BeamBots' own. The canonical, complete
 reference is [`lib/segby_v1/robot.ex`](../examples/segby_v1/lib/segby_v1/robot.ex)
 — mirror its shape.
 
@@ -234,7 +234,7 @@ host UART, fixed). A non-root hub declares both `parent: :some_hub` and an
 `uplink: :uart | :can` (the transport of its parent **link**).
 
 ```elixir
-use BB, extensions: [BBMcuhub.Dsl]
+use BB, extensions: [BBMCUHub.Dsl]
 
 hubs do
   # The root (parent: :host) owns the host UART; the wheels leaf hangs off it
@@ -253,8 +253,8 @@ end
 ### `topology do ... end` — the BeamBots links/joints and the views
 
 This is BeamBots' own topology, where `sensor(...)` / `actuator(...)` views name
-the **hub + port** they read. A sensor view names `{BBMcuhub.BBHub.Sensor, hub:,
-port:, fresh_for:, beat_ms:}`; an actuator view names `{BBMcuhub.BBHub.Actuator,
+the **hub + port** they read. A sensor view names `{BBMCUHub.BBHub.Sensor, hub:,
+port:, fresh_for:, beat_ms:}`; an actuator view names `{BBMCUHub.BBHub.Actuator,
 hub:, port:, status_port:, fresh_for:}` (its `status_port:` is the hub's matching
 **Status slot**, read for liveness rather than inferred from "we sent a command").
 `fresh_for` is the consumer's freshness window as a multiple of the producer
@@ -264,7 +264,7 @@ period (§04, CONTEXT.md → **fresh_for · born-stale**).
 topology do
   link :base_link do
     sensor(:chassis_imu,
-      {BBMcuhub.BBHub.Sensor, hub: :blaster, port: :pose, fresh_for: 3, beat_ms: 10})
+      {BBMCUHub.BBHub.Sensor, hub: :blaster, port: :pose, fresh_for: 3, beat_ms: 10})
 
     joint :left_wheel do
       type(:continuous)
@@ -275,7 +275,7 @@ topology do
       end
 
       actuator(:left_drive,
-        {BBMcuhub.BBHub.Actuator,
+        {BBMCUHub.BBHub.Actuator,
          hub: :wheels, port: :motor_left, status_port: :status_left, fresh_for: 5})
 
       link :left_wheel_link do end
@@ -422,9 +422,9 @@ library, not by globbing the library's sources.
 
 ---
 
-## Step 7 — Host launcher (a thin wrapper over `BBMcuhub.Host`)
+## Step 7 — Host launcher (a thin wrapper over `BBMCUHub.Host`)
 
-The generic launcher `BBMcuhub.Host` derives the command slots from the robot's IR
+The generic launcher `BBMCUHub.Host` derives the command slots from the robot's IR
 and wires the standard `BB.Supervisor` + **LinkOwner** (the process that owns the
 host↔root-hub UART) tree. Your launcher is a thin wrapper that just forwards
 `robot: MyApp.Robot` plus the operator's transport opts. Worked reference —
@@ -432,7 +432,7 @@ host↔root-hub UART) tree. Your launcher is a thin wrapper that just forwards
 
 ```elixir
 defmodule SegbyV1.Host do
-  alias BBMcuhub.Host
+  alias BBMCUHub.Host
 
   @robot SegbyV1.Robot
 
@@ -443,8 +443,8 @@ defmodule SegbyV1.Host do
 end
 ```
 
-`start_link/1` accepts `:transport` (a `BBMcuhub.Host.Transport` module, default
-`BBMcuhub.Host.Transport.UART`), `:transport_opts` (e.g. `[port: "ttyAMA0", baud:
+`start_link/1` accepts `:transport` (a `BBMCUHub.Host.Transport` module, default
+`BBMCUHub.Host.Transport.UART`), `:transport_opts` (e.g. `[port: "ttyAMA0", baud:
 115_200]`), `:bb_opts`, and `:name`. The transport baud here must match the root
 firmware's `-DHOST_UART_BAUD` (Step 6). A test can inject a loopback transport to
 run the whole host stack with no hardware.

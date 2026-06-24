@@ -1,4 +1,4 @@
-defmodule BBMcuhub.SliceTest do
+defmodule BBMCUHub.SliceTest do
   @moduledoc """
   The walking-skeleton tracer bullet (§02/§09): one sensor port and one actuator
   port carried end-to-end through the REAL wire path.
@@ -12,17 +12,17 @@ defmodule BBMcuhub.SliceTest do
   """
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.BBHub
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
-  alias BBMcuhub.Host.Transport.Loopback, as: LoopbackTransport
-  alias BBMcuhub.Wire.Codec
+  alias BBMCUHub.BBHub
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.{LinkOwner, NodeRegistry}
+  alias BBMCUHub.Host.Transport.Loopback, as: LoopbackTransport
+  alias BBMCUHub.Wire.Codec
 
   # The VIEW-LESS fixture twin: BB.Supervisor gives us a real PubSub + registration,
   # but starts no production views — so the harness views this test drives by hand
   # are the SOLE writers of their slots (§07, candidate 5). Same hubs/PortIndex as
   # the standard fixture.
-  @robot BBMcuhub.Test.Fixtures.HarnessRobot
+  @robot BBMCUHub.Test.Fixtures.HarnessRobot
 
   setup do
     NodeRegistry.reset()
@@ -133,7 +133,7 @@ defmodule BBMcuhub.SliceTest do
         )
 
       beat = fn -> tick(view, :status_beat) end
-      live = fn -> BBHub.Actuator.live(BBMcuhub.Test.ViewHarness.view_state(view)) end
+      live = fn -> BBHub.Actuator.live(BBMCUHub.Test.ViewHarness.view_state(view)) end
 
       # born stale: no status witnessed → not driving even before any status exists
       beat.()
@@ -159,7 +159,7 @@ defmodule BBMcuhub.SliceTest do
   end
 
   describe "the floor degrades on command silence (§05, host reference)" do
-    alias BBMcuhub.Test.Fixtures.Floor
+    alias BBMCUHub.Test.Fixtures.Floor
 
     test "born-disarmed → earns motion → floors when the command goes silent" do
       f = Floor.new(100, 0.0)
@@ -191,7 +191,7 @@ defmodule BBMcuhub.SliceTest do
   # GenServer; for the test we wrap it in a bare GenServer that delegates handle_info)
   defp bb_init(module, path, opts) do
     full_opts = Keyword.put(opts, :bb, %{robot: @robot, path: path})
-    BBMcuhub.Test.ViewHarness.start(module, full_opts)
+    BBMCUHub.Test.ViewHarness.start(module, full_opts)
   end
 
   defp inject_imu(transport, node, port, seq, overrides) do
@@ -217,7 +217,7 @@ defmodule BBMcuhub.SliceTest do
   # view_state GenServer.call flushes the mailbox), so reads see the new state.
   defp tick(view, msg) do
     send(view, msg)
-    _ = BBMcuhub.Test.ViewHarness.view_state(view)
+    _ = BBMCUHub.Test.ViewHarness.view_state(view)
     :ok
   end
 

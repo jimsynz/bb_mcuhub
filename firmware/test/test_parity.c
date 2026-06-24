@@ -18,13 +18,13 @@
 #include "transport.h"
 
 /* --- per-(hub,port) packers: fill a Frame with the SAME representative value
- *     the Elixir generator used (BBMcuhub.Gen.WireGen.sample_value). The header
+ *     the Elixir generator used (BBMCUHub.Gen.WireGen.sample_value). The header
  *     fields (node/port/seq/t_dev) are filled from the vector by the runner.
  * --- */
 
 /* The test FIXTURE robot's ports (ADR-0003): sensor_hub/{pose,scalar} +
  * act_hub/{effort_cmd,act_status}. The Follower's imu/motor packers are retired
- * with it; these match BBMcuhub.Gen.WireGen.sample_value for the fixture. */
+ * with it; these match BBMCUHub.Gen.WireGen.sample_value for the fixture. */
 
 static void pack_sensor_hub_pose(Frame *f) {
   /* layout :imu — qw,qx,qy,qz, wx,wy,wz, ax,ay,az (all f32, big-endian) */

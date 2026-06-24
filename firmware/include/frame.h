@@ -1,5 +1,5 @@
-/* The on-wire frame (§03), C side — mirrors BBMcuhub.Wire.Codec +
- * BBMcuhub.Wire.FramingCOBS exactly, byte-for-byte (the parity vectors prove
+/* The on-wire frame (§03), C side — mirrors BBMCUHub.Wire.Codec +
+ * BBMCUHub.Wire.FramingCOBS exactly, byte-for-byte (the parity vectors prove
  * it).
  *
  * Body (the CRC-covered bytes):  NODE u8 · PORT u8 · SEQ u16 · T_DEV u64 ·

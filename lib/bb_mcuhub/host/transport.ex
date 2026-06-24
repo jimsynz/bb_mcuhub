@@ -1,9 +1,9 @@
-defmodule BBMcuhub.Host.Transport do
+defmodule BBMCUHub.Host.Transport do
   @moduledoc """
   The narrow transport seam the `LinkOwner` owns (§07).
 
   In production this is `Circuits.UART` driving the host↔root-hub serial line with
-  the `BBMcuhub.Wire.FramingCOBS` framing module, so the link owner receives
+  the `BBMCUHub.Wire.FramingCOBS` framing module, so the link owner receives
   already-decoded, CRC-clean bodies as `{:circuits_uart, port, body}` messages and
   sends bodies via `Circuits.UART.write/2`. In tests it is an in-process loopback
   so the whole host stack runs without hardware.

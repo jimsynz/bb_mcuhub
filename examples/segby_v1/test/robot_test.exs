@@ -16,7 +16,7 @@ defmodule SegbyV1.RobotTest do
       `status_right` (out/status).
 
   The range/led ports name CONSUMER-defined value-types BY MODULE (the extension
-  seam, ADR-0003): `BBMcuhub.ValueType.resolve/1` passes a module through, so the
+  seam, ADR-0003): `BBMCUHub.ValueType.resolve/1` passes a module through, so the
   IR carries the module as the port's `type`.
 
   Topology is DECLARED by parent links (ADR-0006): the Blaster is the root
@@ -25,7 +25,7 @@ defmodule SegbyV1.RobotTest do
   """
   use ExUnit.Case, async: true
 
-  alias BBMcuhub.Robot.Info
+  alias BBMCUHub.Robot.Info
 
   @robot SegbyV1.Robot
 

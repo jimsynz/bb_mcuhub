@@ -1,21 +1,21 @@
-defmodule BBMcuhub.Host.Transport.Loopback do
+defmodule BBMCUHub.Host.Transport.Loopback do
   @moduledoc """
   An in-process loopback transport (§07) — the dev/test sibling of
-  `BBMcuhub.Host.Transport.UART`, for running the whole host stack with **no
+  `BBMCUHub.Host.Transport.UART`, for running the whole host stack with **no
   hardware**.
 
-  It implements the `BBMcuhub.Host.Transport` behaviour, so a consumer points
-  their `BBMcuhub.Host` launcher (or a bare `LinkOwner`) at it via
-  `transport: BBMcuhub.Host.Transport.Loopback` in a test and exercises the real
+  It implements the `BBMCUHub.Host.Transport` behaviour, so a consumer points
+  their `BBMCUHub.Host` launcher (or a bare `LinkOwner`) at it via
+  `transport: BBMCUHub.Host.Transport.Loopback` in a test and exercises the real
   host pipeline: views → command-slot writes → the link owner's drain → this
   transport's framing.
 
-  Outbound bodies are carried through the **real** `BBMcuhub.Wire.FramingCOBS`
+  Outbound bodies are carried through the **real** `BBMCUHub.Wire.FramingCOBS`
   encode→bytes→decode path and recorded, so a test sees exactly the bytes that
   would have gone on the wire (CRC and COBS included), decoded back to the body.
   Inbound bodies are injected with `inject/2` — simulating a hub producing a
   value — and delivered to the owner as `{:circuits_uart, :loopback, body}`, the
-  same message shape `BBMcuhub.Host.Transport.UART` delivers, so the link owner's
+  same message shape `BBMCUHub.Host.Transport.UART` delivers, so the link owner's
   receive path is unchanged.
 
   This ships in the library (not test-only) precisely so a downstream consumer can
@@ -23,26 +23,26 @@ defmodule BBMcuhub.Host.Transport.Loopback do
   own suite and the example both use it the same way.
 
       {:ok, sup} =
-        BBMcuhub.Host.start_link(
+        BBMCUHub.Host.start_link(
           robot: MyRobot,
-          transport: BBMcuhub.Host.Transport.Loopback
+          transport: BBMCUHub.Host.Transport.Loopback
         )
   """
-  @behaviour BBMcuhub.Host.Transport
+  @behaviour BBMCUHub.Host.Transport
   use GenServer
   import Kernel, except: [send: 2]
 
-  alias BBMcuhub.Wire.FramingCOBS
+  alias BBMCUHub.Wire.FramingCOBS
 
   # --- Transport behaviour ---
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def start_link(owner, _opts), do: GenServer.start_link(__MODULE__, owner)
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def send(pid, body), do: GenServer.call(pid, {:send, body})
 
-  @impl BBMcuhub.Host.Transport
+  @impl BBMCUHub.Host.Transport
   def close(pid), do: GenServer.stop(pid)
 
   # --- test helpers ---

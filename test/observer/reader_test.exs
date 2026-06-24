@@ -1,12 +1,12 @@
-defmodule BBMcuhub.Host.Registry.ReaderTest do
+defmodule BBMCUHub.Host.Registry.ReaderTest do
   @moduledoc """
   The read-only registry capability (ADR-0004): only `get`/`dump`, no `put`, so an
   observer handed a `Reader` cannot represent a slot write.
   """
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Host.NodeRegistry
-  alias BBMcuhub.Host.Registry.Reader
+  alias BBMCUHub.Host.NodeRegistry
+  alias BBMCUHub.Host.Registry.Reader
 
   setup do
     NodeRegistry.reset()
@@ -62,8 +62,8 @@ defmodule BBMcuhub.Host.Registry.ReaderTest do
       refute src =~ "NodeRegistry.put"
       # the registry is reached only through the Reader capability, never aliased
       # directly, so the observer cannot even spell a slot write.
-      refute src =~ "alias BBMcuhub.Host.NodeRegistry"
-      assert src =~ "alias BBMcuhub.Host.Registry.Reader"
+      refute src =~ "alias BBMCUHub.Host.NodeRegistry"
+      assert src =~ "alias BBMCUHub.Host.Registry.Reader"
       assert src =~ "Reader.get("
     end
   end

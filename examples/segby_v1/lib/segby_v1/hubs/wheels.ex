@@ -18,7 +18,7 @@ defmodule SegbyV1.Hubs.Wheels do
   The declared `step` MFA refs are data only; the authoritative floors live on
   the Dual FOC board's own chip (`firmware/mcu/wheels.cpp`).
   """
-  use BBMcuhub.Hub
+  use BBMCUHub.Hub
 
   ports do
     port(:motor_left,

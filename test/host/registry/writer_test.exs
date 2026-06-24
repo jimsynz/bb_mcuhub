@@ -1,12 +1,12 @@
-defmodule BBMcuhub.Host.Registry.WriterTest do
+defmodule BBMCUHub.Host.Registry.WriterTest do
   @moduledoc """
   The sole-writer capability (candidate 5): one writer per slot, scoped writes,
   and a uniqueness guard that frees a slot when its writer dies.
   """
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Host.NodeRegistry
-  alias BBMcuhub.Host.Registry.Writer
+  alias BBMCUHub.Host.NodeRegistry
+  alias BBMCUHub.Host.Registry.Writer
 
   setup do
     NodeRegistry.reset()

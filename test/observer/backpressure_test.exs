@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Observer.BackpressureTest do
+defmodule BBMCUHub.Observer.BackpressureTest do
   @moduledoc """
   The observability plane's load-bearing invariant (ADR-0004, CONTEXT.md ·
   *Observer* / *Control plane · observability plane*): **a slow consumer
@@ -33,11 +33,11 @@ defmodule BBMcuhub.Observer.BackpressureTest do
   # PortIndex (:persistent_term), exactly like ObserverTest.
   use ExUnit.Case, async: false
 
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.NodeRegistry
-  alias BBMcuhub.Observer
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.NodeRegistry
+  alias BBMCUHub.Observer
 
-  @robot BBMcuhub.Test.Fixtures.Robot
+  @robot BBMCUHub.Test.Fixtures.Robot
   @slot {:sensor_hub, :pose}
 
   setup do

@@ -1972,22 +1972,22 @@
 <span class="c"># DEVICE does, independent of where it is deployed. Authored data only.</span>
 <span class="c"># A port names its VALUE-TYPE by module (below); the layout lives there, not here.</span>
 <span class="k">defmodule</span> <span class="t">Hubs.Imu</span> <span class="k">do</span>
-  <span class="k">use</span> <span class="t">BBMcuhub.Hub</span>
+  <span class="k">use</span> <span class="t">BBMCUHub.Hub</span>
 
   ports <span class="k">do</span>
-    port :pose, dir: :out, type: <span class="t">BBMcuhub.ValueType.Imu</span>, rate: 50, t_dev: <span class="t">true</span>,   <span class="c"># sense port: imu @ 50 Hz</span>
+    port :pose, dir: :out, type: <span class="t">BBMCUHub.ValueType.Imu</span>, rate: 50, t_dev: <span class="t">true</span>,   <span class="c"># sense port: imu @ 50 Hz</span>
       sample: {<span class="t">Hubs.Imu.SamplePose</span>, :sample}                  <span class="c"># pure sampler (data only)</span>
   <span class="k">end</span>
 <span class="k">end</span>
 
 <span class="c"># an actuator hub declares a safe_action and a command port; its floor step:</span>
 <span class="k">defmodule</span> <span class="t">Hubs.Motor</span> <span class="k">do</span>
-  <span class="k">use</span> <span class="t">BBMcuhub.Hub</span>
+  <span class="k">use</span> <span class="t">BBMCUHub.Hub</span>
 
   ports <span class="k">do</span>
-    port :motor_target, dir: :in, type: <span class="t">BBMcuhub.ValueType.Effort</span>, rate: 50,
+    port :motor_target, dir: :in, type: <span class="t">BBMCUHub.ValueType.Effort</span>, rate: 50,
       has_safe_action: <span class="k">true</span>, safe_action: %{nm: <span class="n">0.0</span>}  <span class="c"># floored: a value of the port's value-type (false ⇒ non-floored, e.g. an LED)</span>
-    port :motor_status, dir: :out, type: <span class="t">BBMcuhub.ValueType.Status</span>, rate: 50  <span class="c"># reports its own truth (§05)</span>
+    port :motor_status, dir: :out, type: <span class="t">BBMCUHub.ValueType.Status</span>, rate: 50  <span class="c"># reports its own truth (§05)</span>
   <span class="k">end</span>
 <span class="k">end</span></pre>
         </div>
@@ -2004,7 +2004,7 @@
             class="code"
           ><span class="c"># The robot composes our extension alongside BeamBots' own; a sibling `hubs do`</span>
 <span class="c"># block PLACES each hub on a node id, and `topology` wires ports to components.</span>
-<span class="k">use</span> <span class="t">BB</span>, extensions: [<span class="t">BBMcuhub.Dsl</span>]
+<span class="k">use</span> <span class="t">BB</span>, extensions: [<span class="t">BBMCUHub.Dsl</span>]
 
 hubs <span class="k">do</span>
   hub :imu,   <span class="t">Hubs.Imu</span>,   node: <span class="n">0x02</span>, parent: :host                 <span class="c"># the ROOT: declares parent: :host, owns the host UART</span>
@@ -2046,11 +2046,11 @@ topology <span class="k">do</span>
 
         <figure>
           <div class="mermaid">
-            flowchart LR C1["hub modules (use BBMcuhub.Hub)<br />ports · wire
+            flowchart LR C1["hub modules (use BBMCUHub.Hub)<br />ports · wire
             facts: dir·type·rate·t_dev·safe_action"]:::in --> TR C2["topology
             do<br />hub placement (node id · parent · uplink) + view wiring
             (fresh_for)"]:::in --> TR TY["value-type modules (use
-            BBMcuhub.ValueType)<br />layout + lift/unlift + hook sig"]:::in -->
+            BBMCUHub.ValueType)<br />layout + lift/unlift + hook sig"]:::in -->
             TR TR["Spark transformer<br />projects the assembled DSL → IR
             (compile time)"]:::ir --> IR IR["wire model (IR)<br />per port:
             {node, port_id, type, layout, rate, fresh_for, safe_action}"]:::ir
@@ -2081,7 +2081,7 @@ topology <span class="k">do</span>
 
         <p>
           The load-bearing idea is the <b>value-type</b>: a standalone module
-          (<code>use BBMcuhub.ValueType</code>) whose <code>layout</code> is an
+          (<code>use BBMCUHub.ValueType</code>) whose <code>layout</code> is an
           ordered list of <code>{field, wire-type}</code>, and
           <em>that</em> layout — not the encoder code — is the source of truth
           both languages render. The library ships a lean stock set —
@@ -2111,8 +2111,8 @@ topology <span class="k">do</span>
           ><span class="c"># A VALUE-TYPE is a standalone, cross-bot-reusable unit: it owns one kind of</span>
 <span class="c"># wire value and nothing else. Field order IS the wire order. The library ships</span>
 <span class="c"># imu/effort/status; a consumer writes their own the same way, no library edit.</span>
-<span class="k">defmodule</span> <span class="t">BBMcuhub.ValueType.Imu</span> <span class="k">do</span>
-  <span class="k">use</span> <span class="t">BBMcuhub.ValueType</span>
+<span class="k">defmodule</span> <span class="t">BBMCUHub.ValueType.Imu</span> <span class="k">do</span>
+  <span class="k">use</span> <span class="t">BBMCUHub.ValueType</span>
 
   layout [quat: :f32x4, accel: :f32x3, gyro: :f32x3]   <span class="c"># ordered {field, wire_type} = the layout</span>
 
@@ -2133,7 +2133,7 @@ topology <span class="k">do</span>
           </div>
           <pre
             class="code"
-          ><span class="k">defmodule</span> <span class="t">BBMcuhub.Gen.WireGen</span> <span class="k">do</span>
+          ><span class="k">defmodule</span> <span class="t">BBMCUHub.Gen.WireGen</span> <span class="k">do</span>
   <span class="c"># Render four artifacts from the IR the transformer already projected from the</span>
   <span class="c"># assembled DSL. Pure: IR rows in, files/quoted-code out. No device, no clock.</span>
 
@@ -2142,7 +2142,7 @@ topology <span class="k">do</span>
   <span class="c"># sorted by {node, port_id}. Each row's :layout came from the port's value-type</span>
   <span class="c"># module (§06); :safe_action is a VALUE of that value-type (a field-map, not an</span>
   <span class="c"># atom) we pack to bytes through the SAME codec as the wire. We just render. base = out dir.</span>
-  <span class="k">def</span> model(robot), <span class="k">do:</span> <span class="t">BBMcuhub.Robot.Info</span>.ir(robot)
+  <span class="k">def</span> model(robot), <span class="k">do:</span> <span class="t">BBMCUHub.Robot.Info</span>.ir(robot)
 
   <span class="c"># The host codec is DATA-DRIVEN: it reads the IR layouts at runtime, so it</span>
   <span class="c"># can't drift from the model within Elixir — nothing to emit, nothing to stale.</span>
@@ -2264,11 +2264,11 @@ topology <span class="k">do</span>
   <span class="c"># 1) The emitted files on disk match what the generator emits NOW.</span>
   <span class="c">#    Catches a hand-edit to wire_contract.h / a glue header / the vectors, or a stale checkout.</span>
   test <span class="s">"emitted artifacts are not stale"</span> <span class="k">do</span>
-    model = <span class="t">BBMcuhub.Gen.WireGen</span>.model(<span class="t">FixtureRobot</span>)   <span class="c"># the IR the transformer projected (§06)</span>
-    assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/wire_contract.h"</span>) == <span class="t">BBMcuhub.Gen.WireGen</span>.emit_c(@base, model)
-    assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/parity_vectors.exs"</span>) == <span class="t">BBMcuhub.Gen.WireGen</span>.emit_vectors(@base, model)
-    <span class="k">for</span> hub &lt;- <span class="t">BBMcuhub.Gen.WireGen</span>.hubs(model) <span class="k">do</span>   <span class="c"># each hub's glue carries its schedule + dispatch + floor</span>
-      assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/</span>#{hub}<span class="s">.glue.h"</span>) == <span class="t">BBMcuhub.Gen.WireGen</span>.emit_glue(@base, {model, hub})
+    model = <span class="t">BBMCUHub.Gen.WireGen</span>.model(<span class="t">FixtureRobot</span>)   <span class="c"># the IR the transformer projected (§06)</span>
+    assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/wire_contract.h"</span>) == <span class="t">BBMCUHub.Gen.WireGen</span>.emit_c(@base, model)
+    assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/parity_vectors.exs"</span>) == <span class="t">BBMCUHub.Gen.WireGen</span>.emit_vectors(@base, model)
+    <span class="k">for</span> hub &lt;- <span class="t">BBMCUHub.Gen.WireGen</span>.hubs(model) <span class="k">do</span>   <span class="c"># each hub's glue carries its schedule + dispatch + floor</span>
+      assert <span class="t">File</span>.read!(<span class="s">"</span>#{@base}<span class="s">/</span>#{hub}<span class="s">.glue.h"</span>) == <span class="t">BBMCUHub.Gen.WireGen</span>.emit_glue(@base, {model, hub})
     <span class="k">end</span>
   <span class="k">end</span>
 
@@ -2804,9 +2804,9 @@ topology <span class="k">do</span>
           <pre
             class="code"
           ><span class="k">defmodule</span> <span class="t">SegbyV1.Robot</span> <span class="k">do</span>
-  <span class="k">use</span> <span class="t">BB</span>, extensions: [<span class="t">BBMcuhub.Dsl</span>]      <span class="c"># BeamBots' DSL + our hub-gateway extension</span>
+  <span class="k">use</span> <span class="t">BB</span>, extensions: [<span class="t">BBMCUHub.Dsl</span>]      <span class="c"># BeamBots' DSL + our hub-gateway extension</span>
 
-  <span class="c"># The consumer references BBMcuhub.* only at library seams; hubs and value-types</span>
+  <span class="c"># The consumer references BBMCUHub.* only at library seams; hubs and value-types</span>
   <span class="c"># live in the example's own SegbyV1.* namespace. A sibling `hubs do` block PLACES</span>
   <span class="c"># each hub module on a node id (§06); the topology section is not patchable.</span>
   hubs <span class="k">do</span>
@@ -2834,7 +2834,7 @@ topology <span class="k">do</span>
 
 <span class="c"># The link owner (the root UART) is NOT a topology entity — it is started in the</span>
 <span class="c"># application supervisor, placed to survive a view/law crash (§07). The consumer</span>
-<span class="c"># does not hand-write that supervisor: BBMcuhub.Host takes `robot: SegbyV1.Robot`,</span>
+<span class="c"># does not hand-write that supervisor: BBMCUHub.Host takes `robot: SegbyV1.Robot`,</span>
 <span class="c"># derives the command slots from its IR, and wires the BB.Supervisor + LinkOwner.</span></pre>
         </div>
 
@@ -3187,7 +3187,7 @@ topology <span class="k">do</span>
           <b>project</b> are extensions of the same shape (designed, not yet
           built) — and because they act on a value's <em>fields</em>, which only
           the <b>value-type</b> knows, they resolve the slot's value-type (via
-          <code>PortIndex</code> + <code>BBMcuhub.ValueType</code>, exactly as a
+          <code>PortIndex</code> + <code>BBMCUHub.ValueType</code>, exactly as a
           view does), never duplicating field knowledge. The observer's one job
           is <em>sample → reduce → hand to a sink</em>; what to <em>do</em>
           with the value/event lives in the sink — a PubSub republish on the
@@ -3263,8 +3263,8 @@ topology <span class="k">do</span>
     value_type/ imu.ex effort.ex status.ex     <span class="cm"># the LEAN STOCK value-types: layout + lift/unlift + hook sig (§06)</span>
     dsl/       extension.ex transformer.ex verifier.ex  <span class="cm"># the `hubs do` extension → IR → compile-time checks</span>
     gen/       wire_gen.ex                      <span class="cm"># the one generator: IR → wire_contract.h + per-hub glue + parity vectors</span>
-    hub.ex                                      <span class="cm"># `use BBMcuhub.Hub` — declare a hub's ports</span>
-    host.ex                                     <span class="cm"># `use BBMcuhub.Host` — generic launcher: robot: → command slots → BB.Supervisor + LinkOwner (§09)</span>
+    hub.ex                                      <span class="cm"># `use BBMCUHub.Hub` — declare a hub's ports</span>
+    host.ex                                     <span class="cm"># `use BBMCUHub.Host` — generic launcher: robot: → command slots → BB.Supervisor + LinkOwner (§09)</span>
     bb_hub/    sensor.ex actuator.ex            <span class="cm"># the BeamBots seam — value-type-agnostic views (§09)</span>
   <span class="cg">firmware/</span>  (self-contained PlatformIO library)  <span class="cm"># the C CHASSIS, pulled via lib_deps</span>
     library.json
@@ -3277,12 +3277,12 @@ topology <span class="k">do</span>
 
 <span class="bt">examples/segby_v1/</span>  (a consumer app)         <span class="cm"># the device logic — depends on the library like any downstream</span>
   mix.exs                                       <span class="cm"># {:bb_mcuhub, path: "../.."} — a path dep today, a registry dep later</span>
-  <span class="cg">lib/segby_v1/</span>                                <span class="cm"># its OWN root namespace; BBMcuhub.* only at library seams</span>
+  <span class="cg">lib/segby_v1/</span>                                <span class="cm"># its OWN root namespace; BBMCUHub.* only at library seams</span>
     robot.ex                                    <span class="cm"># SegbyV1.Robot — BeamBots DSL (hubs do + topology)</span>
-    hubs/      blaster.ex wheels.ex             <span class="cm"># use BBMcuhub.Hub</span>
+    hubs/      blaster.ex wheels.ex             <span class="cm"># use BBMCUHub.Hub</span>
     value_types/ range.ex led.ex               <span class="cm"># the example DEFINES Range+Led ITSELF — proving the extension seam</span>
     balance.ex teleop.ex                        <span class="cm"># pure control + teleop loop</span>
-    host.ex                                     <span class="cm"># thin wrapper over BBMcuhub.Host</span>
+    host.ex                                     <span class="cm"># thin wrapper over BBMCUHub.Host</span>
   <span class="cg">firmware/</span>
     mcu/    blaster.c wheels.c                   <span class="cm"># HAND-AUTHORED device hooks ONLY (_device_setup + per-port read/drive)</span>
     gen/segby_v1/  wire_contract.h *.glue.h *.device.h parity_vectors.exs  <span class="cm"># GENERATED — drift-tested</span>

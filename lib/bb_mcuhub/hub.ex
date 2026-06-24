@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Hub.Port do
+defmodule BBMCUHub.Hub.Port do
   @moduledoc """
   One port's intrinsic wire facts (§06), as authored in a hub module's
   `ports do … end`. These are the PRODUCER facts — what the hub physically does:
@@ -12,7 +12,7 @@ defmodule BBMcuhub.Hub.Port do
   carries) MUST be given and the port gets an on-chip floor. `false` ⇒ a
   non-floored actuator (e.g. a decorative LED): `safe_action` MUST be absent. The
   flag is meaningless on a `dir: :out` port (both must be absent there). The
-  verifier (`BBMcuhub.Dsl.Verifier`) enforces all of this.
+  verifier (`BBMCUHub.Dsl.Verifier`) enforces all of this.
 
   The MFA refs (`sample`, `step`) are **declared data only** — the host never
   invokes them; they travel into the generated per-hub schedule for the firmware.
@@ -45,21 +45,21 @@ defmodule BBMcuhub.Hub.Port do
         }
 end
 
-defmodule BBMcuhub.Hub.Dsl do
+defmodule BBMCUHub.Hub.Dsl do
   @moduledoc """
-  The small Spark DSL behind `use BBMcuhub.Hub`: one `ports do … end` section
+  The small Spark DSL behind `use BBMCUHub.Hub`: one `ports do … end` section
   declaring a hub's ports and their intrinsic wire facts (§06).
   """
 
   @port %Spark.Dsl.Entity{
     name: :port,
     describe: "One port on this hub, with its intrinsic wire facts.",
-    target: BBMcuhub.Hub.Port,
+    target: BBMCUHub.Hub.Port,
     args: [:name],
     schema: [
       name: [type: :atom, required: true, doc: "the port name on this hub"],
       dir: [type: {:in, [:in, :out]}, required: true, doc: ":in (command) or :out (produced)"],
-      type: [type: :atom, required: true, doc: "the value type (a BBMcuhub.ValueType ref)"],
+      type: [type: :atom, required: true, doc: "the value type (a BBMCUHub.ValueType ref)"],
       rate: [type: :pos_integer, required: true, doc: "nominal sample/command rate in Hz"],
       t_dev: [type: :boolean, default: false, doc: "carry the producer µs stamp (§04)"],
       has_safe_action: [
@@ -86,16 +86,16 @@ defmodule BBMcuhub.Hub.Dsl do
   use Spark.Dsl.Extension, sections: [@ports]
 end
 
-defmodule BBMcuhub.Hub.Info do
+defmodule BBMCUHub.Hub.Info do
   @moduledoc """
   Read a hub module's declared ports (§06): `ports(module) :: [Hub.Port.t()]`.
   """
-  use Spark.InfoGenerator, extension: BBMcuhub.Hub.Dsl, sections: [:ports]
+  use Spark.InfoGenerator, extension: BBMCUHub.Hub.Dsl, sections: [:ports]
 end
 
-defmodule BBMcuhub.Hub do
+defmodule BBMCUHub.Hub do
   @moduledoc """
-  `use BBMcuhub.Hub` — declare one hub's ports and their intrinsic wire facts.
+  `use BBMCUHub.Hub` — declare one hub's ports and their intrinsic wire facts.
 
   A hub module is small authored data: each `port` names its `dir`, value `type`,
   `rate`, optional `t_dev`/`safe_action`, and declared `sample`/`step` MFA refs.
@@ -103,7 +103,7 @@ defmodule BBMcuhub.Hub do
   ports the views read; the extension projects both into one IR (§06).
 
       defmodule MyHub do
-        use BBMcuhub.Hub
+        use BBMCUHub.Hub
 
         ports do
           port :pose, dir: :out, type: :imu, rate: 50, t_dev: true,
@@ -111,5 +111,5 @@ defmodule BBMcuhub.Hub do
         end
       end
   """
-  use Spark.Dsl, default_extensions: [extensions: [BBMcuhub.Hub.Dsl]]
+  use Spark.Dsl, default_extensions: [extensions: [BBMCUHub.Hub.Dsl]]
 end

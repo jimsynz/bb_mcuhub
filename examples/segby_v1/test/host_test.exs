@@ -6,11 +6,11 @@ defmodule SegbyV1.HostTest do
   `:teleop` command) plus the `LinkOwner` on a loopback transport.
 
   This is the LIBRARY-CONSUMPTION proof on the host side: every library reference
-  here is a public seam (`BBMcuhub.Host`, `BBMcuhub.Contract.PortIndex`,
-  `BBMcuhub.Host.LinkOwner`/`NodeRegistry`, `BBMcuhub.Wire.Codec`); the robot,
+  here is a public seam (`BBMCUHub.Host`, `BBMCUHub.Contract.PortIndex`,
+  `BBMCUHub.Host.LinkOwner`/`NodeRegistry`, `BBMCUHub.Wire.Codec`); the robot,
   controller, value-types, and the launcher wrapper are the consumer's own
   (`SegbyV1.*`). The loopback transport is the consumer's own copy over the
-  library's public `BBMcuhub.Host.Transport` behaviour.
+  library's public `BBMCUHub.Host.Transport` behaviour.
 
   Two end-to-end assertions:
 
@@ -38,9 +38,9 @@ defmodule SegbyV1.HostTest do
 
   alias BB.Math.{Quaternion, Vec3}
   alias BB.Message.Geometry.Twist
-  alias BBMcuhub.Contract.PortIndex
-  alias BBMcuhub.Host.{LinkOwner, NodeRegistry}
-  alias BBMcuhub.Wire.Codec
+  alias BBMCUHub.Contract.PortIndex
+  alias BBMCUHub.Host.{LinkOwner, NodeRegistry}
+  alias BBMCUHub.Wire.Codec
   alias SegbyV1.Balance
   alias SegbyV1.Host
   alias SegbyV1.Robot

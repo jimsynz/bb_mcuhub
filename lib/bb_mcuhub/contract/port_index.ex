@@ -1,9 +1,9 @@
-defmodule BBMcuhub.Contract.PortIndex do
+defmodule BBMCUHub.Contract.PortIndex do
   @moduledoc """
   Runtime lookup from the wire identity `(node, port_id)` back to its value type
   and human port name (§03/§07).
 
-  The decode seam (`BBMcuhub.Wire.Codec`) needs the value `type` to parse a
+  The decode seam (`BBMCUHub.Wire.Codec`) needs the value `type` to parse a
   payload, and the registry/views want the symbolic `port` name. Both come from
   the same IR the generator renders, built once at boot from the contracts +
   topology and cached in `:persistent_term` (read-mostly, never on the hot path
@@ -13,8 +13,8 @@ defmodule BBMcuhub.Contract.PortIndex do
   counts it (`decode_fail`), exactly like an unknown port id in the design (§07).
   """
 
-  alias BBMcuhub.Contract
-  alias BBMcuhub.Robot.Info
+  alias BBMCUHub.Contract
+  alias BBMCUHub.Robot.Info
 
   @key {__MODULE__, :index}
 
@@ -30,7 +30,7 @@ defmodule BBMcuhub.Contract.PortIndex do
   Build (or rebuild) the index from a robot's contracts + topology and cache it.
 
   The robot is ALWAYS explicit (ADR-0003: generation/index is explicit-robot,
-  there is no library default). Call once at boot — the generic `BBMcuhub.Host`
+  there is no library default). Call once at boot — the generic `BBMCUHub.Host`
   launcher does this for the consumer's robot; tests build for their robot in
   setup. Returns the index map.
   """
@@ -57,7 +57,7 @@ defmodule BBMcuhub.Contract.PortIndex do
   def index do
     case :persistent_term.get(@key, nil) do
       nil ->
-        raise "PortIndex not built — call BBMcuhub.Contract.PortIndex.build(robot) " <>
+        raise "PortIndex not built — call BBMCUHub.Contract.PortIndex.build(robot) " <>
                 "for the active robot first (the Host launcher and test setups do)"
 
       idx ->

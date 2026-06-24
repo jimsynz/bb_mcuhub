@@ -1,4 +1,4 @@
-defmodule BBMcuhub.Wire.COBS do
+defmodule BBMCUHub.Wire.COBS do
   @moduledoc """
   Consistent Overhead Byte Stuffing (§03).
 
@@ -8,7 +8,7 @@ defmodule BBMcuhub.Wire.COBS do
 
   Pure, no I/O. The round-trip is verified over the edge cases (an embedded
   `0x00`, a zero-run, the 254-byte block boundary, a real frame) in
-  `BBMcuhub.Wire.COBSTest`, and `transport.c` on the hub mirrors this exactly
+  `BBMCUHub.Wire.COBSTest`, and `transport.c` on the hub mirrors this exactly
   (the parity vectors are the cross-language witness, §06).
   """
 
@@ -18,10 +18,10 @@ defmodule BBMcuhub.Wire.COBS do
 
   ## Examples
 
-      iex> BBMcuhub.Wire.COBS.encode(<<0x11, 0x22, 0x00, 0x33>>)
+      iex> BBMCUHub.Wire.COBS.encode(<<0x11, 0x22, 0x00, 0x33>>)
       <<0x03, 0x11, 0x22, 0x02, 0x33>>
 
-      iex> BBMcuhub.Wire.COBS.encode(<<0x00>>)
+      iex> BBMCUHub.Wire.COBS.encode(<<0x00>>)
       <<0x01, 0x01>>
   """
   @spec encode(binary()) :: binary()
@@ -53,10 +53,10 @@ defmodule BBMcuhub.Wire.COBS do
 
   ## Examples
 
-      iex> BBMcuhub.Wire.COBS.decode(<<0x03, 0x11, 0x22, 0x02, 0x33>>)
+      iex> BBMCUHub.Wire.COBS.decode(<<0x03, 0x11, 0x22, 0x02, 0x33>>)
       {:ok, <<0x11, 0x22, 0x00, 0x33>>}
 
-      iex> BBMcuhub.Wire.COBS.decode(<<0x05, 0x11>>)
+      iex> BBMCUHub.Wire.COBS.decode(<<0x05, 0x11>>)
       {:error, :truncated}
   """
   @spec decode(binary()) :: {:ok, binary()} | {:error, :truncated}

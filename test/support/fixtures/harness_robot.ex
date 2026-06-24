@@ -1,6 +1,6 @@
-defmodule BBMcuhub.Test.Fixtures.HarnessRobot do
+defmodule BBMCUHub.Test.Fixtures.HarnessRobot do
   @moduledoc """
-  A **view-less** twin of `BBMcuhub.Test.Fixtures.Robot` (test-only) — same hubs,
+  A **view-less** twin of `BBMCUHub.Test.Fixtures.Robot` (test-only) — same hubs,
   same NODE/PORT layout, but a topology that declares the link/joint structure and
   **no sensor/actuator view child_specs**.
 
@@ -18,12 +18,12 @@ defmodule BBMcuhub.Test.Fixtures.HarnessRobot do
   satisfied because reconciliation is reader→producer: a producer with no reader
   view is well-formed (a view-less robot is just an unmonitored producer set).
   """
-  use BB, extensions: [BBMcuhub.Dsl]
+  use BB, extensions: [BBMCUHub.Dsl]
 
   hubs do
-    hub(:sensor_hub, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+    hub(:sensor_hub, BBMCUHub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
 
-    hub(:act_hub, BBMcuhub.Test.Fixtures.ActuatorHub,
+    hub(:act_hub, BBMCUHub.Test.Fixtures.ActuatorHub,
       node: 0x05,
       parent: :sensor_hub,
       uplink: :uart

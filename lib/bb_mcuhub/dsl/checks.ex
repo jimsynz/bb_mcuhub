@@ -1,20 +1,20 @@
-defmodule BBMcuhub.Dsl.Checks do
+defmodule BBMCUHub.Dsl.Checks do
   @moduledoc """
-  The pure checks behind `BBMcuhub.Dsl.Verifier` (§06) — decomplected from Spark so
+  The pure checks behind `BBMCUHub.Dsl.Verifier` (§06) — decomplected from Spark so
   each rule is a plain function over plain data, unit-testable without compiling a
   `use BB` robot (candidate 3 of the architecture review).
 
   Each check takes plain inputs and returns `:ok | {:error, violation}`, where a
   **violation is a representation-agnostic map** `%{path: [...], message: String.t()}`
-  — no dependency on `Spark.Error.DslError`. The thin `BBMcuhub.Dsl.Verifier`
+  — no dependency on `Spark.Error.DslError`. The thin `BBMCUHub.Dsl.Verifier`
   adapter pulls the data out of the DSL state, calls `all/3`, and maps any violation
   into a `DslError` with the offending module.
 
   The inputs:
 
     * `hubs` — the placed hubs, each with `.name`, `.node`, `.parent`, `.uplink`
-      (the `BBMcuhub.Dsl.Hub` struct shape);
-    * `ir` — the projected `[%BBMcuhub.Contract.IrRow{}]` rows;
+      (the `BBMCUHub.Dsl.Hub` struct shape);
+    * `ir` — the projected `[%BBMCUHub.Contract.IrRow{}]` rows;
     * `views` — the reader view refs, each `%{hub: atom, port: atom, fresh_for: integer | nil}`.
 
   `all/3` raises a violation on any of:
@@ -33,8 +33,8 @@ defmodule BBMcuhub.Dsl.Checks do
     * a port whose frame would exceed the segmentation ceiling.
   """
 
-  alias BBMcuhub.Contract
-  alias BBMcuhub.Contract.Layouts
+  alias BBMCUHub.Contract
+  alias BBMCUHub.Contract.Layouts
 
   # Matches the C SEG_MAX_BODY in firmware/include/segment.h.
   @segmentation_ceiling 512
@@ -77,7 +77,7 @@ defmodule BBMcuhub.Dsl.Checks do
   end
 
   defp verify_command_message(%{dir: :in} = row) do
-    if is_nil(BBMcuhub.ValueType.resolve(row.type).command_message()) do
+    if is_nil(BBMCUHub.ValueType.resolve(row.type).command_message()) do
       violation(
         [:hubs, row.hub],
         "command port #{inspect({row.hub, row.port})} uses value-type #{inspect(row.type)} which declares no command_message — a command value-type must name the BB.Message struct it accepts (finding #1 / agnostic Component)"
@@ -184,7 +184,7 @@ defmodule BBMcuhub.Dsl.Checks do
 
       true ->
         try do
-          _ = BBMcuhub.Wire.Codec.encode_fields(row.layout, row.safe_action)
+          _ = BBMCUHub.Wire.Codec.encode_fields(row.layout, row.safe_action)
           :ok
         rescue
           e ->

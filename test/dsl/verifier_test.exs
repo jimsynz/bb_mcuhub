@@ -1,6 +1,6 @@
-defmodule BBMcuhub.Dsl.VerifierTest do
+defmodule BBMCUHub.Dsl.VerifierTest do
   @moduledoc """
-  Proves the compile-time topology verifier (`BBMcuhub.Dsl.Verifier`, §06)
+  Proves the compile-time topology verifier (`BBMCUHub.Dsl.Verifier`, §06)
   actually FIRES — it REJECTS broken topologies, not merely passes on the good
   one. Each case authors a robot module that trips exactly one of the verifier's
   checks and asserts the resulting `Spark.Error.DslError` names the offending
@@ -22,7 +22,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
   ## Tripping OUR check, not a bb check first
 
   bb's own `ValidateChildSpecs` verifier also runs. For the `fresh_for < 1` case
-  the real `BBMcuhub.BBHub.Sensor`/`Actuator` views type `fresh_for` as
+  the real `BBMCUHub.BBHub.Sensor`/`Actuator` views type `fresh_for` as
   `:pos_integer`, so `fresh_for: 0` would also trip bb's type validation. To trip
   ONLY our check we wire in a tiny local `LaxSensor` view that types `fresh_for`
   as `:integer` (so `0` passes bb's schema and reaches our verifier alone). The
@@ -58,7 +58,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     is required on every command port (ADR-0005). Placing this in a robot must trip
     `verify_safe_actions`.
     """
-    use BBMcuhub.Hub
+    use BBMCUHub.Hub
 
     ports do
       port(:cmd, dir: :in, type: :effort, rate: 50)
@@ -72,7 +72,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     The extra `:torque` is not in the value-type layout, so the verifier must
     reject it (ADR-0005), not silently default.
     """
-    use BBMcuhub.Hub
+    use BBMCUHub.Hub
 
     ports do
       port(:cmd,
@@ -90,7 +90,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     A `has_safe_action: false` (non-floored) port that nonetheless declares a
     `safe_action` — the role and the value disagree, a compile error (ADR-0005).
     """
-    use BBMcuhub.Hub
+    use BBMCUHub.Hub
 
     ports do
       port(:cmd,
@@ -112,7 +112,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     `verify_command_messages`. `has_safe_action: false` clears the floored-role
     check, so we reach the command_message check alone.
     """
-    use BBMcuhub.Hub
+    use BBMCUHub.Hub
 
     ports do
       port(:cmd, dir: :in, type: :imu, rate: 50, has_safe_action: false)
@@ -126,7 +126,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     layouts and no faked tables. `Contract.port_id(:collide, :p13) ==
     Contract.port_id(:collide, :p310) == 0xA6`.
     """
-    use BBMcuhub.Hub
+    use BBMCUHub.Hub
 
     ports do
       port(:p13, dir: :out, type: :effort, rate: 50)
@@ -141,7 +141,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     transformer must reject it BEFORE reading its (non-existent) layout, with a
     named error (parse-don't-scan, finding #6).
     """
-    use BBMcuhub.Hub
+    use BBMCUHub.Hub
 
     ports do
       port(:pose, dir: :out, type: :effor, rate: 50)
@@ -154,13 +154,13 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "duplicate node: two hubs on the same NODE id are rejected (§03)" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.DupNode do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.DupNode do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x09, parent: :host)
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub, node: 0x09, parent: :host)
 
-              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub,
+              hub(:motor, BBMCUHub.Test.Fixtures.ActuatorHub,
                 node: 0x09,
                 parent: :imu,
                 uplink: :uart
@@ -183,11 +183,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "reserved node: a hub on NODE 0x00 (broadcast/e-stop) is rejected (§03)" do
       err =
         assert_dsl_error %Spark.Error.DslError{} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.ReservedNode do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.ReservedNode do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x00, parent: :host)
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub, node: 0x00, parent: :host)
             end
 
             topology do
@@ -210,11 +210,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       err =
         assert_raise Spark.Error.DslError, fn ->
           Code.eval_string("""
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.TypoType do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.TypoType do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:motor, BBMcuhub.Dsl.VerifierTest.TypoTypeHub, node: 0x02, parent: :host)
+              hub(:motor, BBMCUHub.Dsl.VerifierTest.TypoTypeHub, node: 0x02, parent: :host)
             end
 
             topology do
@@ -235,18 +235,18 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       # LaxSensor lets 0 past bb's type check so we trip OUR verifier alone.
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:topology]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.FreshForZero do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.FreshForZero do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
             end
 
             topology do
               link :base_link do
                 sensor(
                   :chassis,
-                  {BBMcuhub.Dsl.VerifierTest.LaxSensor, hub: :imu, port: :pose, fresh_for: 0}
+                  {BBMCUHub.Dsl.VerifierTest.LaxSensor, hub: :imu, port: :pose, fresh_for: 0}
                 )
               end
             end
@@ -262,11 +262,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "missing has_safe_action: a :in port without the floored-role flag is rejected (ADR-0005)" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.MissingFlag do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.MissingFlag do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:motor, BBMcuhub.Dsl.VerifierTest.MissingFlagHub, node: 0x05, parent: :host)
+              hub(:motor, BBMCUHub.Dsl.VerifierTest.MissingFlagHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -282,11 +282,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "ill-formed safe_action: a floored port with an unknown value-type field is rejected (ADR-0005)" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.BadSafe do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.BadSafe do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:motor, BBMcuhub.Dsl.VerifierTest.BadSafeHub, node: 0x05, parent: :host)
+              hub(:motor, BBMCUHub.Dsl.VerifierTest.BadSafeHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -305,11 +305,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "stray safe_action: a non-floored port that declares a safe_action is rejected (ADR-0005)" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs, :led]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.StraySafe do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.StraySafe do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:led, BBMcuhub.Dsl.VerifierTest.StraySafeHub, node: 0x05, parent: :host)
+              hub(:led, BBMCUHub.Dsl.VerifierTest.StraySafeHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -325,11 +325,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "sense value-type on a command port: a :in port whose value-type names no command_message is rejected (finding #1)" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.SenseCommand do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.SenseCommand do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:motor, BBMcuhub.Dsl.VerifierTest.SenseCommandHub, node: 0x05, parent: :host)
+              hub(:motor, BBMCUHub.Dsl.VerifierTest.SenseCommandHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -347,11 +347,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "unknown port: a view naming a port no hub declares is rejected (§06)" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:topology]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.UnknownPort do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.UnknownPort do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
             end
 
             topology do
@@ -359,7 +359,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
                 # :pose exists, :nonexistent does not — reconciliation must fail
                 sensor(
                   :chassis,
-                  {BBMcuhub.BBHub.Sensor,
+                  {BBMCUHub.BBHub.Sensor,
                    hub: :imu, port: :nonexistent, fresh_for: 3, beat_ms: 20}
                 )
               end
@@ -378,11 +378,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       # node checks pass and we reach verify_no_id_collision.
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.IdCollision do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.IdCollision do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:collide, BBMcuhub.Dsl.VerifierTest.CollideHub, node: 0x07, parent: :host)
+              hub(:collide, BBMCUHub.Dsl.VerifierTest.CollideHub, node: 0x07, parent: :host)
             end
 
             topology do
@@ -421,17 +421,17 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       # forms is irrelevant — the one-root check fires first.
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.NoRoot do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.NoRoot do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub,
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub,
                 node: 0x02,
                 parent: :motor,
                 uplink: :uart
               )
 
-              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub,
+              hub(:motor, BBMCUHub.Test.Fixtures.ActuatorHub,
                 node: 0x05,
                 parent: :imu,
                 uplink: :uart
@@ -451,12 +451,12 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "two roots: two hubs declaring parent: :host are rejected, naming them" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.TwoRoots do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.TwoRoots do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
-              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub, node: 0x05, parent: :host)
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+              hub(:motor, BBMCUHub.Test.Fixtures.ActuatorHub, node: 0x05, parent: :host)
             end
 
             topology do
@@ -473,13 +473,13 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "unknown parent: a parent naming no declared hub is rejected" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.UnknownParent do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.UnknownParent do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
 
-              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub,
+              hub(:motor, BBMCUHub.Test.Fixtures.ActuatorHub,
                 node: 0x05,
                 parent: :ghost,
                 uplink: :uart
@@ -503,17 +503,17 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       # the broken topology cannot ship.)
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.Cycle do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.Cycle do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub,
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub,
                 node: 0x02,
                 parent: :motor,
                 uplink: :uart
               )
 
-              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub,
+              hub(:motor, BBMCUHub.Test.Fixtures.ActuatorHub,
                 node: 0x05,
                 parent: :imu,
                 uplink: :uart
@@ -534,11 +534,11 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "root with an uplink: a parent: :host hub declaring uplink is rejected" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs, :imu]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.RootUplink do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.RootUplink do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub,
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub,
                 node: 0x02,
                 parent: :host,
                 uplink: :uart
@@ -558,12 +558,12 @@ defmodule BBMcuhub.Dsl.VerifierTest do
     test "non-root without uplink: a child that omits its uplink is rejected" do
       err =
         assert_dsl_error %Spark.Error.DslError{path: [:hubs, :motor]} do
-          defmodule Elixir.BBMcuhub.Dsl.VerifierTest.MissingUplink do
-            use BB, extensions: [BBMcuhub.Dsl]
+          defmodule Elixir.BBMCUHub.Dsl.VerifierTest.MissingUplink do
+            use BB, extensions: [BBMCUHub.Dsl]
 
             hubs do
-              hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
-              hub(:motor, BBMcuhub.Test.Fixtures.ActuatorHub, node: 0x05, parent: :imu)
+              hub(:imu, BBMCUHub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+              hub(:motor, BBMCUHub.Test.Fixtures.ActuatorHub, node: 0x05, parent: :imu)
             end
 
             topology do
@@ -582,7 +582,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       # the library's fixture robot already compiled at load — no verifier error
       # for it, and its IR is the frozen model the generator/runtime consume
       # (ADR-0003: the library self-tests via the fixture, no example present).
-      ir = BBMcuhub.Robot.Info.ir(BBMcuhub.Test.Fixtures.Robot)
+      ir = BBMCUHub.Robot.Info.ir(BBMCUHub.Test.Fixtures.Robot)
       assert is_list(ir)
       assert ir != []
       # one row per declared hub port: sensor_hub :pose/:scalar, act_hub
@@ -592,18 +592,18 @@ defmodule BBMcuhub.Dsl.VerifierTest do
 
     test "a minimal valid robot compiles with NO verifier error" do
       refute_dsl_errors do
-        defmodule Elixir.BBMcuhub.Dsl.VerifierTest.GoodRobot do
-          use BB, extensions: [BBMcuhub.Dsl]
+        defmodule Elixir.BBMCUHub.Dsl.VerifierTest.GoodRobot do
+          use BB, extensions: [BBMCUHub.Dsl]
 
           hubs do
-            hub(:imu, BBMcuhub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
+            hub(:imu, BBMCUHub.Test.Fixtures.SensorHub, node: 0x02, parent: :host)
           end
 
           topology do
             link :base_link do
               sensor(
                 :chassis_imu,
-                {BBMcuhub.BBHub.Sensor, hub: :imu, port: :pose, fresh_for: 3, beat_ms: 20}
+                {BBMCUHub.BBHub.Sensor, hub: :imu, port: :pose, fresh_for: 3, beat_ms: 20}
               )
             end
           end
@@ -611,7 +611,7 @@ defmodule BBMcuhub.Dsl.VerifierTest do
       end
 
       # and its IR projected non-empty (one row for the imu :pose port)
-      ir = BBMcuhub.Robot.Info.ir(BBMcuhub.Dsl.VerifierTest.GoodRobot)
+      ir = BBMCUHub.Robot.Info.ir(BBMCUHub.Dsl.VerifierTest.GoodRobot)
       assert ir != []
       assert Enum.any?(ir, &(&1.hub == :imu and &1.port == :pose))
     end

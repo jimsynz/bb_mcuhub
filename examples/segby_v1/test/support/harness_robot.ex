@@ -12,7 +12,7 @@ defmodule SegbyV1.Test.HarnessRobot do
   PubSub without a competing view, so the harness view is the one writer — exactly
   as in production (one view per slot). Same hubs ⇒ same PortIndex slots.
   """
-  use BB, extensions: [BBMcuhub.Dsl]
+  use BB, extensions: [BBMCUHub.Dsl]
 
   hubs do
     hub(:blaster, SegbyV1.Hubs.Blaster, node: 0x02, parent: :host)

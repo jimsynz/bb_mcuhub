@@ -1,7 +1,7 @@
-defmodule BBMcuhub.Observer.Sample do
+defmodule BBMCUHub.Observer.Sample do
   @moduledoc """
   The payload an observer's PubSub-republish sink puts on the wire-bus
-  (`BBMcuhub.Observer.Sink.PubSub`).
+  (`BBMCUHub.Observer.Sink.PubSub`).
 
   An observer's v1 sample-state mode hands the **raw slot value** to its sink (no
   value-type lift — `filter`/`project` are deferred, ADR-0004). But BeamBots'

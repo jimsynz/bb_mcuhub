@@ -1,6 +1,6 @@
-defmodule BBMcuhub.Dsl.ChecksTest do
+defmodule BBMCUHub.Dsl.ChecksTest do
   @moduledoc """
-  Unit-tests the pure verifier checks (`BBMcuhub.Dsl.Checks`, candidate 3) over
+  Unit-tests the pure verifier checks (`BBMCUHub.Dsl.Checks`, candidate 3) over
   PLAIN DATA — hand-built `%IrRow{}` structs, plain hub maps, plain view maps — with
   NO `use BB` robot compiled. This is the payoff of decomplecting the checks from
   the Spark verifier: each rule is reachable directly and asserts on the
@@ -12,8 +12,8 @@ defmodule BBMcuhub.Dsl.ChecksTest do
   """
   use ExUnit.Case, async: true
 
-  alias BBMcuhub.Contract.IrRow
-  alias BBMcuhub.Dsl.Checks
+  alias BBMCUHub.Contract.IrRow
+  alias BBMCUHub.Dsl.Checks
 
   # --- builders for the three plain inputs -----------------------------------
 
