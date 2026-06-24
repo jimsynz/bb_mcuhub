@@ -97,7 +97,12 @@ extension seam is exercised — and validated — by construction. The IR carrie
 parity bytes all derive from the one declaration. A value-type owns the contract on **both
 strata**: the host `lift`/`unlift`, _and_ the **firmware hook** signature for ports of its
 shape. It is the single extensibility spine — a new kind of value is one self-contained,
-cross-bot-reusable unit.
+cross-bot-reusable unit. A port's `type:` is **parsed at compile time, not scanned
+late**: the IR transformer rejects a `type:` that does not resolve to a real value-type
+module (a typo like `:effor`, checked via `ValueType.resolved?/1`) with a named
+`DslError`, **before** projection reads the layout — so an unknown type is a clear
+compile error naming the `(hub, port)`, not an `UndefinedFunctionError` deep in the
+generator.
 _Avoid_: layout (that is one _field_ of a value-type, not the unit itself).
 
 ### Topology validation (the verifier)
@@ -127,7 +132,13 @@ reserved broadcast/e-stop address — the lowest id, so it wins bus arbitration.
 A named place keyed by `(node, port)` holding exactly one value plus two stamps: `seq`
 (a per-write counter the producing hub bumps +1 on every real new value) and `t_dev`
 (the producer's own 64-bit monotonic microseconds at the write). Overwrite-only; reads
-never block and return the latest. **Exactly one writer per slot.**
+never block and return the latest. **Exactly one writer per slot — now enforced
+structurally** by a slot-scoped **write capability** (`Registry.Writer`, ADR-0007),
+the mirror of the read-only `Reader`: a writer is minted for one `(node, port)` and its
+`put` carries no node/port (writing another slot is unrepresentable), and a second live
+mint for a slot raises `Writer.Taken`. (The table stays `:public` for lock-free
+hot-path writes, so the raw-`:ets` bypass is the one remaining, documented hole —
+ADR-0007.)
 
 ### seq · t_dev (the two stamps)
 
@@ -171,7 +182,13 @@ It needs no inbound frame, so it fires even if the parent, the tree above, or th
 is entirely gone. It is the guarantee; everything host-side is best-effort on top of it.
 The floor is **value-type-agnostic**: it watches a `seq` and swaps between two values of
 the command's own value-type (the commanded one and the safe one), never interpreting
-their meaning — it does not know a torque from a position (ADR-0005).
+their meaning — it does not know a torque from a position (ADR-0005). It is also
+**fail-closed on value width** (defence-in-depth): an over-wide value (`n >
+FLOOR_MAX_VALUE`) is never copied into its buffers — `floor_init` clamps to drive
+nothing and stays disarmed, and `floor_on_command` ignores the command entirely (no
+target, no `seq` update, so it cannot count as an advance), and the dead-man floors on
+silence. The compile-time ceilings already bound `n`, so this is a should-never-happen
+that resolves to the safe state instead of corrupting the safety chip's own memory.
 
 ### Safe action
 
@@ -257,7 +274,12 @@ The OTP process (under Nerves, beside the BeamBots tree) that owns the host UART
 root hub. It decodes inbound frames into `(node, port)` slots and drains outbound
 commands to the wire. It is placed to survive a view or law crash, so telemetry keeps
 flowing through a fault. **It is a read-only drain of command slots** — never their
-writer — so it can never manufacture a `seq` advance.
+writer — so it can never manufacture a `seq` advance. It _is_ the sole writer of the
+**inbound** slots, minting a `Registry.Writer` capability (ADR-0007) per inbound slot
+on first decode and writing through it. A command value it cannot pack to the wire (a
+malformed value-type value) is **counted as `encode_fail` and skipped, never crashing
+the drain** — the floor backstops the unsent command, but the cause stays legible (a
+counter, not a distant floor firing).
 
 ### Component (the BeamBots view)
 

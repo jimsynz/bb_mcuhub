@@ -2975,8 +2975,15 @@ topology <span class="k">do</span>
           <b>single writer</b> of its outbound command slot — the link owner
           only ever <em>drains</em> that slot to the wire, never writes it (so
           the link owner can never manufacture a <code>seq</code> advance, §04).
-          The actuator <em>server</em> auto-subscribes the command topic — for
-          the command struct the port's value-type names
+          The single-writer rule is enforced <b>structurally</b>: the view mints
+          a slot-scoped <code>Registry.Writer</code> capability at
+          <code>init</code> and writes through it (ADR-0007, the write-side
+          mirror of the observer <code>Reader</code>), so a second view on the
+          same slot fails loud at init (<code>Writer.Taken</code>) rather than
+          silently sharing it. After each write the view casts
+          <code>notify_command_slot</code> to the link owner, so the drain is
+          event-driven (no poll). The actuator <em>server</em> auto-subscribes
+          the command topic — for the command struct the port's value-type names
           (<code>command_message</code>), so a consumer's own command value-type
           flows through unchanged, the view never naming a struct — and delivers
           each command to <code>handle_info</code>; the view decodes the
@@ -3067,12 +3074,29 @@ topology <span class="k">do</span>
             intent and reads truth back through a born-stale monitor, and the
             hub's own floor is the safe-state mechanism. And the actuator is the
             <b>only</b> writer of its command slot — the rule that lets the link
-            owner be a harmless read-only drain (§04). Because the actuator
+            owner be a harmless read-only drain (§04), and one now enforced
+            structurally by a per-slot <code>Registry.Writer</code> capability
+            (ADR-0007), not just by convention. Because the actuator
             <em>server</em> auto-subscribes the command topic and auto-registers
             the actuator for <code>disarm</code> when <code>disarm/1</code> is
             implemented, the view's only standing obligation is to
             <em>implement</em> the callbacks correctly — there is no manual
             <code>subscribe</code>/<code>register</code> to forget.
+          </p>
+          <p>
+            On the outbound drain, a command value the link owner cannot pack to
+            the wire (a malformed value-type value — e.g. a map missing a layout
+            field) is
+            <b
+              >counted as <code>encode_fail</code> and skipped, never crashing
+              the drain</b
+            >
+            (which would take down telemetry and every other slot). The floor
+            backstops the unsent command via silence, but the cause stays
+            legible as a counter — the same
+            <em>fail-into-legibility</em> discipline as the inbound drop
+            counters (<code>rx_drop</code>, <code>crc_fail</code>,
+            <code>cobs_truncated</code>, <code>decode_fail</code>).
           </p>
         </div>
 
