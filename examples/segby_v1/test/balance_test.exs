@@ -4,7 +4,7 @@ defmodule SegbyV1.BalanceTest do
 
   Two layers:
 
-    * the PURE cores — `step/3` (the PID, ported from the cog reference's tests),
+    * the PURE cores — `step/3` (the PID, ported from the prior reference's tests),
       `step_pitch/4` (the accel/gyro complementary filter — the LIVE pitch source),
       `pitch_from_imu/1` (quaternion → pitch — an unused reference helper), and
       `mix/4` (teleop forward/turn) — exercised directly, no process.
@@ -21,7 +21,7 @@ defmodule SegbyV1.BalanceTest do
   alias BB.Math.{Quaternion, Vec3}
 
   # ---------------------------------------------------------------------------
-  # Pure PID core — ported from the cog reference (pid_balance_test.exs)
+  # Pure PID core — ported from the prior reference (pid_balance_test.exs)
   # ---------------------------------------------------------------------------
   describe "step/3 — pure PID" do
     test "zero gains -> zero output" do
@@ -190,7 +190,7 @@ defmodule SegbyV1.BalanceTest do
   end
 
   # ---------------------------------------------------------------------------
-  # Pure teleop mix — ported from the cog reference
+  # Pure teleop mix — ported from the prior reference
   # ---------------------------------------------------------------------------
   describe "mix/4 — teleop forward/turn" do
     test "zero teleop preserves the base torque" do

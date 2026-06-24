@@ -1,7 +1,7 @@
 # Target-side config (everything except MIX_TARGET=host).
 #
 # Adapted from the proven master_firmware rpi0_2 reference, MINUS the
-# Phoenix endpoint, manifest, cog runtime, and BOT-env-var parameterization
+# Phoenix endpoint, config system, runtime, and BOT-env-var parameterization
 # (this firmware builds for exactly one bot: segby_v1).
 #
 # The UART invariants are carried over VERBATIM via:

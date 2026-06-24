@@ -13,8 +13,8 @@ defmodule SegbyV1Nerves.MixProject do
 
   On `MIX_TARGET=rpi0_2` it boots straight into `SegbyV1.Host` talking to the
   Blaster (the root hub, NODE 0x02) over `/dev/ttyAMA0` at 115200 baud. It drops
-  the Phoenix/manifest/cog baggage of the proven `master_firmware` reference and
-  keeps only the Nerves network + OTA + ssh stack.
+  the Phoenix/web/config-system baggage of the proven `master_firmware` reference
+  and keeps only the Nerves network + OTA + ssh stack.
 
   ## Nested path deps (how they resolve)
 

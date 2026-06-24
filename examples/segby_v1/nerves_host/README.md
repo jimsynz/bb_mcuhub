@@ -12,7 +12,8 @@ around — so it does not interfere with `cd examples/segby_v1 && mix test`.
 It reuses the proven Nerves rpi0_2 config from `climber`'s `master_firmware`
 (VintageNet wifi, mdns_lite, nerves_ssh, shoehorn, the custom fwup.conf +
 config.txt + cmdline-{a,b}.txt that route the PL011 to ttyAMA0) and **drops** the
-cog runtime, Phoenix endpoint, manifest system, and `BOT`-env parameterization.
+prior reference's runtime, Phoenix endpoint, config system, and `BOT`-env
+parameterization.
 
 ## Dep chain (nested path deps)
 

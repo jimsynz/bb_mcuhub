@@ -41,7 +41,7 @@
  * "Pin map" + blaster/BoardSupport.cpp — hardware-verified on the deployed bot.
  * The host UART (Serial) and the UART backplane (Serial2) pins are owned by the
  * link layer (link_esp32.cpp): backplane defaults TX 26 / RX 27 on a root hub,
- * which matches the README's "Cog UART TX 26 / RX 27 (UART2)". --- */
+ * which matches the README's backplane UART (TX 26 / RX 27, UART2). --- */
 #ifndef IMU_I2C_SDA_PIN
 #define IMU_I2C_SDA_PIN 21 /* MPU-9250 SDA (ESP32 chip-default I²C) */
 #endif

@@ -3,7 +3,7 @@ defmodule SegbyV1.Balance do
   The segby_v1 host balance controller (§09, Phase) — a `BB.Controller` that
   closes the self-balancing loop on the host.
 
-  This is the host's control pipeline ported from the old cog framework
+  This is the host's control pipeline ported from the prior reference firmware
   (`pid_balance` + `imu_estimator` + `teleop_input`), adapted to the BeamBots
   seam: it is a **consumer** of the chassis IMU pose and a **producer** of
   per-wheel effort commands. It NEVER writes a hub command slot — that is the
@@ -39,7 +39,7 @@ defmodule SegbyV1.Balance do
   `pitch_from_imu/1` (the quaternion term) is kept only as an unused reference
   helper; the live loop reads accel/gyro.
 
-  ## Gains (segby_v1 manifest)
+  ## Gains (segby_v1 config)
 
   `kp 0.5, ki 0.05, kd 0.1, target_pitch 0.0, integral_clamp 1.0, output_clamp
   1.0`. Teleop mix: `max_forward 0.5, max_turn 0.3`.
@@ -152,7 +152,7 @@ defmodule SegbyV1.Balance do
   # ----------------------------------------------------------------------------
 
   @doc """
-  Pure PID step (ported verbatim from the cog reference). Given a `%Pid{}`
+  Pure PID step (ported verbatim from the prior reference). Given a `%Pid{}`
   state, the current `error` (target - measured), and `dt_s` since the last
   update, return `{output, new_pid}`.
 
@@ -244,7 +244,7 @@ defmodule SegbyV1.Balance do
   end
 
   @doc """
-  Pure teleop mix (ported from the cog reference). Given a base `%{left, right}`
+  Pure teleop mix (ported from the prior reference). Given a base `%{left, right}`
   torque and a teleop intent `%{forward, turn}` (both clamped to `[-1, 1]`),
   apply forward bias to BOTH wheels and a turn differential between them:
 
