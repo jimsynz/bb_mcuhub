@@ -106,18 +106,18 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
     end
 
     topology do
+      # VIEW-LESS (candidate 5): the tests drive a ViewHarness actuator view by
+      # hand, so the robot must NOT also start a production actuator view for the
+      # same command slot — two writers of one slot is exactly what the sole-writer
+      # capability (§07) refuses. The joint skeleton stays; the actuator view does
+      # not. (A producer with no reader view is well-formed — reconciliation is
+      # reader→producer.)
       link :base_link do
         joint :drive_joint do
           type(:continuous)
 
           axis do
           end
-
-          actuator(
-            :drive,
-            {BBMcuhub.BBHub.Actuator,
-             hub: :pos_hub, port: :pos_cmd, status_port: :pos_status, fresh_for: 5}
-          )
 
           link :drive_link do
           end
@@ -127,7 +127,7 @@ defmodule BBMcuhub.BBHub.ActuatorCommandTest do
   end
 
   setup do
-    :ets.delete_all_objects(NodeRegistry.table())
+    NodeRegistry.reset()
     PortIndex.build(Robot)
 
     start_supervised!(%{id: BB.Supervisor, start: {BB.Supervisor, :start_link, [Robot]}})

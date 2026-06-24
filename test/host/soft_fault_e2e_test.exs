@@ -39,7 +39,7 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
   @window_ms 100
 
   setup do
-    :ets.delete_all_objects(NodeRegistry.table())
+    NodeRegistry.reset()
     PortIndex.build(@robot)
     Stats.setup()
 
@@ -394,7 +394,7 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
       VirtualHub.inject_wire(ctx.vhub, part1)
       _ = :sys.get_state(ctx.owner)
       # (we can't easily assert "nothing" without a baseline; clear the slot first)
-      :ets.delete(NodeRegistry.table(), {ctx.a_node, ctx.status_port})
+      NodeRegistry.delete(ctx.a_node, ctx.status_port)
 
       # Second half completes the frame → the body is delivered + decoded.
       VirtualHub.inject_wire(ctx.vhub, part2)
@@ -430,7 +430,7 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
       pose_body = Codec.encode_body(p_node, p_port, 5, 5, :imu, pose, true)
       sensor = BBMcuhub.Test.VHubNif.transport_encode(pose_body)
 
-      :ets.delete(NodeRegistry.table(), {ctx.a_node, ctx.status_port})
+      NodeRegistry.delete(ctx.a_node, ctx.status_port)
 
       # A complete sensor frame, then a status frame TORN across the next two reads.
       # Each frame is delimiter-terminated (0x00), so the framer peels the whole
@@ -460,12 +460,20 @@ defmodule BBMcuhub.Host.SoftFaultE2ETest do
     setup ctx do
       # The actuator view's init/1 subscribes on the robot's BB PubSub, so the
       # BeamBots supervision tree must be up for this group (the floor/wire groups
-      # above don't need it).
-      start_supervised!(%{id: BB.Supervisor, start: {BB.Supervisor, :start_link, [@robot]}})
+      # above don't need it). We use the VIEW-LESS robot twin so the supervisor
+      # starts no production actuator view to contend with the harness view we
+      # drive here — the harness view is the SOLE writer of the command slot (§07,
+      # candidate 5). Its hubs/PortIndex are identical to @robot.
+      harness_robot = BBMcuhub.Test.Fixtures.HarnessRobot
+
+      start_supervised!(%{
+        id: BB.Supervisor,
+        start: {BB.Supervisor, :start_link, [harness_robot]}
+      })
 
       {:ok, view} =
         ViewHarness.start(BBHub.Actuator,
-          bb: %{robot: @robot, path: [:base_link, :drive_joint, :drive]},
+          bb: %{robot: harness_robot, path: [:base_link, :drive_joint, :drive]},
           hub: :act_hub,
           port: :effort_cmd,
           status_port: :act_status,

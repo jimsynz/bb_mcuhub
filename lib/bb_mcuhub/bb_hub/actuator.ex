@@ -37,6 +37,7 @@ defmodule BBMcuhub.BBHub.Actuator do
 
   alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host.{LinkOwner, Monitor, NodeRegistry}
+  alias BBMcuhub.Host.Registry.Writer
   alias BBMcuhub.ValueType
 
   @impl BB.Actuator
@@ -71,6 +72,13 @@ defmodule BBMcuhub.BBHub.Actuator do
       # options_schema defaults — the single source of truth, no local fallback.)
       :timer.send_interval(opts[:beat_ms], :status_beat)
 
+      # Mint the SOLE write capability for this command slot (§07): this view is
+      # the one writer, and the capability makes a write to any OTHER slot
+      # unrepresentable. If a second view were wired to the same slot,
+      # writer!/2 raises here at init — a misconfiguration fails loud, not a
+      # silently-shared slot.
+      writer = NodeRegistry.writer!(node_id, port_id)
+
       {:ok,
        %{
          bb: bb,
@@ -78,6 +86,7 @@ defmodule BBMcuhub.BBHub.Actuator do
          port_id: port_id,
          status_id: status_id,
          value_type: value_type,
+         writer: writer,
          seq: opts[:command_seq_start],
          status_mon: Monitor.new(node_id, status_id, opts[:status_fresh_for])
        }}
@@ -143,7 +152,7 @@ defmodule BBMcuhub.BBHub.Actuator do
   # like disarm/1: if the link owner is unavailable the floor still backstops, and
   # the link owner only ever READS the slot, so it can't manufacture a seq advance.
   defp write_command(st, value) do
-    NodeRegistry.put(st.node_id, st.port_id, value, st.seq, 0)
+    Writer.put(st.writer, value, st.seq, 0)
     notify_link_owner(st.node_id, st.port_id)
     %{st | seq: st.seq + 1}
   end

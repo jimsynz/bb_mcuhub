@@ -8,7 +8,7 @@ defmodule BBMcuhub.Host.LinkOwnerTest do
 
   setup do
     # NodeRegistry is started by the application supervisor; just clear it.
-    :ets.delete_all_objects(NodeRegistry.table())
+    NodeRegistry.reset()
     PortIndex.build(BBMcuhub.Test.Fixtures.Robot)
     Stats.setup()
     :ok

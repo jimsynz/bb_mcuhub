@@ -41,7 +41,7 @@ defmodule BBMcuhub.Observer.BackpressureTest do
   @slot {:sensor_hub, :pose}
 
   setup do
-    :ets.delete_all_objects(NodeRegistry.table())
+    NodeRegistry.reset()
     PortIndex.build(@robot)
     {:ok, {node, port_id}} = PortIndex.resolve(elem(@slot, 0), elem(@slot, 1))
     {:ok, node: node, port_id: port_id}

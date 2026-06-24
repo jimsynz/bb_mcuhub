@@ -18,10 +18,14 @@ defmodule BBMcuhub.SliceTest do
   alias BBMcuhub.Host.Transport.Loopback, as: LoopbackTransport
   alias BBMcuhub.Wire.Codec
 
-  @robot BBMcuhub.Test.Fixtures.Robot
+  # The VIEW-LESS fixture twin: BB.Supervisor gives us a real PubSub + registration,
+  # but starts no production views — so the harness views this test drives by hand
+  # are the SOLE writers of their slots (§07, candidate 5). Same hubs/PortIndex as
+  # the standard fixture.
+  @robot BBMcuhub.Test.Fixtures.HarnessRobot
 
   setup do
-    :ets.delete_all_objects(NodeRegistry.table())
+    NodeRegistry.reset()
     PortIndex.build(@robot)
 
     # the BeamBots supervision tree for the fixture robot gives us a real PubSub

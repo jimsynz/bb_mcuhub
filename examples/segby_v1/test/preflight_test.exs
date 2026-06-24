@@ -47,13 +47,24 @@ defmodule SegbyV1.PreflightTest do
   # A real wheel de-energises after this much command silence (§05).
   @floor_window_ms 5 * 20
 
-  setup do
-    :ets.delete_all_objects(NodeRegistry.table())
+  setup context do
+    NodeRegistry.reset()
     PortIndex.build(@robot)
-    sup = start_supervised!({Host, transport: LoopbackTransport, name: nil})
-    transport = :sys.get_state(LinkOwner).transport
-    on_exit(fn -> if Process.alive?(sup), do: Supervisor.stop(sup) end)
-    {:ok, transport: transport}
+
+    # Most preflight tests drive the WHOLE host stack — Host starts the production
+    # views over the loopback wire. The status-liveness test (:harness_view) drives
+    # its OWN ViewHarness actuator view, so it must NOT also run Host's production
+    # view for the same command slot (two writers of one slot is what the §07
+    # sole-writer capability refuses). It stands up its own PubSub on a view-less
+    # robot twin instead — see the test.
+    if context[:harness_view] do
+      :ok
+    else
+      sup = start_supervised!({Host, transport: LoopbackTransport, name: nil})
+      transport = :sys.get_state(LinkOwner).transport
+      on_exit(fn -> if Process.alive?(sup), do: Supervisor.stop(sup) end)
+      {:ok, transport: transport}
+    end
   end
 
   describe "(1) pitch-sign self-consistency (host side; absolute sign is a bench calibration)" do
@@ -76,7 +87,7 @@ defmodule SegbyV1.PreflightTest do
              "forward tilt (+pitch) must give corrective (negative) torque; got #{fwd}"
 
       # Mirror: a backward tilt must give the opposite (positive) torque.
-      :ets.delete_all_objects(NodeRegistry.table())
+      NodeRegistry.reset()
       inject_pose(transport, 3, -0.20)
       Process.sleep(40)
       inject_pose(transport, 4, -0.20)
@@ -161,13 +172,23 @@ defmodule SegbyV1.PreflightTest do
   end
 
   describe "(4) status liveness is freshness-gated" do
+    @tag :harness_view
     test "a never-witnessed status reads not-driving (no false green)" do
       # The actuator view reports liveness from the status slot through a born-stale
       # monitor: with no status ever witnessed, it must read floored/unknown — the
       # dashboard must never show a confident 'driving' before a real status advance.
+      #
+      # We drive our OWN ViewHarness view here, so we run a view-less robot twin
+      # (its PubSub satisfies the view's BB.subscribe) and NOT Host's production
+      # view — so this harness view is the sole writer of the command slot (§07).
+      twin = SegbyV1.Test.HarnessRobot
+      PortIndex.build(twin)
+      sup = start_supervised!(%{id: BB.Supervisor, start: {BB.Supervisor, :start_link, [twin]}})
+      on_exit(fn -> if Process.alive?(sup), do: Supervisor.stop(sup) end)
+
       {:ok, view} =
         SegbyV1.Test.ViewHarness.start(BBMcuhub.BBHub.Actuator,
-          bb: %{robot: @robot, path: [:base_link, :left_wheel, :left_drive]},
+          bb: %{robot: twin, path: [:base_link, :left_wheel, :left_drive]},
           hub: :wheels,
           port: :motor_left,
           status_port: :status_left,

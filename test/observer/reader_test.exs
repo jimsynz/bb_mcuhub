@@ -9,7 +9,7 @@ defmodule BBMcuhub.Host.Registry.ReaderTest do
   alias BBMcuhub.Host.Registry.Reader
 
   setup do
-    :ets.delete_all_objects(NodeRegistry.table())
+    NodeRegistry.reset()
     :ok
   end
 

@@ -21,7 +21,7 @@ defmodule BBMcuhub.ObserverTest do
   @never 3_600_000
 
   setup do
-    :ets.delete_all_objects(NodeRegistry.table())
+    NodeRegistry.reset()
     PortIndex.build(@robot)
     :ok
   end

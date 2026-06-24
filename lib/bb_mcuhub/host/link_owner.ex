@@ -26,6 +26,7 @@ defmodule BBMcuhub.Host.LinkOwner do
   alias BBMcuhub.Contract
   alias BBMcuhub.Contract.PortIndex
   alias BBMcuhub.Host.NodeRegistry
+  alias BBMcuhub.Host.Registry.Writer
   alias BBMcuhub.Wire.{Codec, Stats}
 
   @type cmd_slot :: {node :: 0..255, port_id :: 0..255}
@@ -95,7 +96,11 @@ defmodule BBMcuhub.Host.LinkOwner do
            transport: transport,
            # command slot -> last seq we drained (:unseen = never), so the first
            # real value is sent once
-           command_slots: Map.new(command_slots, &{&1, :unseen})
+           command_slots: Map.new(command_slots, &{&1, :unseen}),
+           # inbound slot -> its sole-writer capability, minted lazily on first
+           # decode of that slot (§07): the link owner is the one writer of every
+           # inbound sensor/status slot.
+           inbound_writers: %{}
          }}
 
       {:error, reason} ->
@@ -103,12 +108,15 @@ defmodule BBMcuhub.Host.LinkOwner do
     end
   end
 
-  # INBOUND: a CRC-verified body. Decode and write to the registry, or drop+count.
+  # INBOUND: a CRC-verified body. Decode and write to the registry through this
+  # slot's sole-writer capability (minted lazily on first sight of the slot), or
+  # drop+count. The link owner is the one writer of every inbound slot (§07).
   @impl true
   def handle_info({:circuits_uart, _port, body}, st) do
     case Codec.decode_body(body) do
       {:ok, %{node: n, port_id: p, seq: seq, t_dev: t, value: value}} ->
-        NodeRegistry.put(n, p, value, seq, t)
+        {writer, st} = inbound_writer(st, n, p)
+        Writer.put(writer, value, seq, t)
         {:noreply, st}
 
       :error ->
@@ -162,6 +170,23 @@ defmodule BBMcuhub.Host.LinkOwner do
   end
 
   # --- internals ---
+
+  # The sole-writer capability for an inbound slot, minted on first decode and
+  # cached. The link owner is the one writer of every inbound slot (§07), so the
+  # mint always succeeds here; the uniqueness guard would only fire if some other
+  # process had already claimed the slot — a misconfiguration we want to surface.
+  defp inbound_writer(st, node, port_id) do
+    slot = {node, port_id}
+
+    case Map.fetch(st.inbound_writers, slot) do
+      {:ok, writer} ->
+        {writer, st}
+
+      :error ->
+        writer = NodeRegistry.writer!(node, port_id)
+        {writer, %{st | inbound_writers: Map.put(st.inbound_writers, slot, writer)}}
+    end
+  end
 
   # Encode one command slot's value and send it. DEFENSIVE: a malformed value (a
   # value-type value missing a layout field, or an unknown (node, port_id)) is a

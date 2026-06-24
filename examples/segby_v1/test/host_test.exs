@@ -49,7 +49,7 @@ defmodule SegbyV1.HostTest do
   @robot Robot
 
   setup do
-    :ets.delete_all_objects(NodeRegistry.table())
+    NodeRegistry.reset()
     # the launcher points PortIndex at segby; do it here too so the resolve
     # helpers below see segby's ids regardless of test order.
     PortIndex.build(@robot)
