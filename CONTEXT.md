@@ -5,10 +5,6 @@ microcontroller hardware from the BeamBots (`bb`) ecosystem through one recursiv
 abstraction. Definitions only — no implementation details. See `docs/hub-design.html`
 for the full architecture.
 
-> This supersedes the earlier "cog framework" vocabulary (cog · manifest · Master ·
-> CogBus). Where you see those terms elsewhere, read: cog → **hub**, manifest →
-> **BeamBots topology + contract**, Master → **host**.
-
 ## Terms
 
 ### Hub
@@ -96,7 +92,7 @@ by defining its own `Range` and `Led` value-types rather than relying on stock o
 extension seam is exercised — and validated — by construction. The IR carries the resolved layout, so the C struct, the Elixir codec, and the
 parity bytes all derive from the one declaration. A value-type owns the contract on **both
 strata**: the host `lift`/`unlift`, _and_ the **firmware hook** signature for ports of its
-shape. It is the single extensibility spine — a new kind of value is one self-contained,
+shape. It is the single extensibility seam — a new kind of value is one self-contained,
 cross-bot-reusable unit. A port's `type:` is **parsed at compile time, not scanned
 late**: the IR transformer rejects a `type:` that does not resolve to a real value-type
 module (a typo like `:effor`, checked via `ValueType.resolved?/1`) with a named

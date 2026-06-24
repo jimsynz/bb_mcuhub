@@ -66,7 +66,7 @@ Resolved by giving a **command value-type** one more piece of its own contract:
   `dir: :in` command port — a sense value-type on a command port fails loud (the same
   "the verifier checks roles, not just framing" theme as ADR-0005/0006).
 
-No new ADR — this is a small completion of the value-type spine within the existing
+No new ADR — this is a small completion of the value-type seam within the existing
 "a value-type owns its full contract" decision, not a separate hard-to-reverse
 trade-off. CONTEXT.md's **Value-type** and **Component** terms gain the
 `command_message` note. Design locked; implementation lands with the ADR-0005/0006
@@ -220,7 +220,7 @@ The design now draws a real consumer boundary, with two load-bearing seams.
   a PlatformIO `lib_deps` dep on the chassis packaged as a `library.json` library
   (firmware). The example owns its own root namespace `SegbyV1.*` and references
   `BBMCUHub.*` only for library seams.
-- **Value-type is the extensibility spine (Option C).** A wire value-type
+- **Value-type is the extensibility seam (Option C).** A wire value-type
   (`imu`/`effort`/`status`/…) is no longer a library-internal `@layouts` map entry;
   it is a standalone `use BBMCUHub.ValueType` module owning its layout, host
   `lift`/`unlift`, and firmware-hook signature. A port names its type by module;
@@ -562,6 +562,6 @@ confirms the new byte layouts agree C↔Elixir.
 
 ## (earlier) — initial design
 
-`docs/hub-design.html` v1 authored; supersedes the earlier "cog framework" draft.
+`docs/hub-design.html` v1 authored; supersedes the earlier design draft.
 See `CONTEXT.md` for the glossary. Recent git history: design refinement,
-hub-gateway v1 design added, hub gateway hardened / cog framework superseded.
+hub-gateway v1 design added, hub gateway hardened / earlier draft superseded.

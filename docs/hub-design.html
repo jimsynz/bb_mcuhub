@@ -937,7 +937,7 @@
         <p>
           A hub does <em>any subset</em> of these. A bare IMU on the end of a
           wire is a sense-only leaf. A wheel controller is an act-only leaf. A
-          board on the robot's spine that has an I²C sensor of its own
+          board on the robot's backbone that has an I²C sensor of its own
           <em>and</em> two child hubs hanging off it is sense+route. The
           <b>host</b> — the Raspberry&nbsp;Pi running Elixir and the BeamBots
           application — sits <em>above</em> the hub tree, not inside it; it is
@@ -990,8 +990,8 @@
             declares <code>parent: :host</code> — the one that owns the host
             link; it is not a fourth kind. Adding a limb to the robot is adding
             a child hub. Moving a sensor deeper is re-parenting it. The tree can
-            be shallow (root hub + a few CAN leaves) or deep (root hub → spine →
-            limb → joint), and the host's view does not change: it names a
+            be shallow (root hub + a few CAN leaves) or deep (root hub → branch
+            → limb → joint), and the host's view does not change: it names a
             <em>node</em> and a <em>port</em> on that node, and the framework
             finds the path. This is the single idea the rest of the document
             equips with a wire, a freshness rule, and a floor.
@@ -3378,8 +3378,8 @@ topology <span class="k">do</span>
           shown. Items marked <span class="tag t-bad">SAFeD</span> are
           deliberately deferred and default to the safe behaviour. This document
           is the single source of truth for the design; it supersedes the
-          earlier "cog framework" draft. Diagrams render with Mermaid; if a
-          diagram doesn't load, its caption states what it depicts.
+          earlier design draft. Diagrams render with Mermaid; if a diagram
+          doesn't load, its caption states what it depicts.
         </p>
       </div>
     </div>

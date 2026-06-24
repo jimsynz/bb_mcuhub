@@ -24,7 +24,7 @@ canonical, complete reference for every step is
 [`examples/segby_v1/`](../examples/segby_v1/) — a two-wheel self-balancing bot;
 each step below cites the real file to copy from.
 
-> **The dependency order is the spine.** Each step produces what the next one
+> **The dependency order is the backbone.** Each step produces what the next one
 > consumes: a **value-type** is named by a **port**; ports are declared on a **hub
 > module**; hub modules are placed and wired by the **robot**; the robot is the
 > input to **`mix wire.gen`**, which emits the headers your **device hooks** and

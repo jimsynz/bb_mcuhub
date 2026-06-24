@@ -13,7 +13,7 @@ failed its purpose.
 
 Two design choices give the boundary teeth, and are the reason this is recorded:
 
-**A value-type is the extensibility spine (`use BBMCUHub.ValueType`).** A kind of
+**A value-type is the extensibility seam (`use BBMCUHub.ValueType`).** A kind of
 wire value (`imu`, `effort`, …) is a standalone, cross-bot-reusable module owning
 its `layout` (the ordered `{field, wire_type}` list), its host `lift`/`unlift`
 (raw field-map ↔ `BB.Message`), _and_ the firmware-hook signature for ports of its
