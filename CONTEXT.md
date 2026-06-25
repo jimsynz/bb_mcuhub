@@ -219,12 +219,51 @@ same thing at the actuator — _its command `seq` stops advancing_ → the floor
 e-stop only makes the silence happen faster (and, as `NODE 0x00`, wins CAN arbitration);
 it is never a second "react to the stop frame" path that could itself fail.
 
+### A control loop falls silent on disarm
+
+The floor's safe-state is reached by **command-silence** (see _the e-stop_) — which assumes
+the **host stops commanding** on disarm. That is true for a dead parent / cut bus / crashed
+host, but a **control loop is an always-commanding actor** (a self-balancer _must_ command
+every tick to stay upright), so it never goes silent on its own and would re-advance the
+floor's `seq` every tick, **defeating disarm**. So a host control loop (a `BB.Controller`
+that commands actuators) **must gate its own output on the safety state**: it subscribes to
+the safety transitions (`BB.Controller.handle_safety_state_change/2`, the lostbean fork) and
+**publishes nothing while not armed** (seeding armed-ness from `BB.Safety.state` at boot so a
+born-disarmed robot drives nothing). It is the host-side _producer_ of the silence the floor
+waits for — the floor stays the guarantee; the controller supplies the silence. A control
+loop that commands through disarm is a safety bug (ADR-0010). Distinct from **the e-stop**:
+that accelerates the silence on the wire; this is who, on the host, actually creates it.
+
 ### Status slot
 
 A slot an actuator hub produces (`{applied_seq, floored?}` at minimum) flowing _up_ the
 wire. It is the authoritative source of "is this hub actually driving?" — read (gated by
 the same born-stale check) instead of inferred from "we sent it a command," so the host
-never shows a confident green while a wheel sits floored.
+never shows a confident green while a wheel sits floored. It is **liveness, not
+measurement**: it is consumed _internally_ by the actuator view's freshness check, never
+published as a `BB.Message` — so a wheel's _measured speed_ is a separate **wheel-speed
+sensor port**, not a status field (ADR-0009).
+
+### Wheel-speed sensor · host velocity loop
+
+A wheel's **measured angular velocity** (rad/s) reported _up_ as a first-class **sensor
+port** (`vel_left`/`vel_right`, value-type `WheelSpeed`, `dir: :out`) — surfaced through
+the same **component** view + `[:sensor | …]` topic the IMU pose uses, so the host
+controller subscribes to it exactly like pose (ADR-0009). The firmware sources it from the
+FOC's closed-loop `shaft_velocity`; the sim from MuJoCo's `qvel`. It exists so the host
+**balance** loop, which is otherwise open-loop on wheel state (it targets pitch only), can
+run an **inner velocity loop**: operator teleop sets a per-wheel _target speed_ and the
+controller adds `kv · (target − measured)` to the per-wheel balance torque. The wheel
+command stays **torque** (faithful to the real torque-voltage FOC); the velocity loop is a
+host control law on top — so "forward" means a _bounded speed_, not an unbounded torque
+(acceleration) bias that runs the wheels away. **Turn** is likewise closed-loop: it
+commands a _target yaw rate_, and a yaw-rate controller (`kyaw · (target − gyro_z)`, the
+IMU's yaw rate already on the wire) drives the differential torque so the measured yaw
+tracks it — self-limiting, so a sustained hard turn can't run away (the open-loop
+differential-speed turn it replaced eventually toppled the pitch-only balancer). Distinct
+from the **status slot**: that is liveness; this is measurement. This lives entirely in the
+**example** (`segby_v1`): a consumer value-type + ports on the stock seams (ADR-0003) — the
+library is untouched.
 
 ### The frame
 
@@ -276,6 +315,33 @@ on first decode and writing through it. A command value it cannot pack to the wi
 malformed value-type value) is **counted as `encode_fail` and skipped, never crashing
 the drain** — the floor backstops the unsent command, but the cause stays legible (a
 counter, not a distant floor firing).
+
+### Virtual robot (the sim transport · plant · driver)
+
+Running a robot's **real host stack with no hardware**, by swapping the one thing that
+_is_ the hardware boundary — the **transport** the **LinkOwner** owns. A **sim transport**
+(`BBMCUHub.Sim.Transport`, a third `Host.Transport` beside production UART and the test
+loopback) plays the whole hub tree against a **plant**, so everything above the transport
+— codec, freshness, the floor's meaning, the views, `bb_tui` — runs unchanged and cannot
+tell the robot is virtual (ADR-0008). The **plant** (`BBMCUHub.Sim.Plant`, a behaviour)
+is the **consumer-supplied dynamics**: given the latest per-slot commands and a `dt`, it
+advances a simulated world and returns the sensor values the hubs would have produced —
+spoken in **value-type values keyed by wire slot**, not robot structs (the same
+byte-/value-generic stance as **safe action**, ADR-0005). A **driver**
+(`BBMCUHub.Sim.Driver`) is the engine-agnostic real-time loop: a sibling process that owns
+the `~50 Hz` clock, reads the transport's captured commands, calls `Plant.step`, and
+injects the returned sensors up as wire bodies (so the sensor views see a fresh **seq**
+advance and **born-stale** is honored). The library ships these three engine-agnostic
+pieces; a **consumer** writes the plant — segby's is a MuJoCo plant
+(`SegbyV1.Sim.MujocoPlant`) over a `Port` to a headless Python child whose native
+`launch_passive` viewer renders the bot in 3D beside the terminal `bb_tui` (ADR-0003 split:
+library building blocks, example plant). It **narrows the sim-to-real gap** — develop and
+de-risk control (balance gains, teleop, the pitch→wheel sign) against faithful dynamics
+before the bench — but does **not** replace the bench's silicon truths (motor/encoder sign,
+pin map, FOC alignment), since the sim runs with whatever sign you _modeled_. Distinct from
+the test **VirtualHub** (the deterministic, frozen-clock, real-C-floor _assertion_ seam):
+the virtual robot is the interactive, real-clock, physics-backed _dev_ seam; both share
+the philosophy "simulate at the transport" and nothing else.
 
 ### Component (the BeamBots view)
 

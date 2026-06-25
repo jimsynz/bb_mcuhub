@@ -10,6 +10,116 @@ Format: newest first. Dates are absolute.
 
 ---
 
+## 2026-06-25 — Turn becomes a closed yaw-rate loop, not open-loop differential speed (ADR-0009 amendment)
+
+ADR-0009's first build made **forward** a closed wheel-speed loop but **turn** an
+_open-loop_ differential of the wheel-speed targets — nothing regulated the actual chassis
+yaw, so a _sustained hard turn_ pumped yaw-coupled energy the pitch-only balance PID can't
+reject and the bot eventually toppled (gain-independent; lowering `max_turn_speed` only
+delayed it). The original ADR flagged this as a known limit.
+
+Resolved by closing a loop on the **measured yaw rate**, which is already on the wire: the
+IMU's `angular_velocity.z` IS the chassis yaw rate (verified in MuJoCo — a differential
+torque spins the gyro Z axis, X/Y ≈ 0). `turn` now commands a _target yaw rate_, and a
+yaw-rate controller drives the differential torque so the measured yaw tracks it:
+`turn_torque = kyaw · (turn · max_yaw_rate − gyro_z)`, subtracted from the left wheel and
+added to the right, on top of the unchanged forward speed loop. Because the differential is
+regulated by the measured yaw, it can't run away — any commanded turn rate self-limits, so
+sustained hard turns stay stable. `max_turn_speed` is replaced by `max_yaw_rate` + `kyaw`
+(tuned headless against the real loop). Still example-only and host-side — no new port, no
+firmware change (gyro Z already rides the IMU pose); it refines the ADR-0009 host control
+law, not the wire contract. See the ADR-0009 amendment.
+
+---
+
+## 2026-06-25 — A wheel reports its speed as a sensor port; the host closes a velocity loop on top of balance (ADR-0009, design-only)
+
+Driving the (now-balancing) sim bot is unusable: teleop biases the wheels with **torque**,
+but on a balancer torque is acceleration, so any non-trivial forward command runs the
+wheels away and the bot falls — only `forward ≈ 0.001` is usable. The fix every wheeled
+balancer uses is to command **speed**: a velocity loop holds a bounded target rate instead
+of integrating a runaway. The real segby motors already run SimpleFOC closed-loop velocity
+mode (they know their shaft velocity); the information simply never reaches the host, and
+the host never closes a loop on it.
+
+Two constraints shaped the design. (1) The wheel command must stay **torque** — the real
+MKS Dual FOC is driven torque-voltage; swapping the sim to a MuJoCo `<velocity>` actuator
+would make the sim a different plant than the hardware, defeating ADR-0008's sim-to-real
+purpose. So the velocity loop is a host control law _on top of_ torque, not a command-type
+change. (2) The host controller has **no seam to read wheel state today** — `SegbyV1.Balance`
+subscribes only to the IMU pose, and `:status` (`applied_seq`/`floored`) is consumed
+internally by the actuator view's liveness check, never published. So velocity could not
+just be a `:status` field (that would conflate liveness with measurement and still need a
+new read seam).
+
+ADR-0009 resolves both: a wheel's measured speed is a **separate sensor port**
+(`vel_left`/`vel_right`, a new consumer value-type `WheelSpeed` = one `:f32` rad/s,
+`dir: :out`), surfaced through the **same `BB.Sensor` view + `[:sensor | …]` topic the IMU
+pose uses** — so the controller subscribes to it exactly like pose, with no new mechanism
+and `:status` left untouched (liveness stays separate from measurement). The firmware sources
+it from the FOC `shaft_velocity`; the sim plant from MuJoCo's `qvel` (already in the child's
+reply, currently dropped). The host then runs an inner loop: teleop `forward`/`turn` set a
+per-wheel target speed, and the controller adds `kv · (target − measured)` to the per-wheel
+balance torque — so "forward" is a bounded speed, not a runaway acceleration.
+
+**Scope: `examples/segby_v1` only — the `bb_mcuhub` library is NOT changed.** Unlike
+ADRs 0005–0008, this touches no `lib/bb_mcuhub`: `WheelSpeed` is a consumer value-type on
+the stock `BBMCUHub.ValueType` behaviour, `vel_left`/`vel_right` use the stock port DSL,
+and the codec / `BB.Sensor` view / generator / drift test are unchanged library mechanisms
+that already render any consumer's ports. It exercises the library's extensibility (ADR-0003),
+it does not change it. Within the example it is a contract change (two new output ports +
+value-type → regen + drift), it closes a feedback path balance never had (pitch-only →
+wheel-speed-aware), and it changes teleop semantics (speed setpoint, not torque bias).
+Faithful both ways: velocity is _reported_ not commanded, the loop is host-side, so sim and
+hardware run the identical control law over the identical torque plant. Design-only; not yet
+implemented. See ADR-0009 for the proposed control law (numbers tuned against the real loop,
+shown for sign-off) and the per-stratum change map.
+
+---
+
+## 2026-06-25 — A robot can run virtually: a sim transport closes the host loop over a physics engine (ADR-0008, design-only)
+
+The chassis is not yet assembled, and even once it is, you do not want an un-tuned
+balance loop's first real test to be on hardware that can hurt itself. Every existing
+hardware-free path stops short of "a real, moving, controllable robot with faithful
+dynamics": the example's `LoopbackTransport` has no plant (a motor command goes out and
+nothing moves), and the test `VirtualHub` runs the real C floor but on a **frozen clock**
+for deterministic assertion — it is `:test`-only and has no real-time loop. So there is no
+way to _develop_ control software against a virtual bot and shrink the sim-to-real gap
+before the bench.
+
+ADR-0008 closes that by simulating at **the one boundary the whole stack already pivots
+on — the transport**. A new `BBMCUHub.Sim` transport (a third implementation of the
+existing `BBMCUHub.Host.Transport` behaviour, beside UART and loopback) plays the hub
+tree against a physics engine:
+
+- It captures each outbound actuator command from `send/2` (which is event-driven and
+  clock-free), advances a **`Plant`** (a new public library behaviour — consumer-supplied
+  dynamics, robot-agnostic, speaking value-type values keyed by wire slot, in the spirit
+  of ADR-0005), and injects the resulting sensor readings back up as wire bodies built
+  with `Codec.encode_body` and delivered as `{:circuits_uart, :sim, body}`.
+- Everything **above** the transport is the unchanged real stack — codec, freshness
+  monitor (born-stale honored via the injected `seq`/`t_dev`), floor semantics, views,
+  `bb_tui` over BB PubSub. Only the transport knows the robot is virtual.
+- The chosen built-in plant is **MuJoCo over a Port** (faithful-from-the-start, the
+  decision): a headless Python child running MuJoCo's `launch_passive` viewer — which
+  does not auto-step or pace, so **Elixir owns the clock** via a ~50 Hz live loop — sets
+  `data.ctrl`, steps, and returns `data.sensordata`. A **native 3D viewer window** renders
+  the bot beside the terminal `bb_tui`; the operator teleops the virtual bot through the
+  genuine control software.
+
+This **widens the library's public surface** (`BBMCUHub.Sim.Plant` + the sim transport),
+makes the transport-is-the-hardware-boundary invariant load-bearing in three places (UART,
+test loopback/`VirtualHub`, sim), and pulls MuJoCo into the **dev toolchain only** (the
+shipped library/firmware are untouched; the plant is opt-in). It **narrows** the
+sim-to-real gap but does not replace BRINGUP Stage 4's silicon truths (motor-phase/encoder
+sign, pin map, FOC alignment, real IMU noise) — MuJoCo runs with whatever sign you modeled;
+the bench still reveals the actual one. Design-only; not yet implemented. See ADR-0008 for
+the seam, the live-loop/clock split from `VirtualHub`, and the open implementation
+questions (where the loop lives, the Port wire format, hand-authored vs IR-generated MJCF).
+
+---
+
 ## 2026-06-23 — Root-ness is firmware-realized from a generated ROOT_NODE (the -DROOT_HUB flag is gone)
 
 ADR-0006 made root-ness **declared** in the IR — the hub with `parent: :host` is the
