@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="docs/bb_mcuhub_banner.png" alt="bb_mcuhub — Safe Microcontroller Hubs for BeamBots Robots" width="860">
+</p>
+
 # bb_mcuhub
 
 **bb_mcuhub is an Elixir library (plus a C/ESP32 firmware kit) that connects a
@@ -8,15 +12,9 @@ that stops the motors by itself if commands ever go silent.**
 
 You're building a robot. An Elixir brain (on a Raspberry Pi or similar) needs to
 talk to the microcontrollers that actually read the sensors and spin the motors.
-`bb_mcuhub` is the wire and the safety layer between them.
-
-```
-  Pi (Elixir brain)            ESP32 "root hub"               ESP32 "leaf hub"
-  ┌───────────────┐  UART   ┌──────────────────┐  UART/CAN  ┌────────────────┐
-  │  BeamBots app │ ──────▶ │ senses (IMU…) +   │ ─────────▶ │ drives motors  │
-  │  + this lib   │ ◀────── │ acts + forwards   │ ◀───────── │ behind a floor │
-  └───────────────┘         └──────────────────┘            └────────────────┘
-```
+`bb_mcuhub` is the wire and the safety layer between them — a host talks over one
+UART to a tree of ESP32 hubs (a root hub that bridges down to leaf hubs), each
+sensing, driving motors behind a floor, and forwarding for its children.
 
 Its one idea is the **hub** — _a single microcontroller node that can read
 sensors, drive actuators, and forward messages for child hubs._ Because every
@@ -42,8 +40,8 @@ today, and **you can run the entire host stack with zero hardware.**
 > safe value and disarms, by itself. A **value-type** is a small reusable module
 > that defines what bytes a kind of value puts on the wire and how those bytes
 > become a typed Elixir message (and back) — your wire vocabulary. **seq** is a
-> per-write counter the producing chip bumps by one on every new value; trust and
-> the dead-man key off _"did this number advance"_, not off any clock. Full
+> per-write counter the producing chip bumps by one on every new value; trust
+> and the dead-man key off _"did this number advance"_, not off any clock. Full
 > glossary in [`CONTEXT.md`](CONTEXT.md).
 
 ---
@@ -56,10 +54,10 @@ UART (point-to-point, no transceiver) or CAN (shared bus, needs a transceiver).
 CAN is supported but optional — the worked example is UART-only.
 
 **Prerequisites:** Elixir 1.18+ and the BeamBots `bb` framework on the host; an
-ESP32 (arduino-esp32 3.x / ESP-IDF 5.x, via the `pioarduino` PlatformIO fork) for
-firmware. **Nix is not required** — it's a convenience for a pinned, reproducible
-toolchain (see [Build & test](#build--test)); bring your own Elixir 1.18+ and
-PlatformIO if you prefer.
+ESP32 (arduino-esp32 3.x / ESP-IDF 5.x, via the `pioarduino` PlatformIO fork)
+for firmware. **Nix is not required** — it's a convenience for a pinned,
+reproducible toolchain (see [Build & test](#build--test)); bring your own Elixir
+1.18+ and PlatformIO if you prefer.
 
 ---
 
@@ -81,8 +79,8 @@ launcher at it:
 
 Now each hub port is an ordinary BeamBots component: a sensor port is a
 `BB.Sensor` view that publishes a typed `BB.Message` on its PubSub topic once
-born-stale freshness passes; an actuator port is a `BB.Actuator` view that is the
-sole writer of the command slot and subscribes to the command struct its
+born-stale freshness passes; an actuator port is a `BB.Actuator` view that is
+the sole writer of the command slot and subscribes to the command struct its
 value-type names. You publish and subscribe through normal BeamBots PubSub
 topics; the views translate to and from the wire — no board attached.
 
@@ -97,14 +95,14 @@ worked fault-injection example.
 
 ## Why use this — and the bugs you'd otherwise ship
 
-If you roll your own (a GenServer per MCU over an ad-hoc UART protocol), here are
-the bugs you'd most likely ship — each is something `bb_mcuhub` is built to
+If you roll your own (a GenServer per MCU over an ad-hoc UART protocol), here
+are the bugs you'd most likely ship — each is something `bb_mcuhub` is built to
 prevent.
 
 **Bug: a dropped link or crashed host leaves the motor running.** A naive design
-latches the last command on the wire; when comms die the motor keeps driving. The
-floor runs on the actuator's own chip and de-energises to the safe value when the
-command `seq` stops advancing within a compiled window
+latches the last command on the wire; when comms die the motor keeps driving.
+The floor runs on the actuator's own chip and de-energises to the safe value
+when the command `seq` stops advancing within a compiled window
 ([`firmware/src/floor.c`](firmware/src/floor.c)) — no inbound "stop" frame
 required, so it fires even if the host, the parent, and the whole tree above are
 gone.
@@ -116,39 +114,39 @@ _later, different_ `seq` — motion is earned only by a fresh advance witnessed
 since this chip booted (born-disarmed).
 
 **Bug: a wedged sensor reads "fine" forever.** Without a principled staleness
-gate you trust the last value you received, so a frozen sensor looks healthy. Here
-a consumer is **born stale** — _it trusts nothing until it personally sees a new
-reading arrive within its `fresh_for` window_ — and judges freshness by seq
-advance on its own beats, never a cross-board clock. A frozen sensor goes stale
-instead of reporting a confident lie.
+gate you trust the last value you received, so a frozen sensor looks healthy.
+Here a consumer is **born stale** — _it trusts nothing until it personally sees
+a new reading arrive within its `fresh_for` window_ — and judges freshness by
+seq advance on its own beats, never a cross-board clock. A frozen sensor goes
+stale instead of reporting a confident lie.
 
 **Bug: the C struct and the Elixir parser silently diverge.** Hand-maintain
 packing on both sides and they drift the first time someone reorders or adds a
-field, surfacing as a garbled IMU reading at 2am. Here both sides derive from one
-layout, and `mix test` builds a host-compiled C parity harness that asserts the C
-codec produces byte-identical frames and CRC to the Elixir side. A mismatch is a
-build failure.
+field, surfacing as a garbled IMU reading at 2am. Here both sides derive from
+one layout, and `mix test` builds a host-compiled C parity harness that asserts
+the C codec produces byte-identical frames and CRC to the Elixir side. A
+mismatch is a build failure.
 
 **Bug: a false-green dashboard.** Inferring "the wheel is driving" from "we sent
 it a command" lies the moment the floor fires. The actuator hub produces an
 authoritative Status slot (`{applied_seq, floored?}`) that the host reads back
 (freshness-gated) — so the dashboard shows _floored_ when the chip is floored.
 
-**Bug: a corrupt or torn frame poisons a slot.** A hand-rolled protocol typically
-reads the bytes first and asks questions later. Here the frame is guarded by a
-real, pinned **CRC-16/CCITT-FALSE** (check value `0x29B1`) over the whole body; a
-corrupt frame is counted and dropped at the seam before any value or `seq` is
-read.
+**Bug: a corrupt or torn frame poisons a slot.** A hand-rolled protocol
+typically reads the bytes first and asks questions later. Here the frame is
+guarded by a real, pinned **CRC-16/CCITT-FALSE** (check value `0x29B1`) over the
+whole body; a corrupt frame is counted and dropped at the seam before any value
+or `seq` is read.
 
-**Bug: hand-written recursive routing and CAN segmentation.** A body wider than a
-CAN data field must be split into ordered fragments and reassembled fail-closed
-_before_ the CRC check. The hub's generated route table and bridge give you this
-plus UART↔CAN forwarding; rolling your own means reinventing fail-closed
-reassembly and in-order relay.
+**Bug: hand-written recursive routing and CAN segmentation.** A body wider than
+a CAN data field must be split into ordered fragments and reassembled
+fail-closed _before_ the CRC check. The hub's generated route table and bridge
+give you this plus UART↔CAN forwarding; rolling your own means reinventing
+fail-closed reassembly and in-order relay.
 
 For a toy, a GenServer-over-UART is fine. The three things it almost always gets
-wrong — fail-safe on the host instead of the MCU, no staleness gate, and C/Elixir
-wire drift — are exactly this library's reason to exist.
+wrong — fail-safe on the host instead of the MCU, no staleness gate, and
+C/Elixir wire drift — are exactly this library's reason to exist.
 
 ---
 
@@ -165,10 +163,10 @@ is small; the library does the mechanical, safety-critical work.
 | **One C hook per port** (fill a struct / apply a value)      | the **generated** route table, dispatch, floor, schedule |
 
 These are the two **seams** you extend without ever editing the library: a
-value-type is a standalone, cross-bot module (wire layout + host `lift`/`unlift`
-
-- the firmware-hook shape), and the per-hub firmware glue is _generated from the
-  model_, so the safety-critical seq/floor wiring is never hand-written.
+value-type is a standalone, cross-bot module (wire layout + host
+`lift`/`unlift` - the firmware-hook shape), and the per-hub firmware glue is
+_generated from the model_, so the safety-critical seq/floor wiring is never
+hand-written.
 
 The everyday inner loop, when you change a port:
 
@@ -186,13 +184,13 @@ so regen-and-commit is the routine, not a footnote.
 ## The smallest robot, end to end
 
 Four short pieces. (The full balancing bot lives in
-[`examples/segby_v1/`](examples/segby_v1/); the snippets below are real code from
-it.)
+[`examples/segby_v1/`](examples/segby_v1/); the snippets below are real code
+from it.)
 
 ### 1. A value-type — _what bytes a value puts on the wire_
 
-A sense-only value-type is about ten lines: an ordered layout plus `lift`/`unlift`.
-This declares that a range reading is one float on the wire.
+A sense-only value-type is about ten lines: an ordered layout plus
+`lift`/`unlift`. This declares that a range reading is one float on the wire.
 ([`range.ex`](examples/segby_v1/lib/segby_v1/value_types/range.ex))
 
 ```elixir
@@ -213,9 +211,9 @@ end
 
 `lift`/`unlift` are identity here because the slot map _is_ the payload. They
 become a genuine mapping when a typed struct is involved — the `Led` value-type
-([`led.ex`](examples/segby_v1/lib/segby_v1/value_types/led.ex)) lifts `%{r, g, b}`
-to a `SegbyV1.Messages.LedColor` struct and names it via `command_message/0`,
-which is what an actuator view subscribes to on PubSub.
+([`led.ex`](examples/segby_v1/lib/segby_v1/value_types/led.ex)) lifts
+`%{r, g, b}` to a `SegbyV1.Messages.LedColor` struct and names it via
+`command_message/0`, which is what an actuator view subscribes to on PubSub.
 
 ### 2. A hub port — _the one line that advertises the whole project_
 
@@ -250,15 +248,15 @@ hubs do
 end
 ```
 
-The **root hub** is just the one declared `parent: :host` — it owns the UART up to
-the host and is otherwise an ordinary hub.
+The **root hub** is just the one declared `parent: :host` — it owns the UART up
+to the host and is otherwise an ordinary hub.
 
 ### 4. The one C hook per port — _fill a struct, return a bool_
 
-The only C you write is one function per port. The value-type owns the signature,
-the generator emits the prototype into `<hub>.device.h`, and you implement it in
-`mcu/<hub>.cpp`. A sense hook fills a struct and returns `false` on failure — and
-that makes the reader go stale.
+The only C you write is one function per port. The value-type owns the
+signature, the generator emits the prototype into `<hub>.device.h`, and you
+implement it in `mcu/<hub>.cpp`. A sense hook fills a struct and returns `false`
+on failure — and that makes the reader go stale.
 ([`blaster.cpp`](examples/segby_v1/firmware/mcu/blaster.cpp))
 
 ```c
@@ -285,8 +283,9 @@ extern "C" void wheels_motor_left_drive(float effort) {
 }
 ```
 
-That's the entire firmware seam: everything mechanical — the route table, command
-dispatch, the floor plumbing, the schedule — is generated into `<hub>.glue.h`.
+That's the entire firmware seam: everything mechanical — the route table,
+command dispatch, the floor plumbing, the schedule — is generated into
+`<hub>.glue.h`.
 
 For the full ordered walkthrough (the seven files, why each comes in that order,
 and the external dependency forms), see
@@ -316,11 +315,11 @@ ordinary published-package forms — **no shape change**.
 # (the PlatformIO registry, or a git URL) — it ships its own library.json.
 ```
 
-BeamBots (the `bb` Hex package) is the Elixir robotics framework this plugs into:
-it provides the robot DSL, PubSub, controllers/laws, and the Sensor/Actuator
-component model. `bb_mcuhub` is a Spark DSL extension to it
-(`use BB, extensions: [BBMCUHub.Dsl]`), **not a standalone system** — a robot is a
-`use BB` module and the hub ports surface as ordinary BeamBots Sensor/Actuator
+BeamBots (the `bb` Hex package) is the Elixir robotics framework this plugs
+into: it provides the robot DSL, PubSub, controllers/laws, and the
+Sensor/Actuator component model. `bb_mcuhub` is a Spark DSL extension to it
+(`use BB, extensions: [BBMCUHub.Dsl]`), **not a standalone system** — a robot is
+a `use BB` module and the hub ports surface as ordinary BeamBots Sensor/Actuator
 views.
 
 ---
@@ -341,7 +340,8 @@ A reproducible toolchain (Elixir, PlatformIO, clang/make) is pinned in
 
 `mix test` builds and runs the C parity harness as part of the suite — the wire
 cannot drift past it. The library has no deployable ESP32 env of its own;
-`firmware/` is a chassis library (`library.json`) a consumer pulls via `lib_deps`.
+`firmware/` is a chassis library (`library.json`) a consumer pulls via
+`lib_deps`.
 
 Elixir 1.18+ is required. (The `bb` dependency requests 1.19; it runs fine on
 1.18 — the requirement is a compile-time warning only.)
@@ -351,10 +351,10 @@ Elixir 1.18+ is required. (The `bb` dependency requests 1.19; it runs fine on
 ## Status — honest maturity
 
 **v1 is a small, robust, hardware-validated core.** It powers a real two-wheel
-self-balancing bot (`segby_v1`) on real ESP32 boards today: IMU sensing, dual-FOC
-motors, a host balance loop, and teleop. Implemented and tested (Elixir suite +
-host-compiled C harnesses + the real-C-floor e2e seam): the wire path, the
-on-chip floor, born-stale freshness, the generated contract + cross-language
+self-balancing bot (`segby_v1`) on real ESP32 boards today: IMU sensing,
+dual-FOC motors, a host balance loop, and teleop. Implemented and tested (Elixir
+suite + host-compiled C harnesses + the real-C-floor e2e seam): the wire path,
+the on-chip floor, born-stale freshness, the generated contract + cross-language
 parity, and CAN segmentation.
 
 **Explicitly deferred** (each named in the design, each defaulting to the safe
@@ -377,11 +377,12 @@ replacement, and not a standalone framework.
 > example's [`BRINGUP.md`](examples/segby_v1/BRINGUP.md). No screenshot is
 > committed in this repo yet.
 
-**Time to first motion, honestly:** assembling the software and watching the loop
-run hardware-free over the Loopback transport is an afternoon for someone
-comfortable with Elixir. First _real_ motion adds on-hardware bring-up (flashing,
-wiring links, motor-sign calibration, closed-loop tuning) — realistically a day
-or more of bench work, dominated by hardware calibration, not the library.
+**Time to first motion, honestly:** assembling the software and watching the
+loop run hardware-free over the Loopback transport is an afternoon for someone
+comfortable with Elixir. First _real_ motion adds on-hardware bring-up
+(flashing, wiring links, motor-sign calibration, closed-loop tuning) —
+realistically a day or more of bench work, dominated by hardware calibration,
+not the library.
 
 ---
 
@@ -477,5 +478,5 @@ consumer's device hooks.
   rationale.
 - [`examples/segby_v1/`](examples/segby_v1/) — the worked example, with its own
   [`BRINGUP.md`](examples/segby_v1/BRINGUP.md) for on-hardware bring-up.
-- `docs/adr/` — the recorded decisions (the library/example split, safe-action as
-  a value, declared topology, …).
+- `docs/adr/` — the recorded decisions (the library/example split, safe-action
+  as a value, declared topology, …).
