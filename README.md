@@ -93,63 +93,6 @@ worked fault-injection example.
 
 ---
 
-## Why use this — and the bugs you'd otherwise ship
-
-If you roll your own (a GenServer per MCU over an ad-hoc UART protocol), here
-are the bugs you'd most likely ship — each is something `bb_mcuhub` is built to
-prevent.
-
-**Bug: a dropped link or crashed host leaves the motor running.** A naive design
-latches the last command on the wire; when comms die the motor keeps driving.
-The floor runs on the actuator's own chip and de-energises to the safe value
-when the command `seq` stops advancing within a compiled window
-([`firmware/src/floor.c`](firmware/src/floor.c)) — no inbound "stop" frame
-required, so it fires even if the host, the parent, and the whole tree above are
-gone.
-
-**Bug: a rebooted board trusts a stale buffered command and lurches.** A power
-glitch with a frame still in a buffer can energise the motor on boot. Here the
-floor records the first `seq` it sees only as a baseline; trust begins on a
-_later, different_ `seq` — motion is earned only by a fresh advance witnessed
-since this chip booted (born-disarmed).
-
-**Bug: a wedged sensor reads "fine" forever.** Without a principled staleness
-gate you trust the last value you received, so a frozen sensor looks healthy.
-Here a consumer is **born stale** — _it trusts nothing until it personally sees
-a new reading arrive within its `fresh_for` window_ — and judges freshness by
-seq advance on its own beats, never a cross-board clock. A frozen sensor goes
-stale instead of reporting a confident lie.
-
-**Bug: the C struct and the Elixir parser silently diverge.** Hand-maintain
-packing on both sides and they drift the first time someone reorders or adds a
-field, surfacing as a garbled IMU reading at 2am. Here both sides derive from
-one layout, and `mix test` builds a host-compiled C parity harness that asserts
-the C codec produces byte-identical frames and CRC to the Elixir side. A
-mismatch is a build failure.
-
-**Bug: a false-green dashboard.** Inferring "the wheel is driving" from "we sent
-it a command" lies the moment the floor fires. The actuator hub produces an
-authoritative Status slot (`{applied_seq, floored?}`) that the host reads back
-(freshness-gated) — so the dashboard shows _floored_ when the chip is floored.
-
-**Bug: a corrupt or torn frame poisons a slot.** A hand-rolled protocol
-typically reads the bytes first and asks questions later. Here the frame is
-guarded by a real, pinned **CRC-16/CCITT-FALSE** (check value `0x29B1`) over the
-whole body; a corrupt frame is counted and dropped at the seam before any value
-or `seq` is read.
-
-**Bug: hand-written recursive routing and CAN segmentation.** A body wider than
-a CAN data field must be split into ordered fragments and reassembled
-fail-closed _before_ the CRC check. The hub's generated route table and bridge
-give you this plus UART↔CAN forwarding; rolling your own means reinventing
-fail-closed reassembly and in-order relay.
-
-For a toy, a GenServer-over-UART is fine. The three things it almost always gets
-wrong — fail-safe on the host instead of the MCU, no staleness gate, and
-C/Elixir wire drift — are exactly this library's reason to exist.
-
----
-
 ## What you write vs. what the library provides
 
 A robot is assembled from a handful of small files in a strict order. Each piece
@@ -389,18 +332,21 @@ not the library.
 <details>
 <summary><b>How a port flows (end to end)</b></summary>
 
-```
-sense hub  --read hook-->  frame (seq, t_dev)  --COBS+CRC-->  UART/CAN
-   |                                                        |
-   |                                          host LinkOwner decodes -> registry
-   |                                                        |
-   |          Sensor view: born-stale gate -> value-type.lift -> BB.Message
-   v                                                        v
- (a leaf on the tree)                              BeamBots PubSub
+```mermaid
+flowchart TB
+  subgraph sense["Sense path (hub to BeamBots)"]
+    direction LR
+    S1["sense hub<br/>read hook"] -->|"frame (seq, t_dev)<br/>COBS + CRC"| S2["host LinkOwner<br/>decode to registry"]
+    S2 --> S3["Sensor view<br/>born-stale gate<br/>value-type.lift"]
+    S3 -->|"BB.Message"| S4["BeamBots PubSub"]
+  end
 
-BeamBots command  ->  Actuator view (sole writer, value-type.unlift) -> command slot
-   ->  LinkOwner drains on seq advance  ->  COBS+CRC  ->  wire  ->  actuator hub
-   ->  the on-chip floor decides arm vs safe (born-disarmed, dead-man on seq)
+  subgraph cmd["Command path (BeamBots to hub)"]
+    direction LR
+    C1["BeamBots command"] --> C2["Actuator view<br/>sole writer<br/>value-type.unlift"]
+    C2 -->|"command slot"| C3["LinkOwner<br/>drains on seq advance<br/>COBS + CRC"]
+    C3 -->|"wire"| C4["actuator hub<br/>on-chip floor:<br/>arm vs safe<br/>(born-disarmed, dead-man on seq)"]
+  end
 ```
 
 A **slot** is one `(node, port)` cell in the host's registry holding the latest
