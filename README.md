@@ -236,6 +236,33 @@ and the external dependency forms), see
 
 ---
 
+## Portable core, thin platform layer (ESP32 today — ports welcome)
+
+The C is **not** tied to the ESP32. The correctness-sensitive logic is
+freestanding C11; only a small hardware shim is platform-specific.
+
+- **Portable core** (`firmware/src/*.c`, `firmware/include/*.h`) — the wire codec,
+  CRC-16, COBS framing, CAN segmentation/reassembly, the route table, the
+  cooperative scheduler, and the **safety floor** itself. These files include only
+  `<stdint.h>` / `<stddef.h>` / `<stdbool.h>` / `<string.h>` — no `Arduino.h`, no
+  `esp_*`, no FreeRTOS, no `driver/twai.h`. All integers are explicitly big-endian
+  (`be_put_u16` …), so the wire format is endianness-safe across targets. The proof
+  it is portable: `cd firmware/test && make` host-compiles these exact files with
+  plain `cc -std=c11` (no ESP32 toolchain) and runs the floor/codec/segment
+  harnesses — and the same files run behind the Elixir suite via the VirtualHub.
+- **Platform layer** (`firmware/src/esp32/`) — only `link_esp32.cpp` and
+  `hub_main.cpp` are ESP32/Arduino. They bind the core's abstract seams (send/recv a
+  frame, a UART, the TWAI/CAN controller, a timer loop) to real hardware.
+
+**Porting to another MCU** means reimplementing just that shim
+(`firmware/src/<your_platform>/`) against the same seams and reusing the entire
+core unchanged — the floor, the protocol, the generated glue all travel with you.
+Today the ESP32 binding is the only one that ships; **PRs adding other platform
+layers (STM32, nRF, RP2040, Linux/SocketCAN, …) are very welcome** — keep the core
+files untouched and add a sibling under `firmware/src/`.
+
+---
+
 ## Depending on it from your own project
 
 In-tree, the example uses path/symlink deps. A real external consumer uses
