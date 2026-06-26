@@ -18,28 +18,15 @@ that stops the motors by itself if commands ever go silent.**
 
 You're building a robot. An Elixir brain (on a Raspberry Pi or similar) needs to
 talk to the microcontrollers that actually read the sensors and spin the motors.
-`bb_mcuhub` is the wire and the safety layer between them — a host talks over one
-UART to a tree of ESP32 hubs (a root hub that bridges down to leaf hubs), each
-sensing, driving motors behind a floor, and forwarding for its children.
-
-Its one idea is the **hub** — _a single microcontroller node that can read
-sensors, drive actuators, and forward messages for child hubs._ Because every
-hub is the same shape, hubs nest into a tree of any depth, from the host down to
-a leaf on a wire.
-
-What makes it trustworthy, in two sentences:
-
-- Every actuator microcontroller is **born disarmed** — _it boots with its
-  output already at the safe value and refuses to move until it sees a fresh
-  command_ — and runs a dead-man on its own chip, so a yanked cable or crashed
-  host stops the motors without the host doing anything.
-- The C and Elixir sides of the wire format are both generated from one model,
-  with a build-failing **drift test** — _a check that re-runs the code generator
-  and fails if the committed C/Elixir artifacts don't match_ — so the two sides
-  cannot silently disagree.
+`bb_mcuhub` is the wire and the safety layer between them. Its one idea is the
+**hub** — _a single microcontroller node that reads sensors, drives actuators,
+and forwards messages for child hubs._ Because every hub is the same shape, hubs
+nest into a tree of any depth: the host talks over one UART to a root hub, which
+bridges down to leaf hubs, each sensing, driving behind a floor, and forwarding
+for its children.
 
 It powers a real two-wheel self-balancing bot (`segby_v1`) on real ESP32 boards
-today, and **you can run the entire host stack with zero hardware — or drive the
+today — and **you can run the entire host stack with zero hardware, or drive the
 bot in a MuJoCo physics simulation with a 3-D viewer, no chassis required.**
 
 > **Jargon, glossed once.** A **floor** is the dead-man safety code on an
@@ -50,6 +37,65 @@ bot in a MuJoCo physics simulation with a 3-D viewer, no chassis required.**
 > per-write counter the producing chip bumps by one on every new value; trust
 > and the dead-man key off _"did this number advance"_, not off any clock. Full
 > glossary in [`CONTEXT.md`](CONTEXT.md).
+
+---
+
+## Features
+
+**Safety, on the actuator's own chip**
+
+- **Born-disarmed floor** — every actuator boots at its safe value and refuses
+  to move until it sees a fresh command.
+- **On-chip dead-man** — a yanked cable or crashed host stops the motors by
+  itself; the host does nothing.
+- **Knows when a reading is stale** — a sensor is trusted only while its values
+  keep changing (each one carries a counter that ticks up); the moment they stop,
+  it's treated as stale, not mistaken for live data — and no clocks to keep in
+  sync.
+- **Disarm-aware control loop** — a long-lived controller gates its own output
+  on disarm, so it can't defeat the floor's command-silence e-stop.
+
+**One model, two languages — they can't disagree**
+
+- **Generated wire contract** — the C and Elixir sides of the codec are both
+  emitted from one model; a build-failing **drift test** re-runs the generator
+  and fails if committed artifacts don't match.
+- **Cross-language parity** — the C codec is asserted to produce byte-identical
+  frames + CRC to the Elixir side, in the test suite.
+- **Correct framing** — COBS + CRC-16, explicitly big-endian; CAN
+  segmentation/reassembly for bodies that exceed one frame.
+
+**Host stack & developer experience**
+
+- **Ordinary BeamBots components** — each hub port surfaces as a `BB.Sensor` /
+  `BB.Actuator` view on normal PubSub topics; you publish and subscribe as
+  usual.
+- **Two small seams to extend** — author a **value-type** (your wire vocabulary)
+  and write **one C hook per port**; everything safety-critical is generated.
+- **Tree of any depth** — declare each hub's parent and uplink (UART or CAN);
+  the route table and UART↔CAN bridging fall out, no gateway/router code to
+  write.
+- **Decoupled observability** — sample hub state into an observer plane at your
+  own rate, with a pure reader and pluggable sinks (plus an optional `bb_tui`
+  dashboard).
+
+**Run it anywhere — board optional**
+
+- **Zero-hardware loopback** — run the whole host stack in-process over the real
+  COBS+CRC framing, no board attached (about 60 seconds).
+- **MuJoCo physics simulation** — drive the real control stack against faithful
+  dynamics with a native 3-D viewer; balance, drive, turn, and watch disarm drop
+  it limp. Closes the sim-to-real gap (the controller you tune is the one that
+  ships).
+- **Portable C core** — the correctness-sensitive logic is freestanding C11;
+  only a thin shim is platform-specific. ESP32 ships today; ports to other MCUs
+  are welcome.
+
+> **Is this for you?** Yes if you have an Elixir/BeamBots brain talking to its
+> own microcontrollers and you want the wire + on-chip safety handled for you.
+> **Not** a general IoT bus, **not** a ROS/micro-ROS replacement, **not** a
+> standalone framework — see [Status](#status--honest-maturity) for the honest
+> maturity, the explicitly-deferred items, and the non-goals.
 
 ---
 
@@ -102,12 +148,12 @@ worked fault-injection example.
 
 ## Drive it in a physics simulation (no hardware, no chassis)
 
-The Loopback transport above runs the host stack but nothing _moves_. Go one step
-further and run the **whole control loop against a real physics engine**: the same
-host stack — codec, freshness, the floor's safe-state, the balance loop, teleop —
-drives a [MuJoCo](https://mujoco.org/) model of the bot, and a native 3-D viewer
-renders it while you fly it from the terminal dashboard. The bot **balances,
-drives, and turns** — and disarming it visibly drops it limp.
+The Loopback transport above runs the host stack but nothing _moves_. Go one
+step further and run the **whole control loop against a real physics engine**:
+the same host stack — codec, freshness, the floor's safe-state, the balance
+loop, teleop — drives a [MuJoCo](https://mujoco.org/) model of the bot, and a
+native 3-D viewer renders it while you fly it from the terminal dashboard. The
+bot **balances, drives, and turns** — and disarming it visibly drops it limp.
 
 ```sh
 cd examples/segby_v1/sim && uv sync      # one-time: pulls MuJoCo into a local .venv
@@ -117,23 +163,25 @@ cd examples/segby_v1 && mix segby.sim     # opens the 3-D viewer + the bb_tui da
 ```
 
 The trick is the same **transport seam** the Loopback uses — _it is the one
-hardware boundary._ A `BBMCUHub.Sim` transport (a generic, engine-agnostic library
-seam: a `Plant` behaviour + a transport + a ~50 Hz driver, which this example
-overrides to 100 Hz) replaces the wire, and
-a consumer-supplied `Plant` supplies the dynamics — here a MuJoCo plant over a
-`Port` to a small Python child. Everything above the transport is the real,
-shipped code, so the controller you tune in the sim is the one that runs on the
-board. The MuJoCo/Python dependency is **example-only** (opt-in via `uv`); the
-library and firmware ship no Python.
+hardware boundary._ A `BBMCUHub.Sim` transport (a generic, engine-agnostic
+library seam: a `Plant` behaviour + a transport + a ~50 Hz driver, which this
+example overrides to 100 Hz) replaces the wire, and a consumer-supplied `Plant`
+supplies the dynamics — here a MuJoCo plant over a `Port` to a small Python
+child. Everything above the transport is the real, shipped code, so the
+controller you tune in the sim is the one that runs on the board. The
+MuJoCo/Python dependency is **example-only** (opt-in via `uv`); the library and
+firmware ship no Python.
 
 This is what closes the **sim-to-real gap**: the balance gains, the teleop
 mixing, the wheel-velocity loop, and the disarm safe-state are all developed and
-de-risked here — against faithful dynamics, crashing for free — before a board is
-ever powered. See [ADR-0008](docs/adr/0008-virtual-robot-sim-in-the-loop.md) (the
-sim seam), [ADR-0009](docs/adr/0009-wheel-velocity-sensor-and-host-velocity-loop.md)
-(drive-by-speed), and [ADR-0010](docs/adr/0010-a-control-loop-falls-silent-on-disarm.md)
-(disarm = host silence), or [`examples/segby_v1/sim/`](examples/segby_v1/sim/) for
-the full setup.
+de-risked here — against faithful dynamics, crashing for free — before a board
+is ever powered. See [ADR-0008](docs/adr/0008-virtual-robot-sim-in-the-loop.md)
+(the sim seam),
+[ADR-0009](docs/adr/0009-wheel-velocity-sensor-and-host-velocity-loop.md)
+(drive-by-speed), and
+[ADR-0010](docs/adr/0010-a-control-loop-falls-silent-on-disarm.md) (disarm =
+host silence), or [`examples/segby_v1/sim/`](examples/segby_v1/sim/) for the
+full setup.
 
 ---
 
@@ -285,25 +333,27 @@ and the external dependency forms), see
 The C is **not** tied to the ESP32. The correctness-sensitive logic is
 freestanding C11; only a small hardware shim is platform-specific.
 
-- **Portable core** (`firmware/src/*.c`, `firmware/include/*.h`) — the wire codec,
-  CRC-16, COBS framing, CAN segmentation/reassembly, the route table, the
-  cooperative scheduler, and the **safety floor** itself. These files include only
-  `<stdint.h>` / `<stddef.h>` / `<stdbool.h>` / `<string.h>` — no `Arduino.h`, no
-  `esp_*`, no FreeRTOS, no `driver/twai.h`. All integers are explicitly big-endian
-  (`be_put_u16` …), so the wire format is endianness-safe across targets. The proof
-  it is portable: `cd firmware/test && make` host-compiles these exact files with
-  plain `cc -std=c11` (no ESP32 toolchain) and runs the floor/codec/segment
-  harnesses — and the same files run behind the Elixir suite via the VirtualHub.
+- **Portable core** (`firmware/src/*.c`, `firmware/include/*.h`) — the wire
+  codec, CRC-16, COBS framing, CAN segmentation/reassembly, the route table, the
+  cooperative scheduler, and the **safety floor** itself. These files include
+  only `<stdint.h>` / `<stddef.h>` / `<stdbool.h>` / `<string.h>` — no
+  `Arduino.h`, no `esp_*`, no FreeRTOS, no `driver/twai.h`. All integers are
+  explicitly big-endian (`be_put_u16` …), so the wire format is endianness-safe
+  across targets. The proof it is portable: `cd firmware/test && make`
+  host-compiles these exact files with plain `cc -std=c11` (no ESP32 toolchain)
+  and runs the floor/codec/segment harnesses — and the same files run behind the
+  Elixir suite via the VirtualHub.
 - **Platform layer** (`firmware/src/esp32/`) — only `link_esp32.cpp` and
-  `hub_main.cpp` are ESP32/Arduino. They bind the core's abstract seams (send/recv a
-  frame, a UART, the TWAI/CAN controller, a timer loop) to real hardware.
+  `hub_main.cpp` are ESP32/Arduino. They bind the core's abstract seams
+  (send/recv a frame, a UART, the TWAI/CAN controller, a timer loop) to real
+  hardware.
 
 **Porting to another MCU** means reimplementing just that shim
 (`firmware/src/<your_platform>/`) against the same seams and reusing the entire
-core unchanged — the floor, the protocol, the generated glue all travel with you.
-Today the ESP32 binding is the only one that ships; **PRs adding other platform
-layers (STM32, nRF, RP2040, Linux/SocketCAN, …) are very welcome** — keep the core
-files untouched and add a sibling under `firmware/src/`.
+core unchanged — the floor, the protocol, the generated glue all travel with
+you. Today the ESP32 binding is the only one that ships; **PRs adding other
+platform layers (STM32, nRF, RP2040, Linux/SocketCAN, …) are very welcome** —
+keep the core files untouched and add a sibling under `firmware/src/`.
 
 ---
 
@@ -372,7 +422,8 @@ the on-chip floor, born-stale freshness, the generated contract + cross-language
 parity, and CAN segmentation. The same control stack also runs in a **MuJoCo
 physics simulation** (the `BBMCUHub.Sim` seam) where the balance/drive/disarm
 behaviour is developed and regression-tested against faithful dynamics, no
-hardware — see [Drive it in a physics simulation](#drive-it-in-a-physics-simulation-no-hardware-no-chassis).
+hardware — see
+[Drive it in a physics simulation](#drive-it-in-a-physics-simulation-no-hardware-no-chassis).
 
 **Explicitly deferred** (each named in the design, each defaulting to the safe
 behaviour): a `mix bb_mcuhub.gen.robot` scaffold (so v1 robot assembly is the
