@@ -4,6 +4,12 @@
 
 # bb_mcuhub
 
+<p align="center">
+  <a href="https://github.com/lostbean/bb_mcuhub/actions/workflows/ci.yml"><img src="https://github.com/lostbean/bb_mcuhub/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-blue.svg" alt="License: Apache-2.0"></a>
+  <img src="https://img.shields.io/badge/elixir-~%3E%201.18-purple.svg" alt="Elixir ~> 1.18">
+</p>
+
 **bb_mcuhub is an Elixir library (plus a C/ESP32 firmware kit) that connects a
 [BeamBots](https://hex.pm/packages/bb) robot's Elixir brain to its
 microcontrollers over a safe, drift-checked binary link — where each
@@ -112,7 +118,8 @@ cd examples/segby_v1 && mix segby.sim     # opens the 3-D viewer + the bb_tui da
 
 The trick is the same **transport seam** the Loopback uses — _it is the one
 hardware boundary._ A `BBMCUHub.Sim` transport (a generic, engine-agnostic library
-seam: a `Plant` behaviour + a transport + a ~100 Hz driver) replaces the wire, and
+seam: a `Plant` behaviour + a transport + a ~50 Hz driver, which this example
+overrides to 100 Hz) replaces the wire, and
 a consumer-supplied `Plant` supplies the dynamics — here a MuJoCo plant over a
 `Port` to a small Python child. Everything above the transport is the real,
 shipped code, so the controller you tune in the sim is the one that runs on the

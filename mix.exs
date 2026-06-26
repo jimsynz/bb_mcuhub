@@ -21,7 +21,7 @@ defmodule BBMCUHub.MixProject do
       description: description(),
       package: package(),
       name: "bb_mcuhub",
-      source_url: "https://github.com/lostbean/thunderdome"
+      source_url: "https://github.com/lostbean/bb_mcuhub"
     ]
   end
 
@@ -97,7 +97,11 @@ defmodule BBMCUHub.MixProject do
   defp package do
     [
       licenses: ["Apache-2.0"],
-      links: %{"Design" => "docs/hub-design.html"}
+      # Absolute URLs — Hex renders these on the package page (relative paths 404).
+      links: %{
+        "GitHub" => "https://github.com/lostbean/bb_mcuhub",
+        "Design" => "https://github.com/lostbean/bb_mcuhub/blob/main/docs/hub-design.html"
+      }
     ]
   end
 end
