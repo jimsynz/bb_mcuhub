@@ -40,7 +40,7 @@ jobs:
     name: Library (Elixir + C NIF)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Erlang/Elixir
         uses: erlef/setup-beam@v1
@@ -49,7 +49,7 @@ jobs:
           elixir-version: ${{ env.ELIXIR_VERSION }}
 
       - name: Cache deps and _build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             deps
@@ -80,7 +80,7 @@ jobs:
       run:
         working-directory: examples/segby_v1
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Set up Erlang/Elixir
         uses: erlef/setup-beam@v1
@@ -89,7 +89,7 @@ jobs:
           elixir-version: ${{ env.ELIXIR_VERSION }}
 
       - name: Cache deps and _build
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: |
             examples/segby_v1/deps
@@ -115,7 +115,7 @@ jobs:
     name: C harnesses (host-compiled)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Build + run the C harnesses
         run: make
         working-directory: firmware/test
@@ -130,7 +130,7 @@ jobs:
     name: Format (treefmt via nix)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: cachix/install-nix-action@v30
         with:
           extra_nix_config: |
