@@ -457,7 +457,7 @@ defmodule BBMCUHub.Host.SoftFaultE2ETest do
     # BB.Actuator view's freshness-gated live/1 over a status stream emitted by the
     # REAL C floor through the wire: floored → driving → back to unknown when the
     # stream goes stale. We drive the view's :status_beat by hand for determinism.
-    setup ctx do
+    setup do
       # The actuator view's init/1 subscribes on the robot's BB PubSub, so the
       # BeamBots supervision tree must be up for this group (the floor/wire groups
       # above don't need it). We use the VIEW-LESS robot twin so the supervisor

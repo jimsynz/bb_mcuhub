@@ -100,7 +100,10 @@ defmodule BBMCUHub.MixProject do
       ci: [
         "format --check-formatted",
         "compile --warnings-as-errors --force",
-        "test"
+        # --warnings-as-errors here too: `compile` above only sees lib/ + deps, so
+        # without this a warning in a TEST file (compiled by the test task) would
+        # slip through the gate.
+        "test --warnings-as-errors"
       ]
     ]
   end
