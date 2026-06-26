@@ -33,7 +33,6 @@ defmodule SegbyV1.PreflightTest do
   """
   use ExUnit.Case, async: false
 
-  alias BB.Math.{Quaternion, Vec3}
   alias BBMCUHub.Contract.PortIndex
   alias BBMCUHub.Host.{LinkOwner, NodeRegistry}
   alias BBMCUHub.Wire.Codec

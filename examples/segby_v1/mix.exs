@@ -29,6 +29,12 @@ defmodule SegbyV1.MixProject do
     [extra_applications: [:logger]]
   end
 
+  # Run the `ci` alias under MIX_ENV=test end-to-end: its `compile` step must see
+  # test/support and its `test` step must not run in :dev. Mirrors the library.
+  def cli do
+    [preferred_envs: [ci: :test]]
+  end
+
   defp elixirc_paths(:test), do: ["lib", "test/support"]
   defp elixirc_paths(_), do: ["lib"]
 
@@ -72,6 +78,15 @@ defmodule SegbyV1.MixProject do
       "wire.gen": [
         "wire.gen.run --robot SegbyV1.Robot --slug segby_v1 " <>
           "--gen-dir firmware/gen --fixtures-dir test/fixtures"
+      ],
+      # The one-command local gate, same as the library's: formatting, a clean
+      # warnings-as-errors compile, and the full suite (incl. this app's drift
+      # test). Runs under MIX_ENV=test via cli/0's preferred_envs. The test step
+      # also gets --warnings-as-errors so test-file warnings fail too.
+      ci: [
+        "format --check-formatted",
+        "compile --warnings-as-errors --force",
+        "test --warnings-as-errors"
       ]
     ]
   end

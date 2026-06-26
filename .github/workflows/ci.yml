@@ -61,13 +61,12 @@ jobs:
       - name: Fetch deps
         run: mix deps.get
 
-      - name: Compile (warnings as errors)
-        run: mix compile --warnings-as-errors
-
-      # Builds + runs the suite, including the C NIF (elixir_make), the
-      # cross-language C parity test, and the generator drift test.
-      - name: Test
-        run: mix test
+      # `mix ci` = format --check-formatted + compile --warnings-as-errors + test
+      # --warnings-as-errors (the same one-command gate you run locally). The test
+      # step builds the C NIF (elixir_make) and runs the cross-language C parity +
+      # generator drift tests; test-file warnings fail here too.
+      - name: CI gate (format + warnings-as-errors + test)
+        run: mix ci
 
   # --- Example app (examples/segby_v1) ------------------------------------
   # A downstream consumer of the library (path dep). Pulls two public git deps
@@ -101,11 +100,11 @@ jobs:
       - name: Fetch deps
         run: mix deps.get
 
-      - name: Compile (warnings as errors)
-        run: mix compile --warnings-as-errors
-
-      - name: Test
-        run: mix test
+      # `mix ci` = format --check-formatted + compile --warnings-as-errors + test
+      # --warnings-as-errors, run under MIX_ENV=test (the same one-command gate
+      # you run locally). Test-file warnings fail here too.
+      - name: CI gate (format + warnings-as-errors + test)
+        run: mix ci
 
   # --- C firmware harnesses (firmware/test/) ------------------------------
   # `make` builds AND runs all five host-compiled harnesses (all: run). The
