@@ -32,6 +32,12 @@ defmodule BBMCUHub.MixProject do
     ]
   end
 
+  # Run the `ci` alias under MIX_ENV=test end-to-end: its `compile` step must see
+  # test/support (the fixture robot) and its `test` step must not run in :dev.
+  def cli do
+    [preferred_envs: [ci: :test]]
+  end
+
   # The platform lives in lib/; the library's own tests are backed by the fixture
   # robot under test/support (the design's strata, §10). The worked example
   # (segby_v1, blaster/wheels) now lives in its own Mix app under examples/ and
@@ -84,7 +90,18 @@ defmodule BBMCUHub.MixProject do
       # base; see examples/segby_v1/mix.exs). Implemented by
       # `Mix.Tasks.Wire.Gen.Run` (supports `--robot <Mod>` + `--gen-dir`/
       # `--fixtures-dir`).
-      "wire.gen": ["cmd MIX_ENV=test mix do compile + wire.gen.run"]
+      "wire.gen": ["cmd MIX_ENV=test mix do compile + wire.gen.run"],
+      # The one-command local gate — the same checks CI runs (see
+      # .github/workflows/ci.yml): formatting, a clean warnings-as-errors compile,
+      # and the full suite (which itself builds the C NIF + runs the C parity and
+      # drift tests). Run it before pushing. The whole alias runs under MIX_ENV=test
+      # (via cli/0's preferred_envs), so the compile sees test/support and the test
+      # step doesn't trip Mix's "tests in :dev" guard.
+      ci: [
+        "format --check-formatted",
+        "compile --warnings-as-errors --force",
+        "test"
+      ]
     ]
   end
 

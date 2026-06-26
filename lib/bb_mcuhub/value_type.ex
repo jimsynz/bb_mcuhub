@@ -108,7 +108,17 @@ defmodule BBMCUHub.ValueType do
   @spec resolved?(atom() | module()) :: boolean()
   def resolved?(ref) do
     module = resolve(ref)
-    Code.ensure_loaded?(module) and function_exported?(module, :layout, 0)
+    # ensure_COMPILED, not ensure_loaded?: this check runs inside the DSL
+    # transformer at COMPILE TIME, where the value-type module may not be compiled
+    # yet in this same pass (e.g. a robot module compiled before its value-types on
+    # a clean build). ensure_compiled/1 blocks until the module is compiled and
+    # records the compile-time dependency, so the order is correct on a fresh tree;
+    # ensure_loaded?/1 only found an ALREADY-built .beam on disk and gave an
+    # order-dependent false negative on a clean clone (it passed locally only
+    # because a prior build had left the .beam behind). The non-bang form is the
+    # supported one (ensure_compiled?/1 is deprecated).
+    match?({:module, _}, Code.ensure_compiled(module)) and
+      function_exported?(module, :layout, 0)
   end
 
   @doc "The stock atom → module aliases (read-only; for introspection/tests)."
