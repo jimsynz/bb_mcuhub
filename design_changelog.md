@@ -77,7 +77,7 @@ shown for sign-off) and the per-stratum change map.
 
 ---
 
-## 2026-06-25 — A robot can run virtually: a sim transport closes the host loop over a physics engine (ADR-0008, design-only)
+## 2026-06-25 — A robot can run virtually: a sim transport closes the host loop over a physics engine (ADR-0008)
 
 The chassis is not yet assembled, and even once it is, you do not want an un-tuned
 balance loop's first real test to be on hardware that can hurt itself. Every existing
@@ -114,9 +114,16 @@ test loopback/`VirtualHub`, sim), and pulls MuJoCo into the **dev toolchain only
 shipped library/firmware are untouched; the plant is opt-in). It **narrows** the
 sim-to-real gap but does not replace BRINGUP Stage 4's silicon truths (motor-phase/encoder
 sign, pin map, FOC alignment, real IMU noise) — MuJoCo runs with whatever sign you modeled;
-the bench still reveals the actual one. Design-only; not yet implemented. See ADR-0008 for
-the seam, the live-loop/clock split from `VirtualHub`, and the open implementation
+the bench still reveals the actual one. See ADR-0008 for
+the seam, the live-loop/clock split from `VirtualHub`, and the implementation
 questions (where the loop lives, the Port wire format, hand-authored vs IR-generated MJCF).
+
+**Update (same day, commit `fca20aa`): built.** The sim shipped as `BBMCUHub.Sim.{Plant,
+Transport,Driver}` + `SegbyV1.Sim.MujocoPlant`, a `mix segby.sim` launcher, a `segby_sim.py`
+MuJoCo child (`launch_passive` + `mj_step`), and an MJCF model. It was run interactively —
+the bot balances, drives, and turns, and teleoping it is how the ADR-0010 disarm-gap bug was
+found. Caveat: there is a `--headless` mode but no automated CI test yet asserts the bot
+balances (existing sim tests use a fake plant / check wiring only).
 
 ---
 
