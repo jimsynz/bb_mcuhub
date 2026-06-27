@@ -55,11 +55,12 @@ defmodule BBMCUHub.MixProject do
 
   defp deps do
     [
-      # The BeamBots framework — the seam the hub views sit on (§09). Pinned to the
-      # lostbean fork for a safety fix: BB.Controller gains handle_safety_state_change
-      # so a long-lived control loop can gate its output on disarm (the BB.Command
-      # path already had this; controllers did not — see ADR-0010 + beam-bots/bb#160).
-      {:bb, github: "lostbean/bb", branch: "feat/controller-safety-state-hook", override: true},
+      # The BeamBots framework — the seam the hub views sit on (§09). A control
+      # loop gates its output on disarm via the documented `[:state_machine]`
+      # subscription, so no framework fork is needed (ADR-0010). `BB_VERSION` lets
+      # the beam-bots workspace run this package against an in-development `bb`
+      # (`local` → `../bb`) in its cross-package integration tests.
+      {:bb, bb_dep("~> 0.20")},
       # The host owns a UART to the root hub (§07); Circuits.UART provides the
       # framing behaviour our COBS+CRC framer implements (§03). A consumer pulls
       # this in transitively (Host.Transport.UART uses it).
@@ -72,8 +73,22 @@ defmodule BBMCUHub.MixProject do
       # via circuits_uart, so this is not a new shipped dependency; the NIF itself
       # is built only in :test (see the :compilers gate in project/0).
       {:elixir_make, "~> 0.8", runtime: false},
+      {:ex_check, "~> 0.16", only: [:dev, :test], runtime: false},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false}
     ]
+  end
+
+  # Resolve the `bb` dependency against hex, a sibling checkout, or `bb`'s main
+  # branch depending on `BB_VERSION` — the beam-bots ecosystem convention that
+  # lets the workspace's integration tests run this package against an
+  # in-development `bb` (`BB_VERSION=local` → `../bb`).
+  defp bb_dep(default) do
+    case System.get_env("BB_VERSION") do
+      nil -> default
+      "local" -> [path: "../bb", override: true]
+      "main" -> [git: "https://github.com/beam-bots/bb.git", override: true]
+      version -> "~> #{version}"
+    end
   end
 
   defp aliases do

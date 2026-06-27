@@ -227,7 +227,7 @@ host, but a **control loop is an always-commanding actor** (a self-balancer _mus
 every tick to stay upright), so it never goes silent on its own and would re-advance the
 floor's `seq` every tick, **defeating disarm**. So a host control loop (a `BB.Controller`
 that commands actuators) **must gate its own output on the safety state**: it subscribes to
-the safety transitions (`BB.Controller.handle_safety_state_change/2`, the lostbean fork) and
+the safety transitions (`BB.subscribe(robot, [:state_machine])`, the documented pattern) and
 **publishes nothing while not armed** (seeding armed-ness from `BB.Safety.state` at boot so a
 born-disarmed robot drives nothing). It is the host-side _producer_ of the silence the floor
 waits for — the floor stays the guarantee; the controller supplies the silence. A control

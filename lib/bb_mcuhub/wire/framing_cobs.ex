@@ -66,7 +66,7 @@ defmodule BBMCUHub.Wire.FramingCOBS do
   defp verify(frame) do
     with {:ok, decoded} <- cobs_decode(frame),
          true <- byte_size(decoded) >= 2,
-         <<body::binary-size(byte_size(decoded) - 2), crc::16>> <- decoded do
+         <<body::binary-size(byte_size(^decoded) - 2), crc::16>> <- decoded do
       # The frame decoded into a well-formed body+CRC pair; the only remaining
       # question is integrity. A CRC mismatch is a DISTINCT failure from a
       # structurally-broken frame — count it as `crc_fail` so a corrupted-but-

@@ -125,10 +125,9 @@ defp deps do
 end
 ```
 
-> `{:bb, "~> 0.20"}` is the published form. The example currently pins a fork —
-> `{:bb, github: "lostbean/bb", branch: "feat/controller-safety-state-hook", override: true}`
-> — for the `handle_safety_state_change` controller hook (ADR-0010); use that
-> form until the hook lands upstream.
+> `{:bb, "~> 0.20"}` is the published form. `mix.exs` wraps it in a `bb_dep/1`
+> `BB_VERSION` switch so the beam-bots workspace can resolve `bb` from a sibling
+> checkout for cross-package integration tests; normal builds use hex unchanged.
 
 `bb` (BeamBots) is the Elixir robotics framework `bb_mcuhub` extends — it provides
 the robot DSL, PubSub, and the Sensor/Actuator component model. `bb_mcuhub` is a

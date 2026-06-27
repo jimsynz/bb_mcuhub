@@ -45,9 +45,9 @@ defmodule SegbyV1.MixProject do
       # library's Host.Transport.UART uses it).
       {:bb_mcuhub, path: "../.."},
       # The BeamBots framework — the seam the robot + controllers sit on (§09).
-      # Pinned to the lostbean fork: BB.Controller gains handle_safety_state_change
-      # so SegbyV1.Balance can gate its output on disarm (ADR-0010, beam-bots/bb#160).
-      {:bb, github: "lostbean/bb", branch: "feat/controller-safety-state-hook", override: true},
+      # SegbyV1.Balance gates its output on disarm via the documented
+      # `[:state_machine]` subscription, so no framework fork is needed (ADR-0010).
+      {:bb, bb_dep("~> 0.20")},
       # The terminal dashboard over the BeamBots seam (§09). ONLY segby uses it, so
       # it lives here (the library no longer depends on bb_tui — ADR-0003). It
       # provides two GENERIC extensions segby relies on: configurable
@@ -89,5 +89,17 @@ defmodule SegbyV1.MixProject do
         "test --warnings-as-errors"
       ]
     ]
+  end
+
+  # Resolve `bb` against hex, a sibling checkout, or `bb`'s main branch depending
+  # on `BB_VERSION` — the beam-bots ecosystem convention, matching the library's
+  # own mix.exs so the example builds against an in-development `bb` too.
+  defp bb_dep(default) do
+    case System.get_env("BB_VERSION") do
+      nil -> default
+      "local" -> [path: "../../../bb", override: true]
+      "main" -> [git: "https://github.com/beam-bots/bb.git", override: true]
+      version -> "~> #{version}"
+    end
   end
 end
