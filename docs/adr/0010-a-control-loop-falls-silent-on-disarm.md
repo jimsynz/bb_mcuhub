@@ -1,5 +1,21 @@
 # A host control loop must fall silent on disarm — it produces the command-silence the floor's safe-state needs
 
+> **Amendment (2026-06-27).** The framework seam described below was proposed
+> upstream as `BB.Controller.handle_safety_state_change/2` (beam-bots/bb#160) and
+> **rejected**: observing safety state is already public API — a controller
+> subscribes to `[:state_machine]` (the documented pattern that
+> `bb_servo_feetech`/`bb_servo_robotis` already use) and reacts in `handle_info/2`,
+> so a dedicated callback duplicates it and double-subscribes the controllers that
+> already follow it. `SegbyV1.Balance` now uses that subscription instead of the
+> forked callback, and the `bb` dep has returned to hex.
+>
+> **The contract this ADR establishes is unchanged** — a control loop must gate its
+> output on arm state and fall silent on disarm. Only the _mechanism_ differs
+> (self-subscription to `[:state_machine]`, not a new framework hook). The rest of
+> this ADR is the original record of the problem and how it was found; read
+> "the framework seam" below as "the controller's own `[:state_machine]`
+> subscription".
+
 A host **control loop** (a `BB.Controller` that commands actuators every tick) must
 **stop publishing commands when the robot is not armed**. On disarm it falls silent;
 the actuator command slots stop advancing; the on-chip **floor** sees command-silence

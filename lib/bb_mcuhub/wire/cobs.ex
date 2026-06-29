@@ -68,7 +68,7 @@ defmodule BBMCUHub.Wire.COBS do
     n = code - 1
 
     case rest do
-      <<blk::binary-size(n), tail::binary>> ->
+      <<blk::binary-size(^n), tail::binary>> ->
         # Re-insert the 0x00 this code stood in for — except before the very
         # first block, and except after a full (0xFF) block which implied none.
         acc = if first, do: acc, else: acc <> <<0>>

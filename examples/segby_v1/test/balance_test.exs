@@ -552,10 +552,10 @@ defmodule SegbyV1.BalanceTest do
   # state-machine transition. Here the controller is driven directly through the
   # ViewHarness (not the real BB.Controller.Server) on a bare PubSub registry — the
   # robot is NOT registered with BB.Safety, so `BB.Safety.arm/1` cannot flip its
-  # state. Instead we hand the controller the same `:armed` transition message the
-  # framework would forward to its `handle_info` on a live re-arm; the harness
-  # delivers messages in order, so sending this BEFORE the pose ticks guarantees
-  # the controller is armed when it first commands.
+  # state. Instead we hand the controller the same `:armed` transition message it
+  # would receive via its `[:state_machine]` subscription on a live re-arm; the
+  # harness delivers messages in order, so sending this BEFORE the pose ticks
+  # guarantees the controller is armed when it first commands.
   defp arm(ctrl) do
     msg = %BB.Message{
       monotonic_time: 0,
@@ -571,11 +571,10 @@ defmodule SegbyV1.BalanceTest do
     ctrl
   end
 
-  # DISARM a harness-driven controller. The real `BB.Controller.Server` intercepts
-  # a transition to a disarm state and routes it to `handle_safety_state_change/2`
-  # (NOT `handle_info/2`); the ViewHarness mirrors that, so this `:disarmed`
-  # transition reaches `Balance.handle_safety_state_change/2` → `armed: false`,
-  # exactly as on a live disarm. From here `command/2` publishes nothing.
+  # DISARM a harness-driven controller. The controller subscribes to
+  # `[:state_machine]` itself and gates its own output, so this `:disarmed`
+  # transition reaches `Balance.handle_info/2` → `armed: false`, exactly as on a
+  # live disarm. From here `command/2` publishes nothing.
   defp disarm(ctrl, from \\ :armed) do
     msg = %BB.Message{
       monotonic_time: 0,

@@ -208,6 +208,7 @@ defmodule SegbyV1.Balance do
 
   alias BB.Math.{Quaternion, Vec3}
   alias BB.Message.Geometry.Twist
+  alias BB.StateMachine.Transition
 
   # Complementary-filter blend factor (gyro-heavy short-term, accel-anchored
   # long-term) — a standard complementary-filter default.
@@ -474,8 +475,7 @@ defmodule SegbyV1.Balance do
       # reached by command-silence (§05), and a controller that keeps commanding
       # defeats disarm (it re-advances the floor's seq every tick). Seeded from the
       # current safety state so a boot-disarmed robot drives nothing until armed;
-      # updated by `handle_safety_state_change/2` (disarm) and the `:armed`
-      # transition (re-arm). See ADR-0010.
+      # updated by the `[:state_machine]` transitions handled below. See ADR-0010.
       armed: BB.Safety.state(bb.robot) == :armed,
       last_teleop: %{forward: 0.0, turn: 0.0},
       # latest measured per-wheel speed (rad/s) from the vel_* sensor streams.
@@ -492,18 +492,13 @@ defmodule SegbyV1.Balance do
     BB.subscribe(bb.robot, state.vel_left_topic, message_types: [BB.Message.Sensor.JointState])
     BB.subscribe(bb.robot, state.vel_right_topic, message_types: [BB.Message.Sensor.JointState])
 
-    {:ok, state}
-  end
+    # Observe arm/disarm so the loop can gate its own output (ADR-0010). This is
+    # the documented `[:state_machine]` subscription — the same pattern
+    # bb_servo_feetech/bb_servo_robotis use; the framework does not push safety
+    # transitions to a controller, the controller subscribes for them itself.
+    BB.subscribe(bb.robot, [:state_machine])
 
-  # Disarm (or error): stop commanding the wheels. The framework calls this on a
-  # transition to :disarming/:disarmed/:error (BB.Controller, the lostbean fork).
-  # We keep running (controllers are long-lived) but flip `armed: false` so
-  # `command/2` publishes nothing — the wheels go to command-silence and the floor
-  # reaches its safe state (§05 / ADR-0010). The matching re-arm is the `:armed`
-  # state-machine transition below.
-  @impl BB.Controller
-  def handle_safety_state_change(_disarm_state, state) do
-    {:continue, %{state | armed: false}}
+    {:ok, state}
   end
 
   # A pose tick while DISABLED: zero BALANCE torque (the chassis is not actively
@@ -601,15 +596,32 @@ defmodule SegbyV1.Balance do
     {:noreply, set_enabled(state, on?)}
   end
 
-  # Re-arm: the safety state machine transitioned to :armed. The disarm states are
-  # handled by `handle_safety_state_change/2` (which the framework dispatches and
-  # consumes); the `:armed` transition is NOT a disarm state, so the framework
-  # forwards it here. Resume commanding the wheels (see ADR-0010).
+  # Safety-state transitions, via the controller's own `[:state_machine]`
+  # subscription (the documented pattern; see init/1). The balance loop is the
+  # wheels' sole commander, so it gates its own output on arm state:
+  #
+  #   * arm    -> resume commanding the wheels.
+  #   * disarm -> fall silent. `command/2` then publishes nothing, the command
+  #     slots stop advancing, and the on-chip floor reaches its safe state by
+  #     command-silence (§05 / ADR-0010). A controller that kept commanding
+  #     through disarm would re-advance the floor's seq every tick and defeat it.
   def handle_info(
-        {:bb, [:state_machine], %BB.Message{payload: %{to: :armed}}},
+        {:bb, [:state_machine], %BB.Message{payload: %Transition{to: :armed}}},
         state
       ) do
     {:noreply, %{state | armed: true}}
+  end
+
+  def handle_info(
+        {:bb, [:state_machine], %BB.Message{payload: %Transition{to: to}}},
+        state
+      )
+      when to in [:disarming, :disarmed, :error] do
+    {:noreply, %{state | armed: false}}
+  end
+
+  def handle_info({:bb, [:state_machine], %BB.Message{payload: %Transition{}}}, state) do
+    {:noreply, state}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
