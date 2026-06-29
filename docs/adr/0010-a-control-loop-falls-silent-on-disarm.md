@@ -10,7 +10,7 @@
 > forked callback, and the `bb` dep has returned to hex.
 >
 > **The contract this ADR establishes is unchanged** — a control loop must gate its
-> output on arm state and fall silent on disarm. Only the *mechanism* differs
+> output on arm state and fall silent on disarm. Only the _mechanism_ differs
 > (self-subscription to `[:state_machine]`, not a new framework hook). The rest of
 > this ADR is the original record of the problem and how it was found; read
 > "the framework seam" below as "the controller's own `[:state_machine]`
