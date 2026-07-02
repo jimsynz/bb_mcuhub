@@ -39,11 +39,14 @@ the tree falls out of those parent pointers. Children sharing a parent and a CAN
 share **one bus**; a UART uplink is point-to-point — and a parent may own **any mix**
 (a CAN bus _and_ several UARTs), because a link is just a typed edge the parent
 multiplexes (no sibling-uniformity constraint). The generated **route table maps each
-node to the specific link** that reaches it (the host link is link 0), so routing stays
-a flat `route_table[node]` lookup — only its values are links, not bare directions. The
-verifier checks the tree is well-formed (one root, every parent resolves, no cycles,
-fully connected). Nothing about transport or tree shape is inferred from node-id
-ordering (ADR-0006).
+node to the specific link** that reaches it (the host link is link 0) — but the table
+serves only **descending** frames: routing is decided first by the **arrival link**
+(ADR-0011). A frame arriving on a downlink is ascending host-bound traffic and forwards
+up unconditionally (its NODE is a _source_); a frame arriving on the up-link descends by
+the flat `route_table[node]` lookup, and one addressed outside the subtree is dropped —
+a frame never exits the link it arrived on. The verifier checks the tree is well-formed
+(one root, every parent resolves, no cycles, fully connected). Nothing about transport
+or tree shape is inferred from node-id ordering (ADR-0006).
 _Avoid_: conflating a link with a **port** (a child link is never a port) or with a
 **NODE** (a node is addressed; a link is traversed).
 
@@ -131,9 +134,12 @@ offending pair — the bug cannot ship, never mind reach the bus.
 ### NODE / PORT (the wire identity)
 
 A value's identity on the wire is `(NODE, PORT)`. **NODE** is a flat, whole-tree-unique
-address — never a path; routing is a flat table lookup, `route_table[node] → local link`.
-**PORT** names a sense/act endpoint on that node and nothing else — a child link is
-**not** a port (a downstream hub is reached by addressing its own NODE). On CAN the two
+address — never a path — and it names **the hub end of a host↔hub conversation**: the
+destination on a descending command, the _source_ on an ascending sense/status frame
+(the host end is implicit). Routing is therefore direction-first (ADR-0011): a downlink
+arrival ascends; an up-link arrival descends by the flat `route_table[node] → local link`
+lookup. **PORT** names a sense/act endpoint on that node and nothing else — a child link
+is **not** a port (a downstream hub is reached by addressing its own NODE). On CAN the two
 pack into a generated 29-bit extended id `[NODE:8][PORT:8][rsv:13]`, so the controller
 filters in hardware and id-range doubles as arbitration priority. `NODE 0x00` is the
 reserved broadcast/e-stop address — the lowest id, so it wins bus arbitration.
@@ -175,6 +181,23 @@ never mints a `seq`) **and** forwards in **arrival order** — a strict FIFO byt
 that never reorders, holds, batches, or dedupes. This in-order guarantee is the
 precondition that makes the **advance** test sound. Conflation (deferred) may drop
 superseded frames but must preserve per-`(node, port)` order.
+
+### Host↔hub conversations (the only traffic model — an invariant)
+
+Every conversation on the wire is between the **host** and exactly one **hub**: a
+descending frame is a command from the host; an ascending frame is sense/status toward
+the host. **Hubs never converse with each other** — a hub cannot command its parent, a
+sibling, or any other hub. The router makes this structural, not conventional
+(ADR-0011): a frame arriving on a downlink can only ascend, so the host side is the
+sole origin of descending traffic at every hub, regardless of what a frame's NODE
+claims. This is the wire-level footing under **one writer per slot** and the floor's
+command-silence test — neither needs source authentication because the topology admits
+only one command origin. A future hub↔hub path (say, a reflex between hubs) must be
+designed deliberately, with its own authentication story — never inherited as a
+routing side effect.
+_Avoid_: treating the hub tree as a general mesh or distributed system. It is a tree
+at the transport level but a star at the conversation level — every conversation has
+the host at one end.
 
 ### fresh_for · born-stale
 
