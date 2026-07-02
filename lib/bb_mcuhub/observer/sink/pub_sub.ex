@@ -1,9 +1,9 @@
 defmodule BBMCUHub.Observer.Sink.PubSub do
   @moduledoc """
   The PubSub-republish sink — re-publishes a sampled value on the observer's
-  **own** slow topic (ADR-0004).
+  **own** slow topic.
 
-  The motivating problem (ADR-0004 · Consequences): the control loop floods the
+  The motivating problem: the control loop floods the
   broad `[:sensor]` / `[:actuator]` prefixes a dashboard subscribes to (100 Hz pose
   + the command cascade), lagging the dashboard. The fix is NOT to slow the loop but
   to feed the dashboard from an observer at the dashboard's own rate. This sink is

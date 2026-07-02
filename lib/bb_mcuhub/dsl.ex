@@ -1,11 +1,11 @@
 defmodule BBMCUHub.Dsl.Hub do
   @moduledoc """
-  One hub placed in the robot (§06, ADR-0006): its symbolic `name`, the hub
+  One hub placed in the robot: its symbolic `name`, the hub
   `module` that declares its ports, its whole-tree-unique `node` id (§03), the
   `parent` it hangs off (another hub's name, or `:host` for the root), and the
   `uplink` transport of the link UP to that parent (`:can` | `:uart`).
 
-  Topology is DECLARED, not inferred (ADR-0006): the tree falls out of the parent
+  Topology is DECLARED, not inferred: the tree falls out of the parent
   pointers, and a link is the edge between a hub and its parent. Transport is a
   property of the LINK, not the hub — `uplink` is the transport of THIS hub's
   link to its parent. The root declares `parent: :host`; its uplink is the host
@@ -189,13 +189,13 @@ defmodule BBMCUHub.Dsl.Verifier do
     * a sensor/actuator/status_port that names a `(hub, port)` with no IR
       producer (reader↔producer reconciliation);
     * two hubs sharing a `node`, or a reserved `node` (0x00);
-    * an ill-formed topology (ADR-0006): no root / two roots / an unknown
+    * an ill-formed topology: no root / two roots / an unknown
       `parent:` / a parent cycle / a disconnected hub / a non-root missing its
       `uplink:` / a root that declares an `uplink:`;
     * a view `fresh_for` < 1;
     * a `:in` port missing `has_safe_action`, a floored port without a valid
       `safe_action` value, or a stray `safe_action`/flag where it does not belong
-      (the floored-role contract, ADR-0005);
+      (the floored-role contract);
     * a `{node, port_id}` collision across IR rows;
     * a port whose frame would exceed the segmentation ceiling.
   """
@@ -286,13 +286,13 @@ defmodule BBMCUHub.Dsl do
       parent: [
         type: :atom,
         required: true,
-        doc: "the parent hub's name, or the atom :host for the root (ADR-0006)"
+        doc: "the parent hub's name, or the atom :host for the root"
       ],
       uplink: [
         type: {:in, [:can, :uart]},
         required: false,
         doc:
-          "the transport of THIS hub's link to its parent (:can | :uart). Required for a non-root hub; the root's uplink is the host UART (fixed, not declared) (ADR-0006)"
+          "the transport of THIS hub's link to its parent (:can | :uart). Required for a non-root hub; the root's uplink is the host UART (fixed, not declared)"
       ]
     ]
   }

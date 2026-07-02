@@ -187,7 +187,10 @@ No new ADR — this is a small completion of the value-type seam within the exis
 "a value-type owns its full contract" decision, not a separate hard-to-reverse
 trade-off. CONTEXT.md's **Value-type** and **Component** terms gain the
 `command_message` note. Design locked; implementation lands with the ADR-0005/0006
-follow-up (the actuator view, the behaviour default, the verifier check) — not yet done.
+follow-up (the actuator view, the behaviour default, the verifier check).
+_(Since built — `command_message` is required on command-port value-types and the
+actuator view derives its subscription from it; see `value_type.ex` +
+`dsl/checks.ex`.)_
 
 ---
 
@@ -221,7 +224,9 @@ Decision recorded in **ADR-0006**; CONTEXT.md gains a **Link** term and the Root
 entry now keys on `parent: :host`, not lowest id. Design locked; implementation is a
 deliberate follow-up (the DSL `parent:`/`uplink:`, the verifier tree checks, the
 node→link router in `wire_gen.ex` + the C router, `link_esp32.cpp` per-link
-peripherals, the router/relay harnesses) — not yet done.
+peripherals, the router/relay harnesses).
+_(Since built — `parent:`/`uplink:` and the tree verifier are live in `dsl.ex`;
+the segby_v1 example declares its topology this way.)_
 
 ---
 
@@ -259,7 +264,9 @@ Decision recorded in **ADR-0005**; CONTEXT.md gains a **Safe action** term and t
 floor entry notes its value-type-agnosticism. Design locked; implementation is a
 deliberate multi-stratum follow-up (floor.h/.c, generator, verifier, the C harness,
 the firmware `_drive` hook, the test-only VirtualHub NIF, and the parity/drift
-witnesses) — not yet done.
+witnesses).
+_(Since built — `has_safe_action`/`safe_action` are required and verified in
+`hub.ex`/`dsl.ex`, and the byte-generic floor ships in `firmware/src/floor.c`.)_
 
 ---
 

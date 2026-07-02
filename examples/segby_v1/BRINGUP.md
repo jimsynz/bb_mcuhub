@@ -9,16 +9,26 @@ are the half only real hardware can prove.
 
 > Authoritative facts (from the build): backplane is **UART** (no CAN —
 > `BACKPLANE_TRANSPORT_UART 1`). Blaster = NODE `0x02` (root), Wheels = NODE `0x05`
-> (leaf). All links COBS+CRC @ **1 Mbit/s**. Per-wheel floor window = 5 × 20 ms =
-> **100 ms** of command silence → that wheel de-energises (born-disarmed).
+> (leaf). All links COBS+CRC. Host↔Blaster runs at **115200** (hardware-proven —
+> 1 Mbit/s lost ~95% of frames on this wiring; the firmware pins
+> `HOST_UART_BAUD=115200` and the host `transport_opts` baud **must match**);
+> the Blaster↔Wheels backplane runs at **1 Mbit/s**. Per-wheel floor window =
+> 5 × 20 ms = **100 ms** of command silence → that wheel de-energises
+> (born-disarmed).
+
+**Bench kit:** the three boards, 2× USB cables (flashing/monitoring), jumper
+wires, a common-ground 12 V supply for the motors, a stand or leash for the
+chassis, and — strongly recommended for Stages 1–2 — a logic analyzer or scope
+(the firmware prints nothing to the USB console by design; the wire itself is
+the observable).
 
 ## Boards & roles
 
-| Board                                  | Role                                        | NODE          | PlatformIO env   |
-| -------------------------------------- | ------------------------------------------- | ------------- | ---------------- |
-| Pi Zero 2 W                            | host (Elixir/Nerves)                        | — (logical 0) | — (`mix bb.tui`) |
-| DOIT V1 ESP32                          | Blaster — root hub (IMU/range/LED + bridge) | 0x02          | `blaster_root`   |
-| MKS Dual FOC v3.2 (ESP32 Lolin32-Lite) | Wheels — leaf (dual FOC)                    | 0x05          | `wheels_leaf`    |
+| Board                                  | Role                                        | NODE          | PlatformIO env                     |
+| -------------------------------------- | ------------------------------------------- | ------------- | ---------------------------------- |
+| Pi Zero 2 W                            | host (Elixir/Nerves)                        | — (logical 0) | — ([`nerves_host/`](nerves_host/)) |
+| DOIT V1 ESP32                          | Blaster — root hub (IMU/range/LED + bridge) | 0x02          | `blaster_root`                     |
+| MKS Dual FOC v3.2 (ESP32 Lolin32-Lite) | Wheels — leaf (dual FOC)                    | 0x05          | `wheels_leaf`                      |
 
 ## Wiring (3 links + motors)
 
@@ -31,7 +41,10 @@ are the half only real hardware can prove.
 | GND         | —   | GND               |
 
 Pi side: PL011 on `/dev/ttyAMA0` (NOT mini-UART) — `enable_uart=1`, disable the
-serial console, `dtoverlay=disable-bt` (or `miniuart-bt`) so PL011 lands on 14/15.
+serial console, `dtoverlay=miniuart-bt` so PL011 lands on 14/15 as `ttyAMA0`.
+**On Nerves, do not use `dtoverlay=disable-bt`** — it silently renames the PL011
+to `ttyAMA1` (hardware-verified; [`nerves_host/`](nerves_host/) ships a working
+`config.txt`). `disable-bt` is the Raspberry-Pi-OS variant only.
 
 **2. Backplane: Blaster ↔ Wheels UART** (cross TX↔RX + common GND):
 
@@ -50,8 +63,9 @@ Stage 4.
 
 **Motors + encoders (Wheels / MKS board)** — per `firmware/mcu/wheels.cpp`: M0 PWM
 32/33/25, M1 PWM 26/27/14, shared enable 12; AS5600 M0 on Wire (SDA 19/SCL 18),
-M1 on Wire1 (SDA 23/SCL 5); 12 V to VIN. **Confirm against the MKS v3.2
-silkscreen** (pins are TODO-flagged in the firmware).
+M1 on Wire1 (SDA 23/SCL 5); 12 V to VIN. These values are bench-verified (see
+"Real" below) — still **confirm against your own MKS v3.2 silkscreen**, since
+board revisions vary.
 
 ## Flash
 
@@ -62,16 +76,23 @@ The toolchain is pinned in the repo's `flake.nix` — enter it first with
 cd examples/segby_v1/firmware
 pio run -e blaster_root -t upload      # USB to the DOIT V1
 pio run -e wheels_leaf  -t upload      # USB to the MKS board
-pio device monitor -b 115200           # console (note: console=115200, links=1 Mbit/s)
+pio device monitor -b 115200           # console — shows only the boot ROM banner;
+                                       # the firmware itself prints nothing by design
 ```
 
 The firmware pulls the C chassis from the library via `lib_deps`
 (`symlink://../../../firmware`); the first `pio run` downloads the ESP32 toolchain
 into a worktree-local `.pio-core`.
 
-Host: `mix bb.tui --robot SegbyV1.Robot` (the dashboard owns the UART
-via `SegbyV1.Host`; on the Pi pass
-`transport_opts: [port: "ttyAMA0"]`).
+**Host side.** On the bot, flash the Pi with the
+[`nerves_host/`](nerves_host/) firmware — it boots
+`SegbyV1.Host` on `ttyAMA0` at 115200 by itself. To start the host by hand
+instead (e.g. Raspberry Pi OS), it's
+`SegbyV1.Host.start_link(transport_opts: [port: "ttyAMA0", baud: 115_200])` —
+the baud must match `HOST_UART_BAUD`; the library default is 1 Mbit/s, which
+this hardware drops. The dashboard attaches per Stage 5 (an SSH daemon on the
+Nerves bot; `BB.TUI.run/2` in the same node on a workstation) — a separate
+`mix bb.tui` process is a separate BEAM node and cannot see the robot.
 
 ## Stages — verify each before the next
 
@@ -109,27 +130,35 @@ backplane TX↔RX:
 
 - **Blaster**: jumper GPIO 26 ↔ 27.
 - **Wheels**: jumper GPIO 17 ↔ 16.
-  Every frame the board sends should echo straight back. A `tx` with no matching
-  `rx` ⇒ that board's UART path is broken (pin map / silicon), not the inter-board
-  wiring.
+  Every frame the board sends echoes straight back to itself. **Observe it on the
+  wire, not the console** (the firmware logs nothing): a logic analyzer or scope
+  on the jumpered pins shows periodic COBS frames (`0x00`-delimited bursts) —
+  the board's own status traffic. A silent pin ⇒ that board's UART path is
+  broken (pin map / silicon), not the inter-board wiring.
 
 ### Stage 2 — cross-wire the backplane, confirm frames cross
 
-Wire link #2. With both monitors open: the Blaster should relay the Wheels'
-status frames (NODE 0x05) upward, and the host (Stage 4) drives commands down. No
-frames crossing ⇒ recheck TX↔RX crossed + common GND (the usual culprit is a
-missing ground or an unseated Dupont pin). Diff a captured command frame against
-the **golden frames** (Stage −1): matching bytes but no motor response ⇒ the wire
-is fine, look downstream (Stage 3); mismatched bytes ⇒ a firmware-build/pin issue.
+Wire link #2. The Blaster relays the Wheels' status frames (NODE 0x05) upward,
+and the host (Stage 4) drives commands down. The proof frames cross: a logic
+analyzer on the Blaster's host-TX pin (GPIO 17) shows NODE 0x05 bodies riding
+up — or skip ahead and let the host be the witness (Stage 4's sensor views only
+go fresh if real frames arrive). No frames crossing ⇒ recheck TX↔RX crossed +
+common GND (the usual culprit is a missing ground or an unseated Dupont pin).
+Diff a captured command frame against the **golden frames**
+([`test/golden_frames_test.exs`](test/golden_frames_test.exs), Stage −1):
+matching bytes but no motor response ⇒ the wire is fine, look downstream
+(Stage 3); mismatched bytes ⇒ a firmware-build/pin issue.
 
 ### Stage 3 — motors (Wheels board), 12 V applied
 
 Command a small effort to one wheel at a time and confirm each spins (M0 = left,
 M1 = right). Each wheel is gated by its **own floor**: with no fresh command for
 100 ms it de-energises. If a wheel won't align, sanity-check that motor + its
-AS5600 (the firmware skips a motor whose encoder didn't ACK — check the boot log).
-Confirm **pole pairs** (firmware assumes 10 — TODO) and the PWM/encoder pins match
-the MKS silkscreen.
+AS5600 — the firmware skips a motor whose encoder didn't ACK at boot, so the
+symptom is one wheel permanently limp while the other drives (there is no boot
+log to read; the skip is silent). Pole pairs are **10**, bench-confirmed for the
+stock motors (see "Real" below) — re-confirm only if your motors differ, along
+with the PWM/encoder pins vs. the MKS silkscreen.
 
 ### Stage 4 — IMU + closed-loop balance
 
@@ -141,7 +170,8 @@ fall vs. amplify it" closes through the motor phase wiring + encoder direction,
 which only the bench resolves. Verify it in two safe steps before any closed loop:
 
 ```sh
-# on the Pi, with balance DISABLED, confirm pose tracks tilt:
+# in IEx on the Pi (ssh segby-v1-<serial>.local), balance DISABLED,
+# confirm pose tracks tilt:
 BB.subscribe(SegbyV1.Robot, [:sensor, :base_link, :chassis_imu])
 # tilt the chassis forward → the published pitch must go one consistent way
 # (sign + magnitude track the tilt). A noisy/backwards/zero pitch ⇒ IMU wiring,
@@ -162,14 +192,24 @@ placeholders — **tune on the real chassis**, starting conservative.
 
 ### Stage 5 — bb_tui dashboard + teleop
 
-`mix bb.tui --robot SegbyV1.Robot`. Confirm the panels populate (joints,
+Attach the dashboard. Two real flows (a separate `mix bb.tui` OS process is a
+separate BEAM node with no robot in it — it cannot attach):
+
+- **Nerves bot**: the firmware already serves the dashboard as its own SSH
+  daemon — `ssh tui@segby-v1-<serial>.local -p 2222` (password `segby`). A
+  plain `ssh segby-v1-<serial>.local` (port 22) gives IEx for commands like
+  `SegbyV1.Balance.enable/1`.
+- **Workstation**: start `SegbyV1.Host` and call `BB.TUI.run/2` in the same
+  node.
+
+Confirm the panels populate (joints,
 safety, events). Operator drive is the declared **`teleop` command** (forward/turn)
 in bb_tui's Commands panel — running it biases the balance output (forward leans
 both wheels, turn differentials them). Arm/disarm from the safety panel; recall
 the on-chip floor is the real safe-state — disarm/silence both resolve to wheels
 de-energising within 100 ms.
 
-**Disarm-while-balancing — verify it, do not assume it (ADR-0010).** This is the
+**Disarm-while-balancing — verify it, do not assume it.** This is the
 one bench check that earlier bring-ups asserted but never ran: with **balance ON
 and the chassis leashed/on a stand**, press **disarm**. The wheels must **go limp
 within ~100 ms** (`SegbyV1.Balance` stops publishing on disarm → command-silence →

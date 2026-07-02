@@ -22,13 +22,13 @@ defmodule BBMCUHub.Dsl.Checks do
     * a sensor/actuator/status_port that names a `(hub, port)` with no IR
       producer (reader↔producer reconciliation);
     * two hubs sharing a `node`, or a reserved `node` (0x00);
-    * an ill-formed topology (ADR-0006): no root / two roots / an unknown
+    * an ill-formed topology: no root / two roots / an unknown
       `parent:` / a parent cycle / a disconnected hub / a non-root missing its
       `uplink:` / a root that declares an `uplink:`;
     * a view `fresh_for` < 1;
     * a `:in` port missing `has_safe_action`, a floored port without a valid
       `safe_action` value, or a stray `safe_action`/flag where it does not belong
-      (the floored-role contract, ADR-0005);
+      (the floored-role contract);
     * a `{node, port_id}` collision across IR rows;
     * a port whose frame would exceed the segmentation ceiling.
   """

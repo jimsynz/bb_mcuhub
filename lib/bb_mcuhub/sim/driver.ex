@@ -1,6 +1,6 @@
 defmodule BBMCUHub.Sim.Driver do
   @moduledoc """
-  The real-time loop that **closes the sim loop** for a virtual robot (ADR-0008).
+  The real-time loop that **closes the sim loop** for a virtual robot.
 
   The transport is the one and only hardware boundary: above it is the real host
   stack, below it the sim stands in for the wire, the hubs, the floors, the
@@ -9,7 +9,7 @@ defmodule BBMCUHub.Sim.Driver do
   reads them, advances the plant, and injects the resulting sensors back up the
   real stack as wire bodies. The loop lives here, NOT in the transport, so the
   transport's `send/2` stays a pure capture out of the `LinkOwner`'s call path and
-  the loop+plant are independently restartable (ADR-0008).
+  the loop+plant are independently restartable.
 
   ## The tick (default ~20 ms / 50 Hz)
 
@@ -28,7 +28,7 @@ defmodule BBMCUHub.Sim.Driver do
   ## Why `seq` must strictly advance (born-stale freshness)
 
   The host's freshness monitor is **born-stale**: a sensor view publishes NOTHING
-  until it witnesses `seq` ADVANCE since its own boot (the floor design / ADR-0008).
+  until it witnesses `seq` ADVANCE since its own boot (the floor design).
   So the Driver keeps a **per-slot `seq` counter that strictly increases** across
   ticks — if it reused a `seq`, the view would treat the reading as stale and the
   bot would never appear to move. The counter wraps `0xFFFF → 0` (the advance test

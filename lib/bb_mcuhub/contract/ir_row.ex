@@ -1,7 +1,6 @@
 defmodule BBMCUHub.Contract.IrRow do
   @moduledoc """
-  One projected IR row — a **typed value**, not a loose map (candidate 1 of the
-  architecture review; the same direction ADR-0005 set for `safe_action`).
+  One projected IR row — a **typed value**, not a loose map.
 
   An IR row is the frozen, per-port unit the generator (`BBMCUHub.Gen.WireGen`),
   the verifier (`BBMCUHub.Dsl.Verifier`), and the runtime `PortIndex` all consume.
@@ -19,8 +18,8 @@ defmodule BBMCUHub.Contract.IrRow do
   that cannot be built this way is a bug in the projection, raised on the spot.
 
   It deliberately does **not** re-implement the *logical, cross-field* rules — the
-  `has_safe_action` floored-role contract (ADR-0005), topology well-formedness
-  (ADR-0006), reader↔producer reconciliation, the frame-size ceiling. Those stay in
+  `has_safe_action` floored-role contract, topology well-formedness,
+  reader↔producer reconciliation, the frame-size ceiling. Those stay in
   `BBMCUHub.Dsl.Verifier`, which already raises a `Spark.Error.DslError` naming the
   offending `(hub, port)`. The split is: the struct guarantees the row is
   *well-formed*; the verifier guarantees the model is *well-configured*.

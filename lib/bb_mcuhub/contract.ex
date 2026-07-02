@@ -10,11 +10,11 @@ defmodule BBMCUHub.Contract do
   An **IR row** carries one port's whole-tree identity: its `node` (from the
   `hubs do` placement), the hub's declared `parent` (another hub's name, or
   `:host` for the root) and `uplink` (the transport of this hub's link to its
-  parent, `:can` | `:uart` | nil for the root) — the DECLARED topology of
-  ADR-0006 — plus the generated `port_id`, value `type` + `layout`, `dir`,
+  parent, `:can` | `:uart` | nil for the root) — the DECLARED topology —
+  plus the generated `port_id`, value `type` + `layout`, `dir`,
   `rate`, `stamped`, the consumer `fresh_for`, the floored-role flag
   `has_safe_action`, and the `safe_action` value (a value of the port's
-  value-type, ADR-0005).
+  value-type).
 
   ## `t_dev` is opt-in per port (§04)
 

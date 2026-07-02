@@ -6,7 +6,7 @@ defmodule BBMCUHub.Hub.Port do
   whether it is floored (`has_safe_action`) and — if so — its `safe_action`
   value, and the declared `sample`/`step` MFA refs.
 
-  ADR-0005: a `dir: :in` (command) port declares its role explicitly with the
+  A `dir: :in` (command) port declares its role explicitly with the
   REQUIRED boolean `has_safe_action`. `true` ⇒ floored: a `safe_action` value of
   the port's own value-type (a `%{field => number}` map, the same layout the wire
   carries) MUST be given and the port gets an on-chip floor. `false` ⇒ a
@@ -65,12 +65,12 @@ defmodule BBMCUHub.Hub.Dsl do
       has_safe_action: [
         type: :boolean,
         doc:
-          "REQUIRED on a :in port (ADR-0005): true ⇒ floored (give a safe_action); false ⇒ non-floored. Absent on :out ports. Enforced by the verifier."
+          "REQUIRED on a :in port: true ⇒ floored (give a safe_action); false ⇒ non-floored. Absent on :out ports. Enforced by the verifier."
       ],
       safe_action: [
         type: :map,
         doc:
-          "the on-chip floor's safe action — a value of the port's value-type (%{field => number}), required iff has_safe_action: true (ADR-0005/§05)"
+          "the on-chip floor's safe action — a value of the port's value-type (%{field => number}), required iff has_safe_action: true"
       ],
       sample: [type: {:tuple, [:atom, :atom]}, doc: "declared {module, fun} sampler (data only)"],
       step: [type: {:tuple, [:atom, :atom]}, doc: "declared {module, fun} floor step (data only)"]

@@ -1,9 +1,13 @@
 # Context — the hub gateway
 
-A glossary of the load-bearing terms in the hub gateway: the design for reaching
-microcontroller hardware from the BeamBots (`bb`) ecosystem through one recursive
-abstraction. Definitions only — no implementation details. See `docs/hub-design.html`
-for the full architecture.
+A glossary of the load-bearing terms in `bb_mcuhub` (the "hub gateway"): the design
+for reaching microcontroller hardware from the BeamBots (`bb`) ecosystem through one
+recursive abstraction. Definitions only — no implementation details. Start at
+[`README.md`](README.md); build your own robot with
+[`docs/NEW-ROBOT.md`](docs/NEW-ROBOT.md); the full architecture is
+[`docs/hub-design.html`](docs/hub-design.html) (open it locally in a browser).
+Throughout this file, `§NN` refers to a section of that design page, and
+`ADR-NNNN` to a decision record in [`docs/adr/`](docs/adr/README.md).
 
 ## Terms
 
@@ -45,10 +49,11 @@ _Avoid_: conflating a link with a **port** (a child link is never a port) or wit
 
 ### Host
 
-The board above the tree (a Raspberry Pi running Elixir/OTP under Nerves and the
-BeamBots application). It is **not a hub** — it sits above the hub tree, reaches every
-node through one UART to the root hub, and holds the robot's truth in a small
-per-`(node, port)` registry. Logical id 0.
+The machine above the tree running Elixir/OTP and the BeamBots application —
+typically a Raspberry-Pi-class board (the worked example deploys under Nerves),
+but equally a laptop running the loopback or the sim. It is **not a hub** — it
+sits above the hub tree, reaches every node through one UART to the root hub, and
+holds the robot's truth in a small per-`(node, port)` registry. Logical id 0.
 
 ### Contract
 
@@ -61,6 +66,16 @@ the DSL** — the intrinsic facts on a **hub module**, placement and consumption
 generator emits **three** artifacts — the C headers, the per-hub schedule, and the
 parity vectors (the Elixir codec is data-driven, reading the model at runtime) — so the
 C and Elixir sides cannot drift. A hub's contract is its public face.
+
+### IR (the projected model)
+
+The **intermediate representation**: the one plain-data model a compile-time
+transformer projects out of the authored DSL (the hub modules + the `hubs do`
+topology). Everything downstream reads the IR, never the DSL — the **verifier**
+checks it, the **generator** emits the C artifacts from it, the host derives its
+slots from it, and the Elixir codec reads it at runtime. One authored model, one
+projection, every consumer downstream of the same facts — that is what makes
+"the C and Elixir sides cannot drift" more than a slogan.
 
 ### Hub module
 
@@ -302,6 +317,17 @@ A generated, committed fixture of `{port, payload, framed_bytes, crc}` rows asse
 _both_ the Elixir suite and a host-compiled C harness — the cross-language witness that
 both codecs agree byte-for-byte. The wire cannot drift past it; hand-editing a row is the
 tell.
+
+### Drift test
+
+The build-failing test that re-runs the generator against the current model (the
+IR) and compares the output byte-for-byte with the **committed** generated
+artifacts (headers, glue, parity vectors). Any mismatch — an edited port that
+wasn't regenerated, a hand-tweaked generated file — fails the suite, so the
+committed artifacts are always exactly what the model says. The routine it
+enforces: change a contract → `mix wire.gen` → commit the regenerated files
+alongside. Each stratum has its own (the library's fixture robot, the example's
+own artifacts).
 
 ### LinkOwner
 

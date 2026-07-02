@@ -12,7 +12,15 @@ around — so it does not interfere with `cd examples/segby_v1 && mix test`.
 It is a focused Nerves rpi0_2 config (VintageNet wifi, mdns_lite, nerves_ssh,
 shoehorn, the custom fwup.conf + config.txt + cmdline-{a,b}.txt that route the
 PL011 to ttyAMA0) — just the network + OTA + ssh stack, with no web endpoint,
-config system, or multi-bot parameterization.
+config system, or multi-bot parameterization. Besides the host it auto-starts
+the observer plane and serves the **bb_tui dashboard as its own SSH daemon on
+port 2222** (see "Running on the bot").
+
+**The #1 field trap, hardware-verified:** on Nerves the PL011 lands on
+`ttyAMA0` via `dtoverlay=miniuart-bt` — **not** `disable-bt`, which silently
+renames it to `ttyAMA1` (and keep `console=tty1` so the kernel console doesn't
+claim the UART). The shipped `config.txt`/`cmdline-{a,b}.txt` already encode
+this; copy them rather than a Raspberry-Pi-OS recipe.
 
 ## Dep chain (nested path deps)
 
@@ -35,7 +43,9 @@ don't try to open a non-existent UART. On target it boots:
 
 ## Build
 
-Inside the repo dev shell (`nix develop`):
+Inside the repo dev shell (`nix develop` — it already ships `fwup`,
+`squashfs-tools`, and `xz`; install the Nerves archive once with
+`mix archive.install hex nerves_bootstrap`):
 
 ```sh
 cd examples/segby_v1/nerves_host
@@ -61,11 +71,20 @@ The device advertises itself as `segby-v1-<serial>.local` (ssh/sftp/epmd).
 
 ## Running on the bot
 
-After flashing + boot, the host tree is already up (`SegbyV1.Host`). Attach the
-dashboard from a workstation, then enable balance:
+After flashing + boot, the host tree is already up (`SegbyV1.Host`), and the
+firmware serves the bb_tui dashboard itself as an SSH daemon:
 
 ```sh
-mix bb.tui --robot SegbyV1.Robot   # over ssh/console; see BB.TUI
-# in iex on the device:
-SegbyV1.Balance.enable(SegbyV1.Robot)
+# the dashboard (its own SSH daemon on port 2222):
+ssh tui@segby-v1-<serial>.local -p 2222     # password: segby
+
+# IEx on the device (port 22, key auth), e.g. to enable balance:
+ssh segby-v1-<serial>.local
+iex> SegbyV1.Balance.enable(SegbyV1.Robot)
 ```
+
+(A `mix bb.tui` run from a workstation is a separate BEAM node with no robot
+tree in it — it cannot attach; the port-2222 daemon is the supported path.)
+
+See [`../BRINGUP.md`](../BRINGUP.md) for the staged hardware bring-up and
+[`../README.md`](../README.md) for the example overview.

@@ -1,8 +1,8 @@
 defmodule BBMCUHub.Sim.Transport do
   @moduledoc """
   A `BBMCUHub.Host.Transport` that stands in for the wire + hubs + silicon, so
-  the real host stack runs unchanged against a simulated robot (ADR-0008:
-  *Virtual robot — sim in the loop*; the transport is the hardware boundary).
+  the real host stack runs unchanged against a simulated robot (the transport is
+  the one and only hardware boundary).
 
   Instead of writing bodies to a UART, this transport **decodes each outbound
   body and captures the newest command value per actuator wire slot**
@@ -11,7 +11,7 @@ defmodule BBMCUHub.Sim.Transport do
   sensor bodies back to the owner.
 
   This module is a **pure capture** — it owns no clock, no timer, no plant call.
-  It only decodes + stores. The loop lives in `Sim.Driver`, not here (ADR-0008):
+  It only decodes + stores. The loop lives in `Sim.Driver`, not here:
   keeping the transport stateless about time is what lets the driver advance
   simulated time deterministically.
 

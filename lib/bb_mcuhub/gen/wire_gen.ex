@@ -14,7 +14,7 @@ defmodule BBMCUHub.Gen.WireGen do
     * `emit_c_header/1`     → `firmware/gen/<slug>/wire_contract.h` — port ids,
       packed structs, the floor window constants, and a contract hash.
     * `emit_glue/2`         → `firmware/gen/<slug>/<hub>.glue.h` — the GENERATED
-      mechanical per-hub firmware glue (§08, ADR-0003): the router table,
+      mechanical per-hub firmware glue: the router table,
       `hub_on_body`, command dispatch, the floor init/`on_command`/`control_tick`/
       status plumbing, the sense ticks, and the `hub_tasks` schedule. This replaces
       the hand-written `main_<hub>.cpp` + the old `schedule.gen.h`.
@@ -35,7 +35,7 @@ defmodule BBMCUHub.Gen.WireGen do
   `write_all!/0` regenerates everything for every committed LIBRARY robot — now
   just the library's own test fixture (the `mix wire.gen` alias). A consumer app
   (e.g. `examples/segby_v1`) generates ITS robot itself via `write_all!/2` with
-  its own output base (ADR-0003 / Phase 5). The drift test asserts each file on
+  its own output base. The drift test asserts each file on
   disk equals what these emitters produce *now*, per robot.
   """
 
@@ -75,7 +75,7 @@ defmodule BBMCUHub.Gen.WireGen do
 
   @doc """
   Regenerate every artifact for one explicit robot into the default output base.
-  The robot is ALWAYS explicit (no library default, ADR-0003).
+  The robot is ALWAYS explicit (no library default).
   """
   @spec write_all!(module()) :: [Path.t()]
   def write_all!(robot), do: write_all!(robot, @default_base)
@@ -156,7 +156,7 @@ defmodule BBMCUHub.Gen.WireGen do
   @spec fixtures_path(map(), String.t()) :: Path.t()
   def fixtures_path(base, slug), do: Path.join(base.fixtures ++ [slug, "parity_vectors.exs"])
 
-  @doc "The IR for an explicit robot — the single model the emitters render (no default, ADR-0003)."
+  @doc "The IR for an explicit robot — the single model the emitters render (no default)."
   @spec ir(module()) :: [Contract.ir_row()]
   def ir(robot) do
     Info.ir(robot)
@@ -381,7 +381,7 @@ defmodule BBMCUHub.Gen.WireGen do
   @doc """
   Render a hub's `<hub>.device.h` — the prototypes for the hand-written device
   hooks (the contract the `mcu/<hub>.{c,cpp}` file owes). Legible, link-time
-  resolved (Shape 1, ADR-0003). Signatures are owned by each port's value-type.
+  resolved. Signatures are owned by each port's value-type.
   """
   @spec emit_device_header([Contract.ir_row()], atom()) :: String.t()
   def emit_device_header(ir, hub) do

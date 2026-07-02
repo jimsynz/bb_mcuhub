@@ -5,10 +5,10 @@ A linear, step-by-step recipe for going from nothing to a flashable robot on
 (copied from the worked example, `examples/segby_v1/`), and ends with a **check to
 run before moving on**. By the end you have a robot that host-builds, whose firmware
 envs compile, and that you can drive with zero hardware — then you hand off to
-[`BRINGUP.md`](../examples/segby_v1/BRINGUP.md) for the on-hardware stages.
+[`BRINGUP.md`](https://github.com/lostbean/bb_mcuhub/blob/main/examples/segby_v1/BRINGUP.md) for the on-hardware stages.
 
 > This guide owns **software assembly**. The [`README`](../README.md) is reference;
-> [`BRINGUP.md`](../examples/segby_v1/BRINGUP.md) starts _after_ you have a green
+> [`BRINGUP.md`](https://github.com/lostbean/bb_mcuhub/blob/main/examples/segby_v1/BRINGUP.md) starts _after_ you have a green
 > build to flash.
 
 ---
@@ -52,7 +52,9 @@ transceiver) or CAN (shared bus, needs a transceiver).
 `BBMCUHub.Host.Transport.Loopback` (shipped in the library) and the whole host stack
 runs on your laptop over the real COBS+CRC framing — see Step 7. For safety and
 freshness behaviour against the _real firmware C floor_, the test-only
-`BBMCUHub.Test.VirtualHub` does the same with the actual C wire path behind it.
+`BBMCUHub.Test.VirtualHub` does the same with the actual C wire path behind it
+(available when working inside the `bb_mcuhub` repo — it lives in the library's
+`test/support/` and is not part of the shipped package).
 
 **Do you need Nix?** No. Nix is a convenience for a reproducible, pinned toolchain
 shared across worktrees (Elixir 1.19, PlatformIO 6.1, clang/make). Bring your own
@@ -98,12 +100,8 @@ bench/QEMU: the watchdog boot-loop and motor-sign calibration.
 - **link / root hub** — a link is a hub's connection up to its parent (UART or CAN);
   the root hub is the one that declares `parent: :host` and owns the host UART.
 
-The architecture and `§` section numbers live in
-[`docs/hub-design.html`](hub-design.html); decisions in the ADRs —
-[ADR-0003](adr/0003-library-example-split.md) (library/example split),
-[ADR-0005](adr/0005-safe-action-is-a-value-type-value.md) (safe-action is a
-value-type value), [ADR-0006](adr/0006-links-are-declared-not-inferred.md) (declared
-topology).
+The architecture, its rationale, and the `§` section numbers live in
+[`docs/hub-design.html`](hub-design.html).
 
 </details>
 
@@ -125,9 +123,11 @@ defp deps do
 end
 ```
 
-> `{:bb, "~> 0.20"}` is the published form. `mix.exs` wraps it in a `bb_dep/1`
-> `BB_VERSION` switch so the beam-bots workspace can resolve `bb` from a sibling
-> checkout for cross-package integration tests; normal builds use hex unchanged.
+> `{:bb, "~> 0.20"}` is the published form (it resolves to `bb` >= 0.22 today,
+> which is what requires Elixir 1.19+). The example's `mix.exs` wraps it in a
+> `bb_dep/1` `BB_VERSION` switch so the beam-bots workspace can resolve `bb`
+> from a sibling checkout for cross-package integration tests; normal builds
+> use hex unchanged.
 
 `bb` (BeamBots) is the Elixir robotics framework `bb_mcuhub` extends — it provides
 the robot DSL, PubSub, and the Sensor/Actuator component model. `bb_mcuhub` is a
@@ -217,7 +217,7 @@ may carry `t_dev: true` (ship the producer's µs stamp) and a `sample:` MFA; a c
 port may carry a `step:` MFA.
 
 A command port (`dir: :in`) that drives hardware **must** state its floored role with
-the required `has_safe_action` boolean (ADR-0005):
+the required `has_safe_action` boolean:
 
 - `has_safe_action: true` ⇒ floored — you MUST give a `safe_action` value (a literal
   value of the port's own value-type — the dead-man's safe state). The port gets an
@@ -229,7 +229,9 @@ Because the flag is required, a floored port is never silently floorless — a
 forgotten safe action is a compile error.
 
 The leaf **Wheels** hub — two `:effort` command ports, each floored to zero torque,
-plus two `:status` ports ([`hubs/wheels.ex`](../examples/segby_v1/lib/segby_v1/hubs/wheels.ex)):
+plus two `:status` ports ([`hubs/wheels.ex`](../examples/segby_v1/lib/segby_v1/hubs/wheels.ex);
+the real file also declares two `vel_*` wheel-speed sensor ports, omitted here
+for brevity):
 
 ```elixir
 defmodule SegbyV1.Hubs.Wheels do
@@ -272,7 +274,7 @@ defmodule SegbyV1.Hubs.Blaster do
       sample: {SegbyV1.Hubs.Blaster.SampleRange, :sample})
 
     port(:status_led, dir: :in, type: SegbyV1.ValueTypes.Led, rate: 20,
-      has_safe_action: false)        # decorative — non-floored (ADR-0005)
+      has_safe_action: false)        # decorative — non-floored
   end
 end
 ```
@@ -299,8 +301,8 @@ adds two blocks alongside BeamBots' own. Mirror
 ### `hubs do ... end` — place each hub on a node, declare the tree
 
 Each `hub(:name, MyApp.Hubs.Foo, node: 0xNN, parent:, uplink:)` places a hub module
-on a NODE id and declares the **link** to its parent (ADR-0006: topology is declared,
-not inferred). The root hub declares `parent: :host` and **no** `uplink` (its uplink
+on a NODE id and declares the **link** to its parent (topology is declared,
+never inferred). The root hub declares `parent: :host` and **no** `uplink` (its uplink
 is the fixed host UART). A non-root hub declares both `parent: :some_hub` and an
 `uplink: :uart | :can`. **This is the whole topology — two lines define the tree:**
 
@@ -315,7 +317,7 @@ end
 
 The route table and any UART↔CAN bridging fall out of these parent pointers — there
 is no separate gateway/leaf/router code to write. Do **not** use a `transport:` key
-(pre-ADR-0006). The Topology verifier checks the tree at compile time (exactly one
+(a deprecated earlier form). The Topology verifier checks the tree at compile time (exactly one
 `parent: :host` root, the root declares no `uplink`, every non-root declares one,
 every parent resolves, no cycles, fully connected) — a malformed tree refuses to
 compile.
@@ -386,13 +388,15 @@ end
 
 `--robot` is your robot module (generation is always explicit-robot); `--slug` names
 the per-robot artifact dir (headers land under `firmware/gen/<slug>/`); `--gen-dir` /
-`--fixtures-dir` resolve relative to your app root, so artifacts land in **your** tree
-(ADR-0003). It needs only Elixir compiling your robot — no device, no toolchain.
+`--fixtures-dir` resolve relative to your app root, so artifacts land in **your**
+tree. It needs only Elixir compiling your robot — no device, no toolchain.
 
 Run `mix wire.gen`. Into `firmware/gen/<slug>/` it writes `wire_contract.h` (the
 packed structs + facts, including the generated `ROOT_NODE` and per-actuator floor
-window), `<hub>.glue.h` per hub (the generated main-loop glue), and `<hub>.device.h`
-per hub (the hook prototypes you implement in Step 5).
+window), `<hub>.glue.h` per hub (the generated main-loop glue), `<hub>.device.h`
+per hub (the hook prototypes you implement in Step 5), and `parity_vectors.h`;
+under `--fixtures-dir` it writes the matching `parity_vectors.exs` (see the
+details box below).
 
 **The everyday inner loop is three commands, not a footnote:** edit a port in a hub
 module → `mix wire.gen` → `git commit`. A **drift test** fails the build if committed
@@ -413,8 +417,9 @@ test (committed artifacts match a fresh run).
 - `<hub>.glue.h` (per hub) — the generated main-loop glue: route table, `hub_on_body`
   relay, command dispatch, the floor plumbing, the schedule.
 - `<hub>.device.h` (per hub) — the device-hook prototypes you implement (Step 5).
-- `parity_vectors.h` (under `--fixtures-dir`) — the cross-language witness the
-  host-compiled C harness asserts byte-identical to the Elixir codec.
+- `parity_vectors.h` — the cross-language witness the host-compiled C harness
+  asserts byte-identical to the Elixir codec. (Its Elixir twin,
+  `parity_vectors.exs`, lands under `--fixtures-dir` for the Elixir suite.)
 
 </details>
 
@@ -482,11 +487,13 @@ hooks build for the target.
 
 ```c
 /* GENERATED into wheels.device.h — the contract you implement in mcu/wheels.cpp */
-void wheels_device_setup(void);          /* one-time bring-up; the WDT is armed AFTER this */
-void wheels_motor_left_drive(float);     /* apply to the plant */
-void wheels_motor_right_drive(float);    /* apply to the plant */
-void wheels_post_control(void);          /* OPTIONAL per-loop telemetry; #define
-                                            WHEELS_POST_CONTROL_OVERRIDE to provide one */
+void wheels_device_setup(void);              /* one-time bring-up; the WDT is armed AFTER this */
+bool wheels_vel_left_read(WheelSpeed *out);  /* bounded read; false on timeout */
+bool wheels_vel_right_read(WheelSpeed *out); /* bounded read; false on timeout */
+void wheels_motor_left_drive(float);         /* apply to the plant */
+void wheels_motor_right_drive(float);        /* apply to the plant */
+void wheels_post_control(void);              /* OPTIONAL per-loop telemetry; #define
+                                                WHEELS_POST_CONTROL_OVERRIDE to provide one */
 ```
 
 `<hub>_device_setup()` plus, per port, a `<hub>_<port>_read` (sense) or
@@ -505,8 +512,8 @@ generated headers), `-DMY_NODE=0xNN` (this hub's node id — **required**),
 `-DHOST_UART_BAUD`.
 
 There is **no `-DROOT_HUB`** — root-ness is generated. The chassis computes `IS_ROOT =
-(MY_NODE == ROOT_NODE)`, where `ROOT_NODE` is generated from the DSL's `parent: :host`
-(ADR-0006), so the root env's `MY_NODE` must equal the declared root node. The root
+(MY_NODE == ROOT_NODE)`, where `ROOT_NODE` is generated from the DSL's `parent: :host`,
+so the root env's `MY_NODE` must equal the declared root node. The root
 env, distilled
 ([`firmware/platformio.ini`](../examples/segby_v1/firmware/platformio.ini)):
 
@@ -603,6 +610,8 @@ command-slot writes → the LinkOwner drain → real COBS+CRC framing):
 For safety/freshness behaviour against the **real firmware C floor** (the actual C
 wire path on explicit simulated time), use the test-only `BBMCUHub.Test.VirtualHub` —
 see [`test/host/soft_fault_e2e_test.exs`](../test/host/soft_fault_e2e_test.exs).
+(It lives in the library's `test/support/` and is compiled only there — available
+when working inside the `bb_mcuhub` repo, not from your own app.)
 
 ---
 
@@ -610,7 +619,7 @@ see [`test/host/soft_fault_e2e_test.exs`](../test/host/soft_fault_e2e_test.exs).
 
 At this point your robot host-builds and your firmware envs compile. The full software
 gate is: `mix test`, `cd firmware/test && make`, and `pio run -e <hub>_root` /
-`pio run -e <hub>_leaf` per env (see [`CLAUDE.md`](../CLAUDE.md) → Build & test).
+`pio run -e <hub>_leaf` per env (see the [README's Build & test](../README.md#build--test)).
 Software assembly is done.
 
 Time-to-first-motion, honestly: assembling these seven files and watching the loop run
@@ -620,7 +629,7 @@ motor-sign calibration, IMU/closed-loop — which is realistically a day or more
 bench work dominated by hardware calibration, not the library.
 
 Take it onto hardware with the example's
-[`BRINGUP.md`](../examples/segby_v1/BRINGUP.md), which owns the on-hardware stages
+[`BRINGUP.md`](https://github.com/lostbean/bb_mcuhub/blob/main/examples/segby_v1/BRINGUP.md), which owns the on-hardware stages
 (flashing, wiring the links, confirming frames cross, motor-sign calibration, IMU +
 closed-loop bring-up, and the dashboard) in independently verifiable Stages −1 → 5.
 Two things only hardware/QEMU can prove are deliberately out of host-test scope: the
@@ -632,7 +641,5 @@ WDT boot-loop and motor-sign calibration.
   the port-flow diagram.
 - [`CONTEXT.md`](../CONTEXT.md) — the domain glossary (Hub, Value-type, Link, Floor,
   Safe action, Firmware hook, …).
-- [`docs/hub-design.html`](hub-design.html) — the full architecture and `§` sections.
-- ADRs: [0003](adr/0003-library-example-split.md) (library/example split),
-  [0005](adr/0005-safe-action-is-a-value-type-value.md) (safe-action is a value-type
-  value), [0006](adr/0006-links-are-declared-not-inferred.md) (declared topology).
+- [`docs/hub-design.html`](hub-design.html) — the full architecture, its
+  rationale, and the `§` sections.

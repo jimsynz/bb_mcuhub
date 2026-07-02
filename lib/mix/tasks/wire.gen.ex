@@ -3,9 +3,9 @@ defmodule Mix.Tasks.Wire.Gen.Run do
 
   @moduledoc """
   Regenerate every wire artifact (the C `wire_contract.h`, the per-hub
-  glue/device headers, and the parity vectors) from the contracts + topology
-  (§06, ADR-0003). The drift test fails the build if any committed artifact
-  differs from this output, so the rule after any contract change is one command:
+  glue/device headers, and the parity vectors) from the contracts + topology.
+  The drift test fails the build if any committed artifact differs from this
+  output, so the rule after any contract change is one command:
   `mix wire.gen` + commit.
 
   This is the underlying TASK; the `mix wire.gen` ALIAS wraps it to run under
@@ -13,27 +13,34 @@ defmodule Mix.Tasks.Wire.Gen.Run do
   only compiled in :test, so generation must see the test env). Run the alias, not
   this task directly, unless you already set the env.
 
-  Generation is ALWAYS explicit-robot (ADR-0003: no library default):
+  Generation is ALWAYS explicit-robot (there is no library-default robot):
 
-      mix wire.gen                       # all committed library robots
-                                         #   (the test fixture)
-      mix wire.gen --robot BBMCUHub.Test.Fixtures.Robot   # just one robot
+  ```sh
+  mix wire.gen                       # all committed library robots
+                                     #   (the test fixture)
+  mix wire.gen --robot BBMCUHub.Test.Fixtures.Robot   # just one robot
+  ```
 
-  ## Output base (ADR-0003: each app generates into its OWN tree)
+  ## Output base — each app generates into its own tree
 
   By default the artifacts land cwd-relative under `firmware/gen/<slug>/` (the C
   headers + glue) and `test/fixtures/<slug>/parity_vectors.exs` (the parity
   fixture) — the library's own tree. A downstream consumer overrides the base so
   generation lands in ITS tree, not the library's:
 
-      mix wire.gen.run --robot MyApp.MyRobot \\
-        --gen-dir firmware/gen --fixtures-dir test/fixtures
+  ```sh
+  mix wire.gen.run --robot MyApp.MyRobot \\
+    --gen-dir firmware/gen --fixtures-dir test/fixtures
+  ```
 
   `--gen-dir` / `--fixtures-dir` are resolved relative to the cwd the task runs in
   (i.e. the consumer app's root), so a consumer's `mix.exs` can add a `wire.gen`
   alias wrapping this with its own robot + base (see `examples/segby_v1/mix.exs`).
   A consumer thus runs generation without authoring any generator plumbing.
   """
+  # Design: ADR-0003 (library/example split) is why generation is explicit-robot
+  # and why each app generates into its own tree; the model itself is §06 of
+  # docs/hub-design.html.
   use Mix.Task
 
   alias BBMCUHub.Gen.WireGen

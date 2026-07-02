@@ -121,3 +121,11 @@ calibration**, which is a bench step.)
   footers to commit messages.**
 - Do not rely on `firmware/.pio-venv` / `.pio-core` in a worktree — they are
   main-tree-only and gitignored. Use the devShell's `pio` instead.
+- **Do not reference ADRs in user-facing documentation** — that is README.md,
+  `docs/NEW-ROBOT.md`, `firmware/README.md`, the example's docs, and every
+  `@moduledoc` / `@doc` / Spark `doc:` string (anything that lands on hexdocs
+  or in `mix help`). State the decision's *content* in plain prose instead;
+  when the pointer matters for maintainers, put the `ADR-NNNN` reference in a
+  **code comment** (or a generated-header comment / verifier error string).
+  ADR references stay first-class in the design layer only: `CONTEXT.md`,
+  `docs/adr/`, `docs/hub-design.html`, `design_changelog.md`.

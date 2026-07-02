@@ -1,6 +1,6 @@
 defmodule BBMCUHub.Sim.Plant do
   @moduledoc """
-  The dynamics seam for running a robot **virtually**, with no hardware (ADR-0008).
+  The dynamics seam for running a robot **virtually**, with no hardware.
 
   A `bb_mcuhub` robot is driven entirely above the `BBMCUHub.Host.Transport`
   boundary — the transport is the *one and only* hardware boundary the whole stack
@@ -11,11 +11,11 @@ defmodule BBMCUHub.Sim.Plant do
   per-slot commands, advances it, and injects the sensors it returns back up the
   real host stack as wire bodies.
 
-  ## What a plant speaks (ADR-0005 / ADR-0008)
+  ## What a plant speaks
 
   A `Plant` is **engine-agnostic and robot-agnostic at this seam**: it speaks
   **value-type values keyed by wire slot**, never robot-specific structs. This
-  mirrors ADR-0005 (the floor is byte/value-generic) — the behaviour itself names
+  mirrors the floor's byte/value-generic stance — the behaviour itself names
   no concrete value types; the shapes below are only *examples* of what flows
   through it.
 

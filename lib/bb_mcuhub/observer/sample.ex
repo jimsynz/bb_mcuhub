@@ -4,7 +4,7 @@ defmodule BBMCUHub.Observer.Sample do
   (`BBMCUHub.Observer.Sink.PubSub`).
 
   An observer's v1 sample-state mode hands the **raw slot value** to its sink (no
-  value-type lift — `filter`/`project` are deferred, ADR-0004). But BeamBots'
+  value-type lift — `filter`/`project` are deferred). But BeamBots'
   `BB.publish/3` keys message-type filtering on `payload.__struct__`, so a republish
   needs a payload struct. This is that struct: a thin, self-describing envelope
   carrying the raw value plus the sample's context, so a subscriber gets the value

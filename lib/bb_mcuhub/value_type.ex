@@ -1,6 +1,6 @@
 defmodule BBMCUHub.ValueType do
   @moduledoc """
-  A value-type — the wire-vocabulary extensibility seam (§06/ADR-0003).
+  A value-type — the wire-vocabulary extensibility seam.
 
   A value-type is a standalone, reusable module owning *what bytes a kind of value
   puts on the wire and how those bytes become a typed `BB.Message`* — and nothing
@@ -19,7 +19,7 @@ defmodule BBMCUHub.ValueType do
   It names no node, pin, rate, or bot, so the **same** value-type composes across
   many hubs and robots. A port references its value-type; the library ships a lean
   stock set (`imu`, `effort`, `status`) and a consumer adds their own value-type in
-  their own project with no library edit — exactly the seam ADR-0003 records.
+  their own project with no library edit.
 
   ## Authoring one
 

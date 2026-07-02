@@ -952,17 +952,18 @@
         </p>
 
         <figure>
+          <!-- prettier-ignore -->
           <div class="mermaid">
-            flowchart TB H["🟡 host · RPi · Elixir/OTP · BeamBots<br /><i
-              >(not a hub — sits above the tree)</i
-            >"] H -->|"UART · COBS+CRC"| R["🟣 root hub<br />UART↔CAN bridge +
-            own I²C IMU (sense)"] R -->|"CAN · COBS+CRC"| C["🟢 hub C<br />wheel
-            motor (act)"] R -->|"CAN · COBS+CRC"| A["🟣 hub A<br />range sensor
-            (sense) + route"] A -->|"CAN · COBS+CRC"| D["🟢 hub D<br />servo
-            (act)"] classDef h fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
-            classDef s fill:#1a1733,stroke:#9b8cff,color:#ece9ff; classDef a
-            fill:#0d2415,stroke:#46c970,color:#dcf6e4; class H h; class R,A s;
-            class C,D a;
+flowchart TB
+  H["🟡 host · RPi · Elixir/OTP · BeamBots<br/><i>(not a hub — sits above the tree)</i>"]
+  H -->|"UART · COBS+CRC"| R["🟣 root hub<br/>UART↔CAN bridge + own I²C IMU (sense)"]
+  R -->|"CAN · COBS+CRC"| C["🟢 hub C<br/>wheel motor (act)"]
+  R -->|"CAN · COBS+CRC"| A["🟣 hub A<br/>range sensor (sense) + route"]
+  A -->|"CAN · COBS+CRC"| D["🟢 hub D<br/>servo (act)"]
+  classDef h fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
+  classDef s fill:#1a1733,stroke:#9b8cff,color:#ece9ff;
+  classDef a fill:#0d2415,stroke:#46c970,color:#dcf6e4;
+  class H h; class R,A s; class C,D a;
           </div>
           <figcaption>
             The host sits above the tree and talks <b>UART</b> to one board —
@@ -1026,28 +1027,40 @@
         </p>
 
         <figure>
+          <!-- prettier-ignore -->
           <div class="mermaid">
-            flowchart TB subgraph HOST["🟡 HOST · RPi · Elixir/OTP under Nerves
-            · not a hub"] direction TB REG(["node registry · latest value + seq
-            + t_dev per (node,port)"]) BAL["balance law<br />(pose,setpoint) →
-            motor_target"] --> REG REG --> BAL LINK["link owner<br />owns the
-            UART, decodes frames, routes by node"] REG --> LINK LINK --> REG
-            BBV["BB.Sensor / BB.Actuator views<br />lift values ↔ BB.Message"]
-            BBV --> REG REG --> BBV end HOST -->|"UART · COBS+CRC · frame keyed
-            by (node,port)"| ROOT subgraph ROOT["🟣 root hub · ESP32 · sense +
-            UART↔CAN bridge"] direction TB SCHED["scheduler (framework owns the
-            loop)"] SCHED --- IMU["imu sensor · I²C · sample → pose"] SCHED ---
-            RT["router: bridge UART↔CAN, meaning-blind"] end ROOT -->|"CAN ·
-            COBS+CRC"| HUBR["🟣 range hub · ESP32 · sense"] ROOT -->|"CAN ·
-            COBS+CRC"| HUBC subgraph HUBC["🟢 wheel hub · ESP32 · act"]
-            direction TB FLOOR["floor (dead-man)<br />no fresh cmd → safe
-            action"] --> DRIVE["motor drive ~kHz"] DRIVE --> STAT["status → up
-            the wire<br />applied seq · floored?"] end HUBC -.->|"status frame
-            up (CAN→UART)"| HOST classDef m
-            fill:#1c1607,stroke:#eaa84a,color:#f1ead9; classDef s
-            fill:#1a1733,stroke:#9b8cff,color:#ece9ff; classDef a
-            fill:#0d2415,stroke:#46c970,color:#dcf6e4; class REG,BAL,LINK,BBV m;
-            class SCHED,IMU,RT,HUBR s; class FLOOR,DRIVE,STAT a;
+flowchart TB
+  subgraph HOST["🟡 HOST · RPi · Elixir/OTP under Nerves · not a hub"]
+    direction TB
+    REG(["node registry · latest value + seq + t_dev per (node,port)"])
+    BAL["balance law<br/>(pose,setpoint) → motor_target"] --> REG
+    REG --> BAL
+    LINK["link owner<br/>owns the UART, decodes frames, routes by node"]
+    REG --> LINK
+    LINK --> REG
+    BBV["BB.Sensor / BB.Actuator views<br/>lift values ↔ BB.Message"]
+    BBV --> REG
+    REG --> BBV
+  end
+  HOST -->|"UART · COBS+CRC · frame keyed by (node,port)"| ROOT
+  subgraph ROOT["🟣 root hub · ESP32 · sense + UART↔CAN bridge"]
+    direction TB
+    SCHED["scheduler (framework owns the loop)"]
+    SCHED --- IMU["imu sensor · I²C · sample → pose"]
+    SCHED --- RT["router: bridge UART↔CAN, meaning-blind"]
+  end
+  ROOT -->|"CAN · COBS+CRC"| HUBR["🟣 range hub · ESP32 · sense"]
+  ROOT -->|"CAN · COBS+CRC"| HUBC
+  subgraph HUBC["🟢 wheel hub · ESP32 · act"]
+    direction TB
+    FLOOR["floor (dead-man)<br/>no fresh cmd → safe action"] --> DRIVE["motor drive ~kHz"]
+    DRIVE --> STAT["status → up the wire<br/>applied seq · floored?"]
+  end
+  HUBC -.->|"status frame up (CAN→UART)"| HOST
+  classDef m fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
+  classDef s fill:#1a1733,stroke:#9b8cff,color:#ece9ff;
+  classDef a fill:#0d2415,stroke:#46c970,color:#dcf6e4;
+  class REG,BAL,LINK,BBV m; class SCHED,IMU,RT,HUBR s; class FLOOR,DRIVE,STAT a;
           </div>
           <figcaption>
             The host holds the robot's truth in a small per-(node,port) registry
@@ -2045,27 +2058,22 @@ topology <span class="k">do</span>
         </p>
 
         <figure>
+          <!-- prettier-ignore -->
           <div class="mermaid">
-            flowchart LR C1["hub modules (use BBMCUHub.Hub)<br />ports · wire
-            facts: dir·type·rate·t_dev·safe_action"]:::in --> TR C2["topology
-            do<br />hub placement (node id · parent · uplink) + view wiring
-            (fresh_for)"]:::in --> TR TY["value-type modules (use
-            BBMCUHub.ValueType)<br />layout + lift/unlift + hook sig"]:::in -->
-            TR TR["Spark transformer<br />projects the assembled DSL → IR
-            (compile time)"]:::ir --> IR IR["wire model (IR)<br />per port:
-            {node, port_id, type, layout, rate, fresh_for, safe_action}"]:::ir
-            IR --> E["lib/bb_mcuhub/wire/codec.ex<br />encode/decode —
-            DATA-DRIVEN (reads the IR)"]:::live IR -->
-            H["firmware/gen/&lt;slug&gt;/wire_contract.h<br />ids · structs ·
-            FLOOR_MISSES · CMD_PERIOD_MS · hash · EMITTED"]:::out IR -->
-            S["firmware/gen/&lt;slug&gt;/&lt;hub&gt;.glue.h (+
-            &lt;hub&gt;.device.h)<br />router · dispatch · floor · schedule ·
-            hub_tasks · EMITTED"]:::out IR --> P["test fixture ·
-            parity_vectors.exs<br />{port, payload, body, crc} · EMITTED"]:::out
-            classDef in fill:#191e27,stroke:#56b6ff,color:#cfe6ff; classDef ir
-            fill:#1a1733,stroke:#9b8cff,color:#ece9ff; classDef out
-            fill:#0d2415,stroke:#46c970,color:#dcf6e4; classDef live
-            fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
+flowchart LR
+  C1["hub modules (use BBMCUHub.Hub)<br/>ports · wire facts: dir·type·rate·t_dev·safe_action"]:::in --> TR
+  C2["topology do<br/>hub placement (node id · parent · uplink) + view wiring (fresh_for)"]:::in --> TR
+  TY["value-type modules (use BBMCUHub.ValueType)<br/>layout + lift/unlift + hook sig"]:::in --> TR
+  TR["Spark transformer<br/>projects the assembled DSL → IR (compile time)"]:::ir --> IR
+  IR["wire model (IR)<br/>per port: {node, port_id, type, layout, rate, fresh_for, safe_action}"]:::ir
+  IR --> E["lib/bb_mcuhub/wire/codec.ex<br/>encode/decode — DATA-DRIVEN (reads the IR)"]:::live
+  IR --> H["firmware/gen/&amp;lt;slug&amp;gt;/wire_contract.h<br/>ids · structs · FLOOR_MISSES · CMD_PERIOD_MS · hash · EMITTED"]:::out
+  IR --> S["firmware/gen/&amp;lt;slug&amp;gt;/&amp;lt;hub&amp;gt;.glue.h (+ &amp;lt;hub&amp;gt;.device.h)<br/>router · dispatch · floor · schedule · hub_tasks · EMITTED"]:::out
+  IR --> P["test fixture · parity_vectors.exs<br/>{port, payload, body, crc} · EMITTED"]:::out
+  classDef in fill:#191e27,stroke:#56b6ff,color:#cfe6ff;
+  classDef ir fill:#1a1733,stroke:#9b8cff,color:#ece9ff;
+  classDef out fill:#0d2415,stroke:#46c970,color:#dcf6e4;
+  classDef live fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
           </div>
           <figcaption>
             One model. The Elixir codec reads it directly (data-driven, so it
@@ -2404,15 +2412,16 @@ topology <span class="k">do</span>
         </p>
 
         <figure>
+          <!-- prettier-ignore -->
           <div class="mermaid">
-            flowchart TB APP["robot · BeamBots application"] -->
-            SUP["robot_sup"] SUP --> LINKOWN["link_owner<br />owns UART ·
-            decodes · routes by node<br />survives a view crash"] SUP -->
-            REG["node_registry<br />{value, seq, t_dev} per (node,port)"] SUP
-            --> LAW["hub_runner · balance<br />pure step/4 · born stale"] SUP
-            --> VIEWS["BB.Sensor / BB.Actuator views"] classDef m
-            fill:#1c1607,stroke:#eaa84a,color:#f1ead9; class
-            APP,SUP,LINKOWN,REG,LAW,VIEWS m;
+flowchart TB
+  APP["robot · BeamBots application"] --> SUP["robot_sup"]
+  SUP --> LINKOWN["link_owner<br/>owns UART · decodes · routes by node<br/>survives a view crash"]
+  SUP --> REG["node_registry<br/>{value, seq, t_dev} per (node,port)"]
+  SUP --> LAW["hub_runner · balance<br/>pure step/4 · born stale"]
+  SUP --> VIEWS["BB.Sensor / BB.Actuator views"]
+  classDef m fill:#1c1607,stroke:#eaa84a,color:#f1ead9;
+  class APP,SUP,LINKOWN,REG,LAW,VIEWS m;
           </div>
           <figcaption>
             The link owner is placed so it survives a view or law crash — when a
@@ -3442,6 +3451,18 @@ topology <span class="k">do</span>
           is the single source of truth for the design; it supersedes the
           earlier design draft. Diagrams render with Mermaid; if a diagram
           doesn't load, its caption states what it depicts.
+        </p>
+        <p>
+          Decisions &amp; history: the individual decision records live in
+          <a href="adr/README.md"><code>docs/adr/</code></a> (indexed), the
+          dated design history in
+          <a href="../design_changelog.md"><code>design_changelog.md</code></a
+          >, and the domain glossary in
+          <a href="../CONTEXT.md"><code>CONTEXT.md</code></a
+          >. The consumer-facing entry points are
+          <a href="../README.md"><code>README.md</code></a> and
+          <a href="NEW-ROBOT.md"><code>docs/NEW-ROBOT.md</code></a
+          >.
         </p>
       </div>
     </div>

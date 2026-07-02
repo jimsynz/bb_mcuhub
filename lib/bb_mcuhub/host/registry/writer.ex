@@ -23,7 +23,7 @@ defmodule BBMCUHub.Host.Registry.Writer do
   `:ets.insert` escape hatch — the table stays `:public` so the views read+write
   without a GenServer round-trip on the control hot path (an accepted tradeoff:
   the capability raises the bar against honest mistakes, not against code that
-  deliberately bypasses the registry). See ADR/CONTEXT.md · *Slot*.
+  deliberately bypasses the registry). See CONTEXT.md · *Slot*.
 
   Like `Reader`, this is a capability (a value the writer keeps in its state), not
   a process: the sole writer mints one at init and never names `NodeRegistry.put`

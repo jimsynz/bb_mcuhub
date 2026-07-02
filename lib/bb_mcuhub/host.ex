@@ -2,7 +2,7 @@ defmodule BBMCUHub.Host do
   @moduledoc """
   The generic host launcher (§07/§09) — one place that stands up everything a
   robot needs on the host, so a consumer runs ONE thing instead of hand-writing a
-  slot-resolution supervisor (ADR-0003).
+  slot-resolution supervisor.
 
   Given a `robot:` module it supervises, together, the two pieces that must share
   a fate boundary:
@@ -27,7 +27,7 @@ defmodule BBMCUHub.Host do
 
   A command slot is the wire `{node, port_id}` of every IR row that is an actuator
   command port: `dir: :in` AND `has_safe_action: true` — exactly the floored
-  command ports of §05/ADR-0005 (the same predicate `BBMCUHub.Gen.WireGen` uses to
+  command ports (the same predicate `BBMCUHub.Gen.WireGen` uses to
   find actuators).
   Each such row already carries its `node` and `port_id`, so the slots are simply
   `Enum.map(actuator_rows, &{&1.node, &1.port_id})`. Deriving them from the IR

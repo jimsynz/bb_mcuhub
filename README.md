@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/bb_mcuhub_banner.png" alt="bb_mcuhub — Safe Microcontroller Hubs for BeamBots Robots" width="860">
+  <img src="https://raw.githubusercontent.com/lostbean/bb_mcuhub/main/docs/bb_mcuhub_banner.png" alt="bb_mcuhub — Safe Microcontroller Hubs for BeamBots Robots" width="860">
 </p>
 
 # bb_mcuhub
@@ -35,8 +35,11 @@ bot in a MuJoCo physics simulation with a 3-D viewer, no chassis required.**
 > that defines what bytes a kind of value puts on the wire and how those bytes
 > become a typed Elixir message (and back) — your wire vocabulary. **seq** is a
 > per-write counter the producing chip bumps by one on every new value; trust
-> and the dead-man key off _"did this number advance"_, not off any clock. Full
-> glossary in [`CONTEXT.md`](CONTEXT.md).
+> and the dead-man key off _"did this number advance"_, not off any clock. A
+> **slot** is one `(node, port)` cell in the host's registry holding a port's
+> latest value plus its seq. **Born-stale** means a reading is untrusted until
+> its seq is seen advancing — freshness is earned, never assumed. Full glossary
+> in [`CONTEXT.md`](CONTEXT.md).
 
 ---
 
@@ -93,24 +96,45 @@ bot in a MuJoCo physics simulation with a 3-D viewer, no chassis required.**
 
 > **Is this for you?** Yes if you have an Elixir/BeamBots brain talking to its
 > own microcontrollers and you want the wire + on-chip safety handled for you.
-> **Not** a general IoT bus, **not** a ROS/micro-ROS replacement, **not** a
-> standalone framework — see [Status](#status--honest-maturity) for the honest
-> maturity, the explicitly-deferred items, and the non-goals.
+> **BeamBots** ([`bb`](https://hex.pm/packages/bb)) is the Elixir robotics
+> framework this plugs into — it provides the robot DSL, PubSub, controllers,
+> and the Sensor/Actuator component model; `bb_mcuhub` extends it, and each hub
+> port surfaces as an ordinary BeamBots sensor/actuator **view** (a thin
+> component wrapping the port). **Not** a general IoT bus, **not** a
+> ROS/micro-ROS replacement, **not** a standalone framework — see
+> [Status](#status--honest-maturity) for the honest maturity, the
+> explicitly-deferred items, and the non-goals.
 
 ---
 
-## What hardware do I need?
+## What do I need?
 
-**Minimum to first motion: one ESP32 + a motor driver, over a UART link. No CAN,
-no transceiver.** The root hub speaks UART up to the host; child links can be
-UART (point-to-point, no transceiver) or CAN (shared bus, needs a transceiver).
-CAN is supported but optional — the worked example is UART-only.
+**Hardware — minimum to first motion: one ESP32 + a motor driver, over a UART
+link. No CAN, no transceiver.** The root hub speaks UART up to the host; child
+links can be UART (point-to-point, no transceiver) or CAN (shared bus, needs a
+transceiver). CAN is supported but optional — the worked example is UART-only.
+And to just explore, **no hardware at all**: the
+[zero-hardware Loopback](#run-it-with-zero-hardware-about-60-seconds) and the
+[physics sim](#drive-it-in-a-physics-simulation-no-hardware-no-chassis) below
+run the full stack on your desk.
 
-**Prerequisites:** Elixir 1.19+ and the BeamBots `bb` framework on the host; an
-ESP32 (arduino-esp32 3.x / ESP-IDF 5.x, via the `pioarduino` PlatformIO fork)
-for firmware. **Nix is not required** — it's a convenience for a pinned,
-reproducible toolchain (see [Build & test](#build--test)); bring your own Elixir
-1.19+ and PlatformIO if you prefer.
+**Toolchains — an honest heads-up.** This is **not a vanilla Elixir library.**
+It deliberately crosses language and toolchain borders — Elixir ↔ generated C ↔
+PlatformIO firmware ↔ (optionally) an embedded-Linux host — because that is
+where the safety guarantees live. None of the tools is exotic, but each step
+has its own; this table is the map (and the checklist when a cross-border step
+fails):
+
+| To do this…                         | You need…                                                                                                                                                                             |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Use the library, run `mix test`     | Elixir 1.19+ **plus a C compiler and `make`** — the test suite host-compiles a test-only NIF of the real firmware C (no C ships to production)                                        |
+| Build / flash the ESP32 firmware    | PlatformIO with the [`pioarduino`](https://github.com/pioarduino/platform-espressif32) fork (arduino-esp32 3.x / ESP-IDF 5.x); the first build downloads the toolchain                |
+| Run the physics sim                 | Python 3.12 + [`uv`](https://docs.astral.sh/uv/) — **example-only**; the library and firmware ship no Python                                                                          |
+| Put the host on a robot             | Any Linux + Elixir board; the worked example deploys with **Nerves** on a Raspberry Pi ([`BRINGUP.md`](https://github.com/lostbean/bb_mcuhub/blob/main/examples/segby_v1/BRINGUP.md)) |
+| Have all of it pinned, reproducibly | `nix develop` (or `direnv allow`) — optional but recommended; see [Build & test](#build--test)                                                                                        |
+
+**Nix is not required** — it's a convenience for a pinned, reproducible
+toolchain; bring your own tools per the table if you prefer.
 
 ---
 
@@ -118,14 +142,20 @@ reproducible toolchain (see [Build & test](#build--test)); bring your own Elixir
 
 The library ships `BBMCUHub.Host.Transport.Loopback` (not test-only — it's in
 `lib/`). It runs the whole host stack — views, command-slot writes, the link
-owner's drain, and the _real_ COBS+CRC framing — entirely in-process. Point the
-launcher at it:
+owner's drain, and the _real_ COBS+CRC framing — entirely in-process. Try it
+right now with the shipped example robot (no C toolchain needed here — the NIF
+is test-only):
+
+```sh
+git clone https://github.com/lostbean/bb_mcuhub.git
+cd bb_mcuhub/examples/segby_v1 && mix deps.get && iex -S mix
+```
 
 ```elixir
-# in iex -S mix, with a robot module on the path
+# in that iex session (for your own robot, swap in robot: MyApp.Robot):
 {:ok, _sup} =
   BBMCUHub.Host.start_link(
-    robot: MyApp.Robot,
+    robot: SegbyV1.Robot,
     transport: BBMCUHub.Host.Transport.Loopback
   )
 ```
@@ -156,15 +186,17 @@ native 3-D viewer renders it while you fly it from the terminal dashboard. The
 bot **balances, drives, and turns** — and disarming it visibly drops it limp.
 
 ```sh
-cd examples/segby_v1/sim && uv sync      # one-time: pulls MuJoCo into a local .venv
-cd examples/segby_v1 && mix segby.sim     # opens the 3-D viewer + the bb_tui dashboard
+# the worked example, starting from the repo root
+# (needs Python 3.12 + uv — both in the devShell; see "What do I need?")
+cd examples/segby_v1/sim && uv sync   # one-time: pulls MuJoCo into a local .venv
+cd .. && mix segby.sim                # opens the 3-D viewer + the bb_tui dashboard
 # in the dashboard: arm (a), run the :teleop command with forward/turn to drive;
 # disarm (d) drops the wheels limp — the real floor safe-state.
 ```
 
 The trick is the same **transport seam** the Loopback uses — _it is the one
-hardware boundary._ A `BBMCUHub.Sim` transport (a generic, engine-agnostic
-library seam: a `Plant` behaviour + a transport + a ~50 Hz driver, which this
+hardware boundary._ The `BBMCUHub.Sim.*` seam (generic and engine-agnostic: a
+`Sim.Plant` behaviour + a `Sim.Transport` + a ~50 Hz `Sim.Driver`, which this
 example overrides to 100 Hz) replaces the wire, and a consumer-supplied `Plant`
 supplies the dynamics — here a MuJoCo plant over a `Port` to a small Python
 child. Everything above the transport is the real, shipped code, so the
@@ -175,13 +207,9 @@ firmware ship no Python.
 This is what closes the **sim-to-real gap**: the balance gains, the teleop
 mixing, the wheel-velocity loop, and the disarm safe-state are all developed and
 de-risked here — against faithful dynamics, crashing for free — before a board
-is ever powered. See [ADR-0008](docs/adr/0008-virtual-robot-sim-in-the-loop.md)
-(the sim seam),
-[ADR-0009](docs/adr/0009-wheel-velocity-sensor-and-host-velocity-loop.md)
-(drive-by-speed), and
-[ADR-0010](docs/adr/0010-a-control-loop-falls-silent-on-disarm.md) (disarm =
-host silence), or [`examples/segby_v1/sim/`](examples/segby_v1/sim/) for the
-full setup.
+is ever powered. See [`examples/segby_v1/sim/`](https://github.com/lostbean/bb_mcuhub/tree/main/examples/segby_v1/sim) for the
+full setup; the design rationale (the sim seam, drive-by-speed, disarm = host
+silence) is in [`docs/hub-design.html`](docs/hub-design.html).
 
 ---
 
@@ -190,16 +218,16 @@ full setup.
 A robot is assembled from a handful of small files in a strict order. Each piece
 is small; the library does the mechanical, safety-critical work.
 
-| You write (your project)                                     | The library provides                                     |
-| ------------------------------------------------------------ | -------------------------------------------------------- |
-| **Value-types** (`use BBMCUHub.ValueType`) — your wire vocab | a stock set (`imu`, `effort`, `status`)                  |
-| **Hub modules** (`use BBMCUHub.Hub`) — your ports            | the DSL, the IR projection + compile-time verifier       |
-| **A robot** (`use BB, extensions: [BBMCUHub.Dsl]`)           | the generic `BBMCUHub.Host` launcher                     |
-| **One C hook per port** (fill a struct / apply a value)      | the **generated** route table, dispatch, floor, schedule |
+| You write (your project)                                     | The library provides                                           |
+| ------------------------------------------------------------ | -------------------------------------------------------------- |
+| **Value-types** (`use BBMCUHub.ValueType`) — your wire vocab | a stock set (`imu`, `effort`, `status`)                        |
+| **Hub modules** (`use BBMCUHub.Hub`) — your ports            | the DSL, its intermediate model ("IR") + compile-time verifier |
+| **A robot** (`use BB, extensions: [BBMCUHub.Dsl]`)           | the generic `BBMCUHub.Host` launcher                           |
+| **One C hook per port** (fill a struct / apply a value)      | the **generated** route table, dispatch, floor, schedule       |
 
 These are the two **seams** you extend without ever editing the library: a
 value-type is a standalone, cross-bot module (wire layout + host
-`lift`/`unlift` - the firmware-hook shape), and the per-hub firmware glue is
+`lift`/`unlift` + the firmware-hook shape), and the per-hub firmware glue is
 _generated from the model_, so the safety-critical seq/floor wiring is never
 hand-written.
 
@@ -219,7 +247,7 @@ so regen-and-commit is the routine, not a footnote.
 ## The smallest robot, end to end
 
 Four short pieces. (The full balancing bot lives in
-[`examples/segby_v1/`](examples/segby_v1/); the snippets below are real code
+[`examples/segby_v1/`](https://github.com/lostbean/bb_mcuhub/tree/main/examples/segby_v1); the snippets below are real code
 from it.)
 
 ### 1. A value-type — _what bytes a value puts on the wire_
@@ -261,7 +289,8 @@ port(:motor_left,
   type: :effort,
   rate: 50,
   has_safe_action: true,
-  safe_action: %{nm: 0.0}   # ← the safe value the floor drives to
+  safe_action: %{nm: 0.0},                  # ← the safe value the floor drives to
+  step: {SegbyV1.Hubs.Wheels.Floor, :step}  # declared {module, fun} ref — data only
 )
 ```
 
@@ -296,6 +325,7 @@ on failure — and that makes the reader go stale.
 
 ```c
 extern "C" bool blaster_pose_read(Imu *out) {
+  /* ...one-time lazy I2C init elided (see blaster.cpp)... */
   uint8_t b[14];
   if (!mpu_read(MPU9250_REG_ACCEL_XOUT_H, b, 14))
     return false;             // ← I2C burst failed: pose's seq stalls,
@@ -312,6 +342,8 @@ passes by value; a multi-field value passes as `const <Struct> *`.
 
 ```c
 extern "C" void wheels_motor_left_drive(float effort) {
+  if (!m0_ready)
+    return;                                 // a motor that failed alignment is never touched
   m0_motor.target = torque_to_uq(effort);   // safe_action %{nm: 0.0} → drive(0.0)
   m0_motor.loopFOC();
   m0_motor.move();
@@ -331,7 +363,9 @@ and the external dependency forms), see
 ## Portable core, thin platform layer (ESP32 today — ports welcome)
 
 The C is **not** tied to the ESP32. The correctness-sensitive logic is
-freestanding C11; only a small hardware shim is platform-specific.
+freestanding C11; only a small hardware shim is platform-specific. (The
+chassis's consumer contract — what `lib_deps` pulls in, which hooks you write —
+is documented in [`firmware/README.md`](firmware/README.md).)
 
 - **Portable core** (`firmware/src/*.c`, `firmware/include/*.h`) — the wire
   codec, CRC-16, COBS framing, CAN segmentation/reassembly, the route table, the
@@ -392,7 +426,11 @@ views.
 
 A reproducible toolchain (Elixir, PlatformIO, clang/make) is pinned in
 `flake.nix`. Either run `nix develop` (or `direnv allow`) in any worktree first,
-**or** bring your own Elixir 1.19+ and PlatformIO. See `CLAUDE.md`.
+**or** bring your own tools (see [What do I need?](#what-do-i-need)). Two
+things worth knowing: PlatformIO downloads its ESP32 platform + toolchain into
+a worktree-local `.pio-core` on first use (set `PLATFORMIO_CORE_DIR` to
+override), and commit formatting is enforced via lefthook (`lefthook install`
+once, inside the devShell).
 
 | Stratum                | Command                                                    |
 | ---------------------- | ---------------------------------------------------------- |
@@ -401,13 +439,43 @@ A reproducible toolchain (Elixir, PlatformIO, clang/make) is pinned in
 | Regenerate fixtures    | `mix wire.gen`                                             |
 | Example (Elixir)       | `cd examples/segby_v1 && mix deps.get && mix test`         |
 | Example ESP32 firmware | `cd examples/segby_v1/firmware && pio run -e blaster_root` |
+| Everything CI runs     | `mix ci` — in the root and/or in `examples/segby_v1`       |
 
 `mix test` builds and runs the C parity harness as part of the suite — the wire
-cannot drift past it. The library has no deployable ESP32 env of its own;
+cannot drift past it — so it **needs a C toolchain (`cc` + `make`)** even on a
+pure-Elixir day. The library has no deployable ESP32 env of its own;
 `firmware/` is a chassis library (`library.json`) a consumer pulls via
-`lib_deps`.
+`lib_deps` — see [`firmware/README.md`](firmware/README.md) for the chassis
+contract. `mix ci` is the one-command local gate (format check +
+warnings-as-errors compile + full suite), the same thing
+[CI](.github/workflows/ci.yml) runs.
 
-Elixir 1.19+ is required (the `bb` dependency, `>= 0.22`, requires `~> 1.19`).
+Elixir 1.19+ is required: the declared `bb` requirement is `~> 0.20`, but the
+repo locks (and CI tests against) `bb` 0.22+, which itself requires Elixir
+`~> 1.19`.
+
+### Troubleshooting the borders
+
+The cross-language seams are where first runs stumble. The five failures worth
+knowing by name:
+
+- **`mix test` fails with a `make`/`cc` error** — you're missing a C toolchain.
+  The library's suite host-compiles a test-only NIF of the real firmware C
+  (`test/support/c_src/`); install `cc` + `make` or use `nix develop`. Nothing
+  C is needed to _use_ the library in your app.
+- **The drift test is red after you edited a hub/port/value-type** — that's the
+  design working: committed generated artifacts no longer match the model. Run
+  `mix wire.gen` and commit the regenerated files alongside your change.
+- **The ESP32 firmware won't build / `pio` can't resolve the platform** — the
+  chassis needs the [`pioarduino`](https://github.com/pioarduino/platform-espressif32)
+  fork of `platform-espressif32` (arduino-esp32 3.x / ESP-IDF 5.x), not the
+  stock one. Copy the example's `platformio.ini` or
+  [`docs/templates/platformio.ini.example`](docs/templates/platformio.ini.example).
+- **`bb` won't resolve / Elixir version errors** — you're below Elixir 1.19;
+  see the version note above.
+- **A board boot-loops with `task_wdt` resets** — that's the hardware watchdog
+  doing its job on a wedged hub; see the explanation in
+  [`firmware/README.md`](firmware/README.md).
 
 ---
 
@@ -441,7 +509,7 @@ replacement, and not a standalone framework.
 
 > There is an optional terminal dashboard (`bb_tui`) that shows live hub state,
 > freshness, and arming, wired as Stage 5 of the example's
-> [`BRINGUP.md`](examples/segby_v1/BRINGUP.md) and live in the MuJoCo sim above.
+> [`BRINGUP.md`](https://github.com/lostbean/bb_mcuhub/blob/main/examples/segby_v1/BRINGUP.md) and live in the MuJoCo sim above.
 > No screenshot is committed in this repo yet.
 
 **Time to first motion, honestly:** assembling the software and watching the
@@ -453,8 +521,9 @@ not the library.
 
 ---
 
-<details>
-<summary><b>How a port flows (end to end)</b></summary>
+## Under the hood
+
+### How a port flows (end to end)
 
 ```mermaid
 flowchart TB
@@ -471,16 +540,15 @@ flowchart TB
     C2 -->|"command slot"| C3["LinkOwner<br/>drains on seq advance<br/>COBS + CRC"]
     C3 -->|"wire"| C4["actuator hub<br/>on-chip floor:<br/>arm vs safe<br/>(born-disarmed, dead-man on seq)"]
   end
+
+  sense ~~~ cmd
 ```
 
 A **slot** is one `(node, port)` cell in the host's registry holding the latest
 value plus its `seq`/timestamp. A **Status slot** is the slot a motor hub
 publishes saying whether it is actually driving or floored.
 
-</details>
-
-<details>
-<summary><b>How it's verified (the full matrix)</b></summary>
+### How it's verified (the full matrix)
 
 | Layer             | What                                                                | Verified by                            |
 | ----------------- | ------------------------------------------------------------------- | -------------------------------------- |
@@ -498,10 +566,7 @@ vectors. The library self-tests in isolation via its fixture robot, which also
 defines its own custom value-type — so the extension seam is CI-checked without
 the example present.
 
-</details>
-
-<details>
-<summary><b>Repository layout</b></summary>
+### Repository layout
 
 ```
 lib/bb_mcuhub/        the library — every consumer gets this, never edits it
@@ -514,6 +579,8 @@ lib/bb_mcuhub/        the library — every consumer gets this, never edits it
   hub.ex              `use BBMCUHub.Hub` — declare a hub's ports
   host.ex             the generic `BBMCUHub.Host` launcher (derives slots from the IR)
   host/               node_registry · monitor · link_owner · transport (+ loopback)
+  sim/                plant (behaviour) · transport · driver — the sim-in-the-loop seam
+  observer/           sample · sink(s) (+ observer.ex) — the decoupled observer plane
   bb_hub/             sensor · actuator — the value-type-agnostic BeamBots seam
 firmware/             the C chassis, packaged as a PlatformIO library (library.json)
   include/ src/       crc16 · cobs · frame · transport · scheduler · router · floor · segment
@@ -523,8 +590,9 @@ firmware/             the C chassis, packaged as a PlatformIO library (library.j
 test/support/fixtures/  a coverage-maximizing fixture robot — the library self-test
 
 examples/segby_v1/    the worked example — a separate Mix app (a consumer)
-  lib/segby_v1/       SegbyV1.Robot · Hubs.{Blaster,Wheels} · ValueTypes.{Range,Led}
-                      · Balance · Teleop · Host (a thin wrapper over BBMCUHub.Host)
+  lib/segby_v1/       SegbyV1.Robot · Hubs.{Blaster,Wheels} · ValueTypes.{Range,Led,WheelSpeed}
+                      · Balance · Teleop · Sim (the MuJoCo plant) · Host (a thin
+                      wrapper over BBMCUHub.Host)
   firmware/mcu/       the hand-authored device hooks (the only firmware a consumer writes)
   firmware/gen/       the example's generated glue + headers (drift-tested)
   firmware/platformio.ini   blaster_root + wheels_leaf — consume the chassis via lib_deps
@@ -533,8 +601,6 @@ examples/segby_v1/    the worked example — a separate Mix app (a consumer)
 The dependency arrow points only downward: library ← example. Everything under
 any `gen/` is **generated, never hand-written**; everything under `mcu/` is the
 consumer's device hooks.
-
-</details>
 
 ---
 
@@ -545,8 +611,9 @@ consumer's device hooks.
 - [`docs/NEW-ROBOT.md`](docs/NEW-ROBOT.md) — build your own robot, the ordered
   seven-file walkthrough.
 - [`docs/hub-design.html`](docs/hub-design.html) — the architecture and full
-  rationale.
-- [`examples/segby_v1/`](examples/segby_v1/) — the worked example, with its own
-  [`BRINGUP.md`](examples/segby_v1/BRINGUP.md) for on-hardware bring-up.
-- `docs/adr/` — the recorded decisions (the library/example split, safe-action
-  as a value, declared topology, …).
+  rationale (an HTML page: download/clone and open it in a browser — GitHub
+  shows only its source).
+- [`examples/segby_v1/`](https://github.com/lostbean/bb_mcuhub/tree/main/examples/segby_v1) — the worked example, with its own
+  [`BRINGUP.md`](https://github.com/lostbean/bb_mcuhub/blob/main/examples/segby_v1/BRINGUP.md) for on-hardware bring-up.
+- [`firmware/README.md`](firmware/README.md) — the C chassis: what a firmware
+  consumer gets, the hooks they write, and the two chassis rules.

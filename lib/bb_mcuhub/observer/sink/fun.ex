@@ -1,6 +1,6 @@
 defmodule BBMCUHub.Observer.Sink.Fun do
   @moduledoc """
-  The function sink — the simplest sink primitive (ADR-0004).
+  The function sink — the simplest sink primitive.
 
   A stateless sink whose "state" IS a `fun.(slot, value, meta)`: every sample is
   handed straight to that function and the same function is threaded as the next

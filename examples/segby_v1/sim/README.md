@@ -1,8 +1,8 @@
-# segby_v1 sim — run the robot virtually (ADR-0008)
+# segby_v1 sim — run the robot virtually
 
 Run the **whole segby_v1 control stack** against a MuJoCo physics model with **no
 hardware**. The transport is the one and only hardware boundary; swap it for the
-library's `BBMCUHub.Sim` transport + driver and the real host stack — codec, freshness
+library's `BBMCUHub.Sim.Transport` + driver and the real host stack — codec, freshness
 monitor, floor semantics, views, `bb_tui` — runs unchanged against a simulated robot,
 with a native MuJoCo viewer window rendering the bot in 3D.
 
@@ -50,18 +50,23 @@ The Elixir plant that drives this child lives at
 
    `mix segby.sim` wires the library's `Sim.Transport` + `Sim.Driver` to
    `SegbyV1.Sim.MujocoPlant` and brings up the real `SegbyV1.Host` stack: it injects
-   the SIM transport into the host (so the `LinkOwner` owns it), starts the ~50 Hz
-   driver that steps the plant and injects sensors back up the stack, opens the
-   MuJoCo viewer window, and then launches the **bb_tui dashboard in this same
-   terminal** (it blocks until you quit). The MJCF is resolved from `sim/segby.xml`
-   relative to the app root, so run the task from `examples/segby_v1/`.
+   the SIM transport into the host (so the `LinkOwner` owns it), starts the driver
+   at **100 Hz** (the pose sensor's rate — the library default of ~50 Hz would
+   silently mis-scale ki/kd under the 100 Hz pose view) to step the plant and
+   inject sensors back up the stack, opens the MuJoCo viewer window, and then
+   launches the **bb_tui dashboard in this same terminal** (it blocks until you
+   quit). The MJCF is resolved from `sim/segby.xml` relative to the app root, so
+   run the task from `examples/segby_v1/`.
 
-   In the dashboard: **arm** the robot (`a`), then run the `:teleop` command in the
-   Commands panel with `forward` / `turn` to drive — the bot you see in the MuJoCo
-   window moves. (`:teleop` biases the balance controller's per-wheel effort; it is
-   segby's operator-drive seam — `bb_tui` has no built-in teleop.) Quit the dashboard
-   (`q`) to stop everything. To enable the balance loop live, start with
-   `iex -S mix segby.sim` and call `SegbyV1.Balance.enable(SegbyV1.Robot)`.
+   The sim boots **armed with balance already enabled** (a real board boots
+   disarmed and passive; the whole point here is to watch it balance). In the
+   dashboard: run the `:teleop` command in the Commands panel with `forward` /
+   `turn` to drive — the bot you see in the MuJoCo window moves. (`:teleop`
+   biases the balance controller's per-wheel effort; it is segby's operator-drive
+   seam — `bb_tui` has no built-in teleop.) Press `d` to **disarm** and watch the
+   bot fall limp — the balance loop goes silent and the floor's safe-state takes
+   the wheels — then `a` to re-arm and watch it recover. Quit the dashboard (`q`)
+   to stop everything.
 
 > **One node, not two.** The dashboard attaches to the _running_ robot tree over that
 > tree's PubSub registry (`SegbyV1.Robot.PubSub`). A separate `mix bb.tui` invocation
@@ -70,6 +75,21 @@ The Elixir plant that drives this child lives at
 > dashboard _in the same node_ that owns the tree — the same-node attach the host
 > design assumes. (To attach a dashboard from a separate workstation, start this node
 > named and use `mix bb.tui --node ...` — see `BB.TUI`.)
+
+## Troubleshooting
+
+- **`uv: command not found`** — you're outside the devShell; either
+  `nix develop` at the repo root or [install `uv`](https://docs.astral.sh/uv/)
+  yourself (plus Python 3.12).
+- **"Could not find the MuJoCo model"** — run `mix segby.sim` from
+  `examples/segby_v1/` (the MJCF resolves as `sim/segby.xml` relative to the
+  cwd); the task's error message says the same.
+- **The viewer window never opens on macOS** — the child must run under
+  `mjpython` (see below); the plant selects it automatically, so this usually
+  means `uv sync` hasn't run in `sim/` yet (no `.venv/bin/mjpython`).
+- **`mjpython` fails to dlopen libpython** — re-enter the devShell (its
+  shellHook re-creates the `.venv/lib` symlink) or re-run `mix segby.sim`
+  (the plant creates it at launch, idempotently).
 
 ### macOS: `mjpython`, not `python`
 
@@ -90,11 +110,12 @@ window is ample.
 { "event": "ready", "actuators": ["left_wheel_motor", "right_wheel_motor"], "sensors": [...] }
 ```
 
-**Elixir → child, one per host tick** (the driver's ~50 Hz loop; `n` substeps so one
-host tick advances `dt_s` of simulated time at the MJCF's 2 ms timestep):
+**Elixir → child, one per host tick** (the driver's loop — 100 Hz here; `n`
+substeps so one host tick advances `dt_s` of simulated time at the MJCF's 2 ms
+timestep):
 
 ```json
-{ "op": "set_ctrl_and_step", "ctrl": [left, right], "n": 10 }
+{ "op": "set_ctrl_and_step", "ctrl": [left, right], "n": 5 }
 { "op": "reset" }
 { "op": "quit" }
 ```

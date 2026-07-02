@@ -1,6 +1,6 @@
 defmodule BBMCUHub.Host.Registry.Reader do
   @moduledoc """
-  A **read-only registry capability** for the observability plane (ADR-0004).
+  A **read-only registry capability** for the observability plane.
 
   An observer is a PURE READER (CONTEXT.md · *Observer*): it samples a slot's
   latest value and never writes one. The registry is `:public` ETS, so "exactly
@@ -8,7 +8,7 @@ defmodule BBMCUHub.Host.Registry.Reader do
   gap *structurally*: a `Reader` exposes only `get/3` and `dump/1` — there is no
   `put` — so an observer handed a `Reader` instead of `BBMCUHub.Host.NodeRegistry`
   directly **cannot represent** a slot write. "An observer writes a slot" is made
-  unrepresentable, not merely discouraged (ADR-0004, the protecting invariant).
+  unrepresentable, not merely discouraged (the protecting invariant).
 
   The default reader (`default/0`) delegates the two read calls to the real
   `NodeRegistry`. A test injects a fake `Reader` (any module exposing the same

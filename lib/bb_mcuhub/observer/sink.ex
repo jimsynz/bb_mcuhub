@@ -1,13 +1,12 @@
 defmodule BBMCUHub.Observer.Sink do
   @moduledoc """
-  Where an observer's samples go (ADR-0004 · "hand to a sink").
+  Where an observer's samples go.
 
   An observer's one job is *sample + reduce + hand to a sink* — the observer
   mechanism is type-agnostic, and **what to do** with a sampled value lives here,
   in a pluggable sink (a PubSub republish, a disk log, an event database, a UI
   feed). The library ships the two general primitives (`Fun`, `PubSub`); a disk
-  log / event DB is consumer territory and explicitly out of library scope
-  (ADR-0004 · Consequences).
+  log / event DB is consumer territory and explicitly out of library scope.
 
   ## Two sink shapes, one behaviour
 
@@ -29,13 +28,13 @@ defmodule BBMCUHub.Observer.Sink do
       form the views use; the wire `{node, port_id}` is in `meta`).
     * `value` — the **raw slot value** (the `%{field => number}` map as written by
       the link owner). v1 hands the raw value: `filter`/`project` (which would lift
-      via the value-type) are deferred (ADR-0004 · "v1 does two [axes]"), so the
+      via the value-type) are deferred, so the
       observer keeps a value-type handle in `meta` for a sink that wants it, but
       does not lift for you.
     * `meta` — enough context for a sink to be useful: the wire ids, the producer's
       `seq`, the device stamp, the observer's freshness verdict, and the value-type.
 
-  ## Sink isolation (ADR-0004 · Consequences)
+  ## Sink isolation
 
   The sink runs in the **observer's own process** — a slow or blocking sink (fsync,
   DB insert, socket) degrades only *that* observer (it falls behind its timer), and

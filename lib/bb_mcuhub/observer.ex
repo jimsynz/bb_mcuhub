@@ -1,7 +1,7 @@
 defmodule BBMCUHub.Observer do
   @moduledoc """
-  A host-side **observer** — the observability plane's pure reader (ADR-0004,
-  CONTEXT.md · *Observer*).
+  A host-side **observer** — the observability plane's pure reader
+  (CONTEXT.md · *Observer*).
 
   An observer **samples** one or more `(node, port)` **slots** at its **own
   independent cadence** and hands each fresh value to a pluggable **sink**. It is
@@ -12,8 +12,8 @@ defmodule BBMCUHub.Observer do
   `:ets.lookup`). N observers are N independent readers; adding one costs the
   others nothing.
 
-  v1 implements **sample-state only**, along the **sample + select** axes
-  (ADR-0004): poll the slot's latest value on the observer's own beat; dropping the
+  v1 implements **sample-state only**, along the **sample + select** axes:
+  poll the slot's latest value on the observer's own beat; dropping the
   values skipped between beats is *correct* (the slot is overwrite-only-latest — you
   want "now"). The lossless **stream-events** mode and the **filter** / **project**
   axes are deferred (SAFeD); the value-type handle this observer keeps per slot is
@@ -32,14 +32,14 @@ defmodule BBMCUHub.Observer do
       personally witnesses `seq` advance — so a restart never republishes a leftover
       reading. (An observer's freshness is NOT the control plane's: a slow observer
       may report fresh for a slot the fast loop already floored — for "is the hub
-      driving" read the Status slot, never an observer's verdict. ADR-0004.)
+      driving" read the Status slot, never an observer's verdict.)
     * **Fail-loud select.** Every selected `{hub, port}` is resolved via
       `PortIndex.resolve` at init; an unknown port **stops** the observer
       (`{:stop, {:unknown_port, {hub, port}}}`) — never silently observe a typo'd
       port forever (mirrors `BBMCUHub.BBHub.Sensor`).
     * **Sink in-process.** The sink runs in this observer's own process: a slow sink
       degrades only this observer (it falls behind its timer) and a crashing sink
-      takes down only this observer's child — by design (ADR-0004 · Consequences).
+      takes down only this observer's child — by design.
       v1 spawns no per-sample tasks and adds no unbounded buffering.
 
   ## Options (`start_link/1`)
@@ -68,7 +68,7 @@ defmodule BBMCUHub.Observer do
   not restart on a normal/`{:stop, _}` shutdown, so a typo'd slot stops once and
   stays stopped, while a genuine crash (a sink raising) still restarts. Each observer
   is its own supervised child, so one crashing never takes down a view or another
-  observer (ADR-0004 · Consequences). Wiring a *specific* observer into a robot's
+  observer. Wiring a *specific* observer into a robot's
   tree is the consumer's job (the next phase) — the library just provides this
   startable module.
   """

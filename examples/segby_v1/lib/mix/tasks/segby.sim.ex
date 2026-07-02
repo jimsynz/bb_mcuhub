@@ -24,17 +24,19 @@ defmodule Mix.Tasks.Segby.Sim do
              transport_opts: [name: SegbyV1.Sim.Transport]
            )
 
-    2. **`BBMCUHub.Sim.Driver`** — the ~50 Hz real-time loop. It reads the newest
-       per-slot commands the transport captured, steps the plant, and injects the
-       resulting sensor readings back UP the real stack as wire bodies to the
-       `LinkOwner` (the transport's owner):
+    2. **`BBMCUHub.Sim.Driver`** — the real-time loop, run here at **100 Hz**
+       (`tick_ms: 10`, matching the pose sensor's declared rate; the library's
+       default is ~50 Hz). It reads the newest per-slot commands the transport
+       captured, steps the plant, and injects the resulting sensor readings back
+       UP the real stack as wire bodies to the `LinkOwner` (the transport's
+       owner):
 
            BBMCUHub.Sim.Driver.start_link(
              owner: BBMCUHub.Host.LinkOwner,     # the registered LinkOwner name
              transport: SegbyV1.Sim.Transport,   # same name as step 1
              plant: SegbyV1.Sim.MujocoPlant,
              plant_opts: [mjcf: "…/sim/segby.xml"],
-             tick_ms: 20
+             tick_ms: 10
            )
 
     3. **The plant's Port** to the MuJoCo Python child (owned by the plant), which
@@ -247,9 +249,10 @@ defmodule Mix.Tasks.Segby.Sim do
     shell.info("  Starting the bb_tui dashboard in THIS terminal (same node as the")
     shell.info("  robot tree). A MuJoCo viewer window opens separately.")
     shell.info("")
-    shell.info("  In the dashboard: ARM (a), then run the :teleop command (Commands")
+    shell.info("  The bot boots ARMED and balancing. Run the :teleop command (Commands")
     shell.info("  panel) with forward/turn to drive — the bot moves in the MuJoCo")
-    shell.info("  window. Quit the dashboard (q) to stop everything.")
+    shell.info("  window. Disarm (d) to watch it fall limp; re-arm (a) to recover.")
+    shell.info("  Quit the dashboard (q) to stop everything.")
     shell.info("")
   end
 

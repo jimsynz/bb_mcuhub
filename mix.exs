@@ -7,6 +7,9 @@ defmodule BBMCUHub.MixProject do
       version: "0.1.0",
       elixir: "~> 1.19",
       elixirc_paths: elixirc_paths(Mix.env()),
+      # The generated parity vectors are data the C parity test reads, not a
+      # test file — tell `mix test` so it doesn't warn about the .exs name.
+      test_ignore_filters: [~r{/parity_vectors\.exs$}],
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
@@ -21,7 +24,8 @@ defmodule BBMCUHub.MixProject do
       description: description(),
       package: package(),
       name: "bb_mcuhub",
-      source_url: "https://github.com/lostbean/bb_mcuhub"
+      source_url: "https://github.com/lostbean/bb_mcuhub",
+      docs: docs()
     ]
   end
 
@@ -32,10 +36,11 @@ defmodule BBMCUHub.MixProject do
     ]
   end
 
-  # Run the `ci` alias under MIX_ENV=test end-to-end: its `compile` step must see
-  # test/support (the fixture robot) and its `test` step must not run in :dev.
+  # Run the `ci` and `wire.gen` aliases under MIX_ENV=test end-to-end: their
+  # `compile` step must see test/support (the fixture robot), and `ci`'s `test`
+  # step must not run in :dev.
   def cli do
-    [preferred_envs: [ci: :test]]
+    [preferred_envs: [ci: :test, "wire.gen": :test]]
   end
 
   # The platform lives in lib/; the library's own tests are backed by the fixture
@@ -99,13 +104,15 @@ defmodule BBMCUHub.MixProject do
       #
       # The library's committed robot is its TEST FIXTURE (the drift/C-parity
       # witness), which lives under test/support and is compiled only in :test. So
-      # generation must run in the test env to see it — `mix wire.gen` chains the
-      # compile+task under MIX_ENV=test for you. The worked example (segby_v1)
+      # generation must run in the test env to see it — cli/0's preferred_envs
+      # runs `mix wire.gen` under MIX_ENV=test for you. (Not `mix cmd
+      # MIX_ENV=test ...`: Mix >= 1.19 no longer shells out, so an env-var
+      # prefix would be exec'd as a program name.) The worked example (segby_v1)
       # generates its OWN artifacts from its own app (it passes its own output
       # base; see examples/segby_v1/mix.exs). Implemented by
       # `Mix.Tasks.Wire.Gen.Run` (supports `--robot <Mod>` + `--gen-dir`/
       # `--fixtures-dir`).
-      "wire.gen": ["cmd MIX_ENV=test mix do compile + wire.gen.run"],
+      "wire.gen": ["compile", "wire.gen.run"],
       # The one-command local gate — the same checks CI runs (see
       # .github/workflows/ci.yml): formatting, a clean warnings-as-errors compile,
       # and the full suite (which itself builds the C NIF + runs the C parity and
@@ -132,6 +139,9 @@ defmodule BBMCUHub.MixProject do
   defp package do
     [
       licenses: ["Apache-2.0"],
+      # Ship the prose the docs config lists as extras — hexdocs builds from the
+      # package tarball, so an extra not in `files` silently vanishes there.
+      files: ~w(lib mix.exs README.md LICENSE CONTEXT.md docs/NEW-ROBOT.md),
       # Absolute URLs — Hex renders these on the package page (relative paths 404).
       links: %{
         "GitHub" => "https://github.com/lostbean/bb_mcuhub",
@@ -139,4 +149,73 @@ defmodule BBMCUHub.MixProject do
       }
     ]
   end
+
+  # `mix docs` — make hexdocs land on the README and carry the two prose docs a
+  # consumer needs next (the glossary + the build-your-own-robot walkthrough).
+  # The 38 lib/ modules all have @moduledoc; the groups give the sidebar the
+  # same shape as the README's repository-layout map.
+  defp docs do
+    [
+      main: "readme",
+      extras: [
+        "README.md",
+        "CONTEXT.md": [title: "Glossary (CONTEXT)"],
+        "docs/NEW-ROBOT.md": [title: "Build your own robot"]
+      ],
+      source_ref: "main",
+      # Render ```mermaid fences as diagrams (the ex_doc-documented recipe) —
+      # without this the README's port-flow diagram is a dead code block.
+      before_closing_body_tag: &before_closing_body_tag/1,
+      groups_for_modules: [
+        "DSL & model": [
+          BBMCUHub.Dsl,
+          BBMCUHub.Hub,
+          ~r/^BBMCUHub\.(Dsl|Hub|Robot)\./
+        ],
+        "Value-types": [BBMCUHub.ValueType, ~r/^BBMCUHub\.ValueType\./],
+        Host: [BBMCUHub.Host, ~r/^BBMCUHub\.Host\./],
+        "BeamBots seam": [~r/^BBMCUHub\.BBHub\./],
+        Wire: [~r/^BBMCUHub\.Wire\./],
+        Contract: [BBMCUHub.Contract, ~r/^BBMCUHub\.Contract\./],
+        Generator: [~r/^BBMCUHub\.Gen\./, Mix.Tasks.Wire.Gen.Run],
+        Sim: [~r/^BBMCUHub\.Sim\./],
+        Observer: [BBMCUHub.Observer, ~r/^BBMCUHub\.Observer\./]
+      ]
+    ]
+  end
+
+  # The ex_doc-documented Mermaid hook: render each ```mermaid fence into an
+  # SVG after the page loads (theme-aware), replacing the code block.
+  defp before_closing_body_tag(:html) do
+    """
+    <script defer src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+    <script>
+      let initialized = false;
+      window.addEventListener("exdoc:loaded", () => {
+        if (!initialized) {
+          mermaid.initialize({
+            startOnLoad: false,
+            theme: document.body.className.includes("dark") ? "dark" : "default"
+          });
+          initialized = true;
+        }
+        let id = 0;
+        for (const codeEl of document.querySelectorAll("pre code.mermaid")) {
+          const preEl = codeEl.parentElement;
+          const graphDefinition = codeEl.textContent;
+          const graphEl = document.createElement("div");
+          const graphId = "mermaid-graph-" + id++;
+          mermaid.render(graphId, graphDefinition).then(({svg, bindFunctions}) => {
+            graphEl.innerHTML = svg;
+            bindFunctions?.(graphEl);
+            preEl.insertAdjacentElement("afterend", graphEl);
+            preEl.remove();
+          });
+        }
+      });
+    </script>
+    """
+  end
+
+  defp before_closing_body_tag(_), do: ""
 end

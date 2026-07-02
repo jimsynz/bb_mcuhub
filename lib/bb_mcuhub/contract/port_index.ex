@@ -29,7 +29,7 @@ defmodule BBMCUHub.Contract.PortIndex do
   @doc """
   Build (or rebuild) the index from a robot's contracts + topology and cache it.
 
-  The robot is ALWAYS explicit (ADR-0003: generation/index is explicit-robot,
+  The robot is ALWAYS explicit (generation/index is explicit-robot,
   there is no library default). Call once at boot — the generic `BBMCUHub.Host`
   launcher does this for the consumer's robot; tests build for their robot in
   setup. Returns the index map.
@@ -50,7 +50,7 @@ defmodule BBMCUHub.Contract.PortIndex do
 
   @doc """
   The cached index. Raises if it was never built — there is no robot default to
-  fall back to (ADR-0003), so a caller must `build/1` for its robot first (the
+  fall back to, so a caller must `build/1` for its robot first (the
   Host launcher and tests do).
   """
   @spec index() :: %{{0..255, 0..255} => entry()}

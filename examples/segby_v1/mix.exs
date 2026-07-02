@@ -17,6 +17,9 @@ defmodule SegbyV1.MixProject do
       version: "0.1.0",
       elixir: "~> 1.19",
       elixirc_paths: elixirc_paths(Mix.env()),
+      # The generated parity vectors are data the drift/parity tests read, not a
+      # test file — tell `mix test` so it doesn't warn about the .exs name.
+      test_ignore_filters: [~r{/parity_vectors\.exs$}],
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
