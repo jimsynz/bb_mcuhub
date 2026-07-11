@@ -1,5 +1,7 @@
 # Topology is declared by parent links, not inferred from node ids; a link is a first-class edge
 
+<a id="adr-0006"></a>
+
 _Amended by ADR-0011: the `node → link` route table serves only DESCENDING
 frames (arrival on the up-link). A frame arriving on a downlink is ascending
 host-bound traffic and forwards up unconditionally — the table lookup this ADR

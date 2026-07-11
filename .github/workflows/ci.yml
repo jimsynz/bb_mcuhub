@@ -154,3 +154,19 @@ jobs:
       # to verify formatting (a bare eval would skip the check itself).
       - name: Check formatting
         run: nix flake check
+
+  # --- Design layer gate (copy-installed checks, scripts/design-schema.json
+  # stamped) ----------------------------------------------------------------
+  design-gate:
+    name: Design layer gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: design-render --check
+        run: |
+          shopt -s globstar nullglob
+          for f in docs/design/**/design.md; do
+            scripts/design-render "$f" --check
+          done
+      - name: layer-integrity
+        run: scripts/layer-integrity .

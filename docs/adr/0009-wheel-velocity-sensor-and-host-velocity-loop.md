@@ -1,5 +1,7 @@
 # A wheel reports its measured speed as a sensor port, and the host closes a velocity loop on top of balance
 
+<a id="adr-0009"></a>
+
 Each wheel hub exposes its **measured angular velocity** (rad/s) as a first-class
 **sensor port** — `vel_left` / `vel_right`, a new consumer value-type
 `WheelSpeed` (one `:f32`), `dir: :out`, surfaced through the **same `BB.Sensor`

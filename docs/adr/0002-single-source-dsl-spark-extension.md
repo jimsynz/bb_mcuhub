@@ -1,5 +1,7 @@
 # The contract is authored in BeamBots' DSL; the hub gateway is a Spark extension
 
+<a id="adr-0002"></a>
+
 The hub-gateway library is a **Spark DSL extension to BeamBots (`bb`)**, not a
 parallel configuration system. A user imports the `bb` packages plus this library
 and authors **one model**: hubs are reusable modules (`use BBMCUHub.Hub`) that

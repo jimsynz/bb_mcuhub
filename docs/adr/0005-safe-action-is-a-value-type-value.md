@@ -1,5 +1,7 @@
 # A safe action is a value of the port's value-type, and the floor is byte-generic
 
+<a id="adr-0005"></a>
+
 A floored command port's **`safe_action`** is declared in the DSL as a **literal
 value of that port's own value-type** — the same `[{field, wire_type}]` **layout**
 the wire carries — not as a free-floating atom. The **generator packs it to bytes

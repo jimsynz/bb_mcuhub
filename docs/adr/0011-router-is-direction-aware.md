@@ -1,5 +1,7 @@
 # The router is direction-aware: a frame from a downlink ascends; the route table serves only descending traffic
 
+<a id="adr-0011"></a>
+
 _Amends ADR-0006 (whose `node → link` table stands, but only for one direction).
 Fixes issue #9, found on real hardware by the `segby_v1` two-board bring-up._
 
@@ -124,8 +126,10 @@ routing decision.**
   frames anywhere except up.
 - **The traffic model becomes a named invariant.** "Every conversation is
   host↔hub; hubs never converse with each other" is promoted from an implicit
-  assumption to a first-class design invariant (`docs/hub-design.html` ·
-  Invariants; `CONTEXT.md` · Host↔hub conversations). The direction rule is
+  assumption to a first-class design invariant (at the time, the v1
+  `docs/hub-design.html` · Invariants and `CONTEXT.md` · Host↔hub
+  conversations; now `docs/design/design.md` §00 and
+  `docs/design/CONTEXT.md#term-host-hub-conversations`). The direction rule is
   its enforcement: the hub tree is a tree at the transport level but a star
   at the conversation level. Any future hub↔hub path must revisit this ADR
   and bring its own authentication story.

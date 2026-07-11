@@ -1,5 +1,7 @@
 # One writer per slot is enforced by a write-scoped capability, the mirror of the Reader
 
+<a id="adr-0007"></a>
+
 The "exactly one writer per slot" rule (§07) — the precondition that makes
 `seq`-as-trust sound — is enforced **structurally** by a slot-scoped **write
 capability** (`BBMCUHub.Host.Registry.Writer`), the write-side mirror of the

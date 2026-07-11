@@ -39,8 +39,8 @@ defmodule Mix.Tasks.Wire.Gen.Run do
   A consumer thus runs generation without authoring any generator plumbing.
   """
   # Design: ADR-0003 (library/example split) is why generation is explicit-robot
-  # and why each app generates into its own tree; the model itself is §06 of
-  # docs/hub-design.html.
+  # and why each app generates into its own tree; the model itself is §04 of
+  # docs/design/design.md.
   use Mix.Task
 
   alias BBMCUHub.Gen.WireGen

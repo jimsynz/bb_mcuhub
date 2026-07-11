@@ -141,11 +141,11 @@ defmodule BBMCUHub.MixProject do
       licenses: ["Apache-2.0"],
       # Ship the prose the docs config lists as extras — hexdocs builds from the
       # package tarball, so an extra not in `files` silently vanishes there.
-      files: ~w(lib mix.exs README.md LICENSE CONTEXT.md docs/NEW-ROBOT.md),
+      files: ~w(lib mix.exs README.md LICENSE docs/design/CONTEXT.md docs/NEW-ROBOT.md),
       # Absolute URLs — Hex renders these on the package page (relative paths 404).
       links: %{
         "GitHub" => "https://github.com/lostbean/bb_mcuhub",
-        "Design" => "https://github.com/lostbean/bb_mcuhub/blob/main/docs/hub-design.html"
+        "Design" => "https://github.com/lostbean/bb_mcuhub/blob/main/docs/design/design.md"
       }
     ]
   end
@@ -159,7 +159,7 @@ defmodule BBMCUHub.MixProject do
       main: "readme",
       extras: [
         "README.md",
-        "CONTEXT.md": [title: "Glossary (CONTEXT)"],
+        "docs/design/CONTEXT.md": [title: "Glossary (CONTEXT)"],
         "docs/NEW-ROBOT.md": [title: "Build your own robot"]
       ],
       source_ref: "main",

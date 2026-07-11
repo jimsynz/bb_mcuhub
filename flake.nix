@@ -68,6 +68,12 @@
             "examples/*/test/fixtures/**/parity_vectors.exs"
             "*.lock"
             "mix.lock"
+            # copy-installed design-layer gate scripts (setup-project-skills) —
+            # framework-owned, stamped with a schema version; never reformatted.
+            "scripts/design-render"
+            "scripts/layer-integrity"
+            "scripts/gate-stamp-check"
+            "scripts/design-schema.json"
           ];
         };
       in

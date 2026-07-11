@@ -1,5 +1,7 @@
 # A host control loop must fall silent on disarm — it produces the command-silence the floor's safe-state needs
 
+<a id="adr-0010"></a>
+
 > **Amendment (2026-06-27).** The framework seam described below was proposed
 > upstream as `BB.Controller.handle_safety_state_change/2` (beam-bots/bb#160) and
 > **rejected**: observing safety state is already public API — a controller

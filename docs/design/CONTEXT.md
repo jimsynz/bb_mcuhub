@@ -2,34 +2,34 @@
 
 A glossary of the load-bearing terms in `bb_mcuhub` (the "hub gateway"): the design
 for reaching microcontroller hardware from the BeamBots (`bb`) ecosystem through one
-recursive abstraction. Definitions only — no implementation details. Start at
-[`README.md`](README.md); build your own robot with
-[`docs/NEW-ROBOT.md`](docs/NEW-ROBOT.md); the full architecture is
-[`docs/hub-design.html`](docs/hub-design.html) (open it locally in a browser).
-Throughout this file, `§NN` refers to a section of that design page, and
-`ADR-NNNN` to a decision record in [`docs/adr/`](docs/adr/README.md).
+recursive abstraction. Definitions only — no implementation details. This is the
+**root context** — the reusable library. The `segby_v1` worked example is a separate
+context; see [`segby_v1/CONTEXT.md`](segby-v1/CONTEXT.md) for its one context-owned
+term (wheel-speed sensing + the host velocity loop). Throughout this file,
+`ADR-NNNN` links a decision record in [`../adr/`](../adr/).
 
 ## Terms
 
-### Hub
+### Hub {#term-hub}
 
 The one MCU node type, and the whole topology model. A hub does any subset of three
 jobs — **sense** (read a device, `sample` a typed value, publish it up with a `seq`),
 **act** (drive a local actuator behind a floor), and **route** (forward frames for
 child hubs, meaning-blind). Because a hub can be a parent, a tree of any depth is built
 by composing this one shape — there is no separate gateway, leaf, or router type. A hub
-with children is a branch; a hub with none is a leaf. See **Root hub**, **Contract**.
+with children is a branch; a hub with none is a leaf. See [Root hub](#term-root-hub),
+[Contract](#term-contract).
 
-### Root hub
+### Root hub {#term-root-hub}
 
-The hub that owns the host link: it speaks **UART** upward to the host and bridges down
-to its children over their **links** (a shared CAN bus, point-to-point UART, or a mix).
-It is the hub that **declares `parent: :host`** — not the lowest-numbered hub, not a
-fourth node kind, just the one hub that holds the host connection. It is still an
+The hub that owns the host link: it speaks **UART** upward to the host and bridges
+down to its children over their **links** (a shared CAN bus, point-to-point UART, or a
+mix). It is the hub that **declares `parent: :host`** — not the lowest-numbered hub, not
+a fourth node kind, just the one hub that holds the host connection. It is still an
 ordinary hub (it may sense or act while it bridges). Exactly one root per robot, checked
-at compile time (ADR-0006).
+at compile time ([ADR-0006](../adr/0006-links-are-declared-not-inferred.md#adr-0006)).
 
-### Link
+### Link {#term-link}
 
 The **edge between a hub and its parent** — a first-class topology entity, not a port
 (a port is a sense/act endpoint; a link is how a hub is _reached_). A link carries a
@@ -41,16 +41,17 @@ share **one bus**; a UART uplink is point-to-point — and a parent may own **an
 multiplexes (no sibling-uniformity constraint). The generated **route table maps each
 node to the specific link** that reaches it (the host link is link 0) — but the table
 serves only **descending** frames: routing is decided first by the **arrival link**
-(ADR-0011). A frame arriving on a downlink is ascending host-bound traffic and forwards
-up unconditionally (its NODE is a _source_); a frame arriving on the up-link descends by
-the flat `route_table[node]` lookup, and one addressed outside the subtree is dropped —
-a frame never exits the link it arrived on. The verifier checks the tree is well-formed
-(one root, every parent resolves, no cycles, fully connected). Nothing about transport
-or tree shape is inferred from node-id ordering (ADR-0006).
+([ADR-0011](../adr/0011-router-is-direction-aware.md#adr-0011)). A frame arriving on a
+downlink is ascending host-bound traffic and forwards up unconditionally (its NODE is a
+_source_); a frame arriving on the up-link descends by the flat `route_table[node]`
+lookup, and one addressed outside the subtree is dropped — a frame never exits the link
+it arrived on. The verifier checks the tree is well-formed (one root, every parent
+resolves, no cycles, fully connected). Nothing about transport or tree shape is inferred
+from node-id ordering ([ADR-0006](../adr/0006-links-are-declared-not-inferred.md#adr-0006)).
 _Avoid_: conflating a link with a **port** (a child link is never a port) or with a
 **NODE** (a node is addressed; a link is traversed).
 
-### Host
+### Host {#term-host}
 
 The machine above the tree running Elixir/OTP and the BeamBots application —
 typically a Raspberry-Pi-class board (the worked example deploys under Nerves),
@@ -58,7 +59,7 @@ but equally a laptop running the loopback or the sim. It is **not a hub** — it
 sits above the hub tree, reaches every node through one UART to the root hub, and
 holds the robot's truth in a small per-`(node, port)` registry. Logical id 0.
 
-### Contract
+### Contract {#term-contract}
 
 The data describing what a hub produces on the wire: its ports, each port's value
 `type` and `rate` (a single nominal number), its `safe_action`/`t_dev`, plus the pure
@@ -70,7 +71,7 @@ generator emits **three** artifacts — the C headers, the per-hub schedule, and
 parity vectors (the Elixir codec is data-driven, reading the model at runtime) — so the
 C and Elixir sides cannot drift. A hub's contract is its public face.
 
-### IR (the projected model)
+### IR (the projected model) {#term-ir}
 
 The **intermediate representation**: the one plain-data model a compile-time
 transformer projects out of the authored DSL (the hub modules + the `hubs do`
@@ -80,7 +81,7 @@ slots from it, and the Elixir codec reads it at runtime. One authored model, one
 projection, every consumer downstream of the same facts — that is what makes
 "the C and Elixir sides cannot drift" more than a slogan.
 
-### Hub module
+### Hub module {#term-hub-module}
 
 A reusable building block: an Elixir module (`use BBMCUHub.Hub`) that declares one hub's
 ports and their **intrinsic wire facts** — `dir`, value `type`, `rate`, `t_dev`,
@@ -91,7 +92,7 @@ BeamBots components. The library owns the communication logic (wire, floor, fres
 segmentation); the hub module owns the device-specific logic. A port names a
 **value-type**, not its own layout.
 
-### Value-type
+### Value-type {#term-value-type}
 
 A standalone, reusable unit (`use BBMCUHub.ValueType`) defining _what bytes a kind of
 value puts on the wire and how those bytes become a typed `BB.Message`_ — and nothing
@@ -104,39 +105,42 @@ own command message, the view does not guess it. It names no node, pin, rate, or
 value-type composes across many **hubs** and robots — `:imu` is one contract whether on a
 follower's IMU board or segby's Blaster. A **port** references its value-type by module;
 the library ships a lean stock set — **imu**, **effort**, and **status** (the universal
-pair plus the floor's reported-truth slot, §05) — and a consumer writes their own in their
-own project to extend the wire vocabulary, no library edit. The worked example proves this
-by defining its own `Range` and `Led` value-types rather than relying on stock ones, so the
-extension seam is exercised — and validated — by construction. The IR carries the resolved layout, so the C struct, the Elixir codec, and the
-parity bytes all derive from the one declaration. A value-type owns the contract on **both
-strata**: the host `lift`/`unlift`, _and_ the **firmware hook** signature for ports of its
-shape. It is the single extensibility seam — a new kind of value is one self-contained,
-cross-bot-reusable unit. A port's `type:` is **parsed at compile time, not scanned
-late**: the IR transformer rejects a `type:` that does not resolve to a real value-type
-module (a typo like `:effor`, checked via `ValueType.resolved?/1`) with a named
-`DslError`, **before** projection reads the layout — so an unknown type is a clear
-compile error naming the `(hub, port)`, not an `UndefinedFunctionError` deep in the
-generator.
+pair plus the floor's reported-truth slot, [§05](design.md#05-freshness-the-floor-safety))
+— and a consumer writes their own in their own project to extend the wire vocabulary, no
+library edit. The worked example proves this by defining its own `Range` and `Led`
+value-types rather than relying on stock ones, so the extension seam is exercised — and
+validated — by construction. The IR carries the resolved layout, so the C struct, the
+Elixir codec, and the parity bytes all derive from the one declaration. A value-type
+owns the contract on **both strata**: the host `lift`/`unlift`, _and_ the **firmware
+hook** signature for ports of its shape. It is the single extensibility seam — a new
+kind of value is one self-contained, cross-bot-reusable unit. A port's `type:` is
+**parsed at compile time, not scanned late**: the IR transformer rejects a `type:` that
+does not resolve to a real value-type module (a typo like `:effor`, checked via
+`ValueType.resolved?/1`) with a named `DslError`, **before** projection reads the
+layout — so an unknown type is a clear compile error naming the `(hub, port)`, not an
+`UndefinedFunctionError` deep in the generator.
 _Avoid_: layout (that is one _field_ of a value-type, not the unit itself).
 
-### Topology validation (the verifier)
+### Topology validation (the verifier) {#term-topology-validation}
 
-The single compile-time check that the one authored model is well-formed (§06). It is a
-**Spark verifier** our DSL extension adds to `use BB` (no fork — hubs are placed in a
-sibling `hubs do` section the extension owns), so it runs **at compile time** over the
-assembled topology: it reconciles every `(hub, port)` a reader
-(a **component** view) names against exactly one producer in the IR, and checks node-id
-uniqueness, reserved ids (host 0, broadcast `0x00`) unclaimed, `fresh_for` ≥ one writer
-period, no `(node, port_id)` collision, and that every value body (`header + payload +
-CRC`) fits the segmentation ceiling (512 B). A violation refuses to compile, naming the
-offending pair — the bug cannot ship, never mind reach the bus.
+The single compile-time check that the one authored model is well-formed
+([§04](design.md#04-the-contract-generated-no-drift)). It is a **Spark verifier** our
+DSL extension adds to `use BB` (no fork — hubs are placed in a sibling `hubs do` section
+the extension owns), so it runs **at compile time** over the assembled topology: it
+reconciles every `(hub, port)` a reader (a **component** view) names against exactly one
+producer in the IR, and checks node-id uniqueness, reserved ids (host 0, broadcast
+`0x00`) unclaimed, `fresh_for` ≥ one writer period, no `(node, port_id)` collision, and
+that every value body (`header + payload + CRC`) fits the segmentation ceiling (512 B).
+A violation refuses to compile, naming the offending pair — the bug cannot ship, never
+mind reach the bus.
 
-### NODE / PORT (the wire identity)
+### NODE / PORT (the wire identity) {#term-node-port}
 
 A value's identity on the wire is `(NODE, PORT)`. **NODE** is a flat, whole-tree-unique
 address — never a path — and it names **the hub end of a host↔hub conversation**: the
 destination on a descending command, the _source_ on an ascending sense/status frame
-(the host end is implicit). Routing is therefore direction-first (ADR-0011): a downlink
+(the host end is implicit). Routing is therefore direction-first
+([ADR-0011](../adr/0011-router-is-direction-aware.md#adr-0011)): a downlink
 arrival ascends; an up-link arrival descends by the flat `route_table[node] → local link`
 lookup. **PORT** names a sense/act endpoint on that node and nothing else — a child link
 is **not** a port (a downstream hub is reached by addressing its own NODE). On CAN the two
@@ -144,20 +148,21 @@ pack into a generated 29-bit extended id `[NODE:8][PORT:8][rsv:13]`, so the cont
 filters in hardware and id-range doubles as arbitration priority. `NODE 0x00` is the
 reserved broadcast/e-stop address — the lowest id, so it wins bus arbitration.
 
-### Slot (the registry row)
+### Slot (the registry row) {#term-slot}
 
 A named place keyed by `(node, port)` holding exactly one value plus two stamps: `seq`
 (a per-write counter the producing hub bumps +1 on every real new value) and `t_dev`
 (the producer's own 64-bit monotonic microseconds at the write). Overwrite-only; reads
 never block and return the latest. **Exactly one writer per slot — now enforced
-structurally** by a slot-scoped **write capability** (`Registry.Writer`, ADR-0007),
-the mirror of the read-only `Reader`: a writer is minted for one `(node, port)` and its
+structurally** by a slot-scoped **write capability** (`Registry.Writer`,
+[ADR-0007](../adr/0007-one-writer-per-slot-is-a-capability.md#adr-0007)), the mirror of
+the read-only `Reader`: a writer is minted for one `(node, port)` and its
 `put` carries no node/port (writing another slot is unrepresentable), and a second live
 mint for a slot raises `Writer.Taken`. (The table stays `:public` for lock-free
 hot-path writes, so the raw-`:ets` bypass is the one remaining, documented hole —
-ADR-0007.)
+[ADR-0007](../adr/0007-one-writer-per-slot-is-a-capability.md#adr-0007).)
 
-### seq · t_dev (the two stamps)
+### seq · t_dev (the two stamps) {#term-seq-t-dev}
 
 `seq` is the **only** stamp in the trust path: a consumer judges freshness by "did `seq`
 advance within my `fresh_for` window, on my own beats?" — never a cross-board clock
@@ -166,40 +171,40 @@ device's samples, jitter, replay); it is never compared across nodes and never r
 the freshness check. The split is strict: `seq` decides trust, `t_dev` is carried but
 inert to it.
 
-### Advance (the freshness/floor test)
+### Advance (the freshness/floor test) {#term-advance}
 
 "`seq` advanced" is the plain inequality `seq != last_seq` — any change is a new write.
 This is **sound only because every path is in-order**: point-to-point UART/CAN preserve
-order and the relay is a strict FIFO byte pump (see **Relay**). No magnitude test means
-counter wrap is a non-issue. If a future relay may reorder, this test must become a
-windowed forward compare.
+order and the relay is a strict FIFO byte pump (see [Relay](#term-relay)). No magnitude
+test means counter wrap is a non-issue. If a future relay may reorder, this test must
+become a windowed forward compare.
 
-### Relay (the router discipline)
+### Relay (the router discipline) {#term-relay}
 
 A branch hub forwarding a child's frame copies `seq` and `t_dev` **verbatim** (a relay
 never mints a `seq`) **and** forwards in **arrival order** — a strict FIFO byte pump
 that never reorders, holds, batches, or dedupes. This in-order guarantee is the
-precondition that makes the **advance** test sound. Conflation (deferred) may drop
-superseded frames but must preserve per-`(node, port)` order.
+precondition that makes the [Advance](#term-advance) test sound. Conflation (deferred)
+may drop superseded frames but must preserve per-`(node, port)` order.
 
-### Host↔hub conversations (the only traffic model — an invariant)
+### Host↔hub conversations (the only traffic model — an invariant) {#term-host-hub-conversations}
 
 Every conversation on the wire is between the **host** and exactly one **hub**: a
 descending frame is a command from the host; an ascending frame is sense/status toward
 the host. **Hubs never converse with each other** — a hub cannot command its parent, a
 sibling, or any other hub. The router makes this structural, not conventional
-(ADR-0011): a frame arriving on a downlink can only ascend, so the host side is the
-sole origin of descending traffic at every hub, regardless of what a frame's NODE
-claims. This is the wire-level footing under **one writer per slot** and the floor's
-command-silence test — neither needs source authentication because the topology admits
-only one command origin. A future hub↔hub path (say, a reflex between hubs) must be
-designed deliberately, with its own authentication story — never inherited as a
-routing side effect.
+([ADR-0011](../adr/0011-router-is-direction-aware.md#adr-0011)): a frame arriving on a
+downlink can only ascend, so the host side is the sole origin of descending traffic at
+every hub, regardless of what a frame's NODE claims. This is the wire-level footing
+under **one writer per slot** and the floor's command-silence test — neither needs
+source authentication because the topology admits only one command origin. A future
+hub↔hub path (say, a reflex between hubs) must be designed deliberately, with its own
+authentication story — never inherited as a routing side effect.
 _Avoid_: treating the hub tree as a general mesh or distributed system. It is a tree
 at the transport level but a star at the conversation level — every conversation has
 the host at one end.
 
-### fresh_for · born-stale
+### fresh_for · born-stale {#term-fresh-for-born-stale}
 
 Each consumer declares a `fresh_for` window as a multiple of the producer's nominal
 period (so "a window shorter than one write" cannot be expressed). A freshly started or
@@ -207,7 +212,7 @@ restarted consumer is **born stale**: it distrusts whatever value sits in a slot
 it _personally_ witnesses `seq` advance since its own boot. This is what makes a restart
 safe — a rebooted board never trusts a leftover reading.
 
-### The floor (dead-man)
+### The floor (dead-man) {#term-the-floor}
 
 The authoritative safe-state mechanism, on each actuator hub's **own chip**. It watches
 the `seq` of _its own_ command against a compiled-in window on its own clock; if the
@@ -216,7 +221,8 @@ It needs no inbound frame, so it fires even if the parent, the tree above, or th
 is entirely gone. It is the guarantee; everything host-side is best-effort on top of it.
 The floor is **value-type-agnostic**: it watches a `seq` and swaps between two values of
 the command's own value-type (the commanded one and the safe one), never interpreting
-their meaning — it does not know a torque from a position (ADR-0005). It is also
+their meaning — it does not know a torque from a position
+([ADR-0005](../adr/0005-safe-action-is-a-value-type-value.md#adr-0005)). It is also
 **fail-closed on value width** (defence-in-depth): an over-wide value (`n >
 FLOOR_MAX_VALUE`) is never copied into its buffers — `floor_init` clamps to drive
 nothing and stays disarmed, and `floor_on_command` ignores the command entirely (no
@@ -224,7 +230,7 @@ target, no `seq` update, so it cannot count as an advance), and the dead-man flo
 silence. The compile-time ceilings already bound `n`, so this is a should-never-happen
 that resolves to the safe state instead of corrupting the safety chip's own memory.
 
-### Safe action
+### Safe action {#term-safe-action}
 
 The value an actuator hub's **floor** drives when disarmed — and it is **a value of that
 command port's own value-type** (the same **layout** the command rides on the wire), not
@@ -237,19 +243,20 @@ on-chip safe state cannot drift from what was declared. A command port states it
 explicitly with a required **`has_safe_action`** boolean: `true` ⇒ floored, a safe action
 is required and a floor is generated; `false` ⇒ a non-floored actuator (e.g. an LED), no
 safe action. Because the flag is required, a floored port is never silently floorless — a
-forgotten safe action is a compile error, not a missing dead-man (ADR-0005).
+forgotten safe action is a compile error, not a missing dead-man
+([ADR-0005](../adr/0005-safe-action-is-a-value-type-value.md#adr-0005)).
 _Avoid_: treating a safe action as a bare scalar or a magic keyword (it is a typed value),
 or inferring "floored" from whether a safe action happens to be present (it is the explicit
 `has_safe_action` role).
 
-### Born-disarmed
+### Born-disarmed {#term-born-disarmed}
 
 Every actuator hub boots `armed = false` with its output already at the safe action. It
 begins driving only after it witnesses a fresh, in-window command `seq` advancing since
 its own boot. A reboot, power glitch, or stale buffered frame cannot energise it —
 **motion is continuously earned, never a default**.
 
-### The e-stop (accelerator, not mechanism)
+### The e-stop (accelerator, not mechanism) {#term-e-stop}
 
 The heartbeat and broadcast disarm share **one** tested code path with the floor: a
 broadcast disarm, a missed heartbeat, a pulled wire, or a dead parent all resolve to the
@@ -257,65 +264,49 @@ same thing at the actuator — _its command `seq` stops advancing_ → the floor
 e-stop only makes the silence happen faster (and, as `NODE 0x00`, wins CAN arbitration);
 it is never a second "react to the stop frame" path that could itself fail.
 
-### A control loop falls silent on disarm
+### A control loop falls silent on disarm {#term-control-loop-falls-silent}
 
-The floor's safe-state is reached by **command-silence** (see _the e-stop_) — which assumes
-the **host stops commanding** on disarm. That is true for a dead parent / cut bus / crashed
-host, but a **control loop is an always-commanding actor** (a self-balancer _must_ command
-every tick to stay upright), so it never goes silent on its own and would re-advance the
-floor's `seq` every tick, **defeating disarm**. So a host control loop (a `BB.Controller`
-that commands actuators) **must gate its own output on the safety state**: it subscribes to
-the safety transitions (`BB.subscribe(robot, [:state_machine])`, the documented pattern) and
-**publishes nothing while not armed** (seeding armed-ness from `BB.Safety.state` at boot so a
-born-disarmed robot drives nothing). It is the host-side _producer_ of the silence the floor
-waits for — the floor stays the guarantee; the controller supplies the silence. A control
-loop that commands through disarm is a safety bug (ADR-0010). Distinct from **the e-stop**:
-that accelerates the silence on the wire; this is who, on the host, actually creates it.
+The floor's safe-state is reached by **command-silence** (see [the e-stop](#term-e-stop))
+— which assumes the **host stops commanding** on disarm. That is true for a dead parent
+/ cut bus / crashed host, but a **control loop is an always-commanding actor** (a
+self-balancer _must_ command every tick to stay upright), so it never goes silent on its
+own and would re-advance the floor's `seq` every tick, **defeating disarm**. So a host
+control loop (a `BB.Controller` that commands actuators) **must gate its own output on
+the safety state**: it subscribes to the safety transitions
+(`BB.subscribe(robot, [:state_machine])`, the documented pattern) and **publishes
+nothing while not armed** (seeding armed-ness from `BB.Safety.state` at boot so a
+born-disarmed robot drives nothing). It is the host-side _producer_ of the silence the
+floor waits for — the floor stays the guarantee; the controller supplies the silence. A
+control loop that commands through disarm is a safety bug
+([ADR-0010](../adr/0010-a-control-loop-falls-silent-on-disarm.md#adr-0010)). Distinct
+from [the e-stop](#term-e-stop): that accelerates the silence on the wire; this is who,
+on the host, actually creates it.
 
-### Status slot
+### Status slot {#term-status-slot}
 
 A slot an actuator hub produces (`{applied_seq, floored?}` at minimum) flowing _up_ the
 wire. It is the authoritative source of "is this hub actually driving?" — read (gated by
 the same born-stale check) instead of inferred from "we sent it a command," so the host
 never shows a confident green while a wheel sits floored. It is **liveness, not
 measurement**: it is consumed _internally_ by the actuator view's freshness check, never
-published as a `BB.Message` — so a wheel's _measured speed_ is a separate **wheel-speed
-sensor port**, not a status field (ADR-0009).
+published as a `BB.Message` — so a wheel's _measured speed_ is a separate wheel-speed
+sensor port, not a status field (owned by the `segby_v1` context — see
+[Wheel-speed sensor · host velocity loop](segby-v1/CONTEXT.md#term-wheel-speed-sensor)).
 
-### Wheel-speed sensor · host velocity loop
-
-A wheel's **measured angular velocity** (rad/s) reported _up_ as a first-class **sensor
-port** (`vel_left`/`vel_right`, value-type `WheelSpeed`, `dir: :out`) — surfaced through
-the same **component** view + `[:sensor | …]` topic the IMU pose uses, so the host
-controller subscribes to it exactly like pose (ADR-0009). The firmware sources it from the
-FOC's closed-loop `shaft_velocity`; the sim from MuJoCo's `qvel`. It exists so the host
-**balance** loop, which is otherwise open-loop on wheel state (it targets pitch only), can
-run an **inner velocity loop**: operator teleop sets a per-wheel _target speed_ and the
-controller adds `kv · (target − measured)` to the per-wheel balance torque. The wheel
-command stays **torque** (faithful to the real torque-voltage FOC); the velocity loop is a
-host control law on top — so "forward" means a _bounded speed_, not an unbounded torque
-(acceleration) bias that runs the wheels away. **Turn** is likewise closed-loop: it
-commands a _target yaw rate_, and a yaw-rate controller (`kyaw · (target − gyro_z)`, the
-IMU's yaw rate already on the wire) drives the differential torque so the measured yaw
-tracks it — self-limiting, so a sustained hard turn can't run away (the open-loop
-differential-speed turn it replaced eventually toppled the pitch-only balancer). Distinct
-from the **status slot**: that is liveness; this is measurement. This lives entirely in the
-**example** (`segby_v1`): a consumer value-type + ports on the stock seams (ADR-0003) — the
-library is untouched.
-
-### The frame
+### The frame {#term-the-frame}
 
 The on-wire shape: a body — `NODE · PORT · SEQ(2B) · [T_DEV(8B)] · PAYLOAD` — guarded by
 a **real, pinned CRC-16/CCITT-FALSE** (check value `0x29B1` over `"123456789"`). `T_DEV`
-is **per-port** (present only on stamped ports; see **seq · t_dev**). On UART the body is
-`0x00`-delimited and COBS-framed; on CAN it is segmented (see **Segment**). The same body
-rides both transports; the root hub re-frames UART↔CAN without touching
-NODE/SEQ/T_DEV/PAYLOAD. The CRC covers the whole body and is **always present and verified
-on both transports** — on CAN it travels as the body's 2-byte trailer, so a re-framing
-bit-flip a hop's hardware CRC cannot reach is still caught. A corrupt frame is counted and
-dropped at the seam before any value (or any `seq`) is read.
+is **per-port** (present only on stamped ports; see [seq · t_dev](#term-seq-t-dev)). On
+UART the body is `0x00`-delimited and COBS-framed; on CAN it is segmented (see
+[Segment](#term-segment)). The same body rides both transports; the root hub re-frames
+UART↔CAN without touching NODE/SEQ/T_DEV/PAYLOAD. The CRC covers the whole body and is
+**always present and verified on both transports** — on CAN it travels as the body's
+2-byte trailer, so a re-framing bit-flip a hop's hardware CRC cannot reach is still
+caught. A corrupt frame is counted and dropped at the seam before any value (or any
+`seq`) is read.
 
-### Segment (CAN fragmentation)
+### Segment (CAN fragmentation) {#term-segment}
 
 A body wider than a CAN data field (8 B on the ESP32's classic-CAN TWAI; 64 B on CAN FD)
 is **segmented by the bridge** into ordered fragments, one per CAN frame, and reassembled
@@ -323,25 +314,26 @@ is **segmented by the bridge** into ordered fragments, one per CAN frame, and re
 Fragment metadata rides the **13 reserved id bits**, never the data field, so the CAN body
 bytes are byte-identical to the UART body and the **parity vectors** hold across both
 transports. The layout is `[FIRST:1][LAST:1][SEQLO:5][FRAG_IDX:6]`: a 6-bit index (≤ 64
-fragments → a hard **512-byte body ceiling**, asserted by the §06 compile-time size-check), FIRST
+fragments → a hard **512-byte body ceiling**, asserted by the
+[§04](design.md#04-the-contract-generated-no-drift) compile-time size-check), FIRST
 on index 0, LAST on the final fragment, and the body `seq`'s low 5 bits binding every
 fragment to its body. Reassembly is **fail-closed and strictly sequential**: a buffer is
 seeded only by a FIRST fragment; any gap, reorder, `SEQLO` mismatch, or CRC failure
 **drops the whole body** (counted, never delivered partial) — a lost body is a
-stale-making non-event the **advance** test already tolerates, but a partial body must
-never reach a **slot**. A bridge **never truncates**; it refuses-and-counts only the
-should-never-happen case of a body over the 512-byte ceiling (`tx_oversize`). No
+stale-making non-event the [Advance](#term-advance) test already tolerates, but a
+partial body must never reach a **slot**. A bridge **never truncates**; it refuses-and-counts
+only the should-never-happen case of a body over the 512-byte ceiling (`tx_oversize`). No
 reassembly timeout in v1 — a stalled partial is reclaimed structurally by the next FIRST
 for that `(node, port)` (a timeout is a conflation-era refinement, SAFeD).
 
-### Parity vectors
+### Parity vectors {#term-parity-vectors}
 
 A generated, committed fixture of `{port, payload, framed_bytes, crc}` rows asserted by
 _both_ the Elixir suite and a host-compiled C harness — the cross-language witness that
 both codecs agree byte-for-byte. The wire cannot drift past it; hand-editing a row is the
 tell.
 
-### Drift test
+### Drift test {#term-drift-test}
 
 The build-failing test that re-runs the generator against the current model (the
 IR) and compares the output byte-for-byte with the **committed** generated
@@ -352,47 +344,52 @@ enforces: change a contract → `mix wire.gen` → commit the regenerated files
 alongside. Each stratum has its own (the library's fixture robot, the example's
 own artifacts).
 
-### LinkOwner
+### LinkOwner {#term-link-owner}
 
 The OTP process (under Nerves, beside the BeamBots tree) that owns the host UART to the
 root hub. It decodes inbound frames into `(node, port)` slots and drains outbound
 commands to the wire. It is placed to survive a view or law crash, so telemetry keeps
 flowing through a fault. **It is a read-only drain of command slots** — never their
 writer — so it can never manufacture a `seq` advance. It _is_ the sole writer of the
-**inbound** slots, minting a `Registry.Writer` capability (ADR-0007) per inbound slot
-on first decode and writing through it. A command value it cannot pack to the wire (a
-malformed value-type value) is **counted as `encode_fail` and skipped, never crashing
+**inbound** slots, minting a `Registry.Writer` capability
+([ADR-0007](../adr/0007-one-writer-per-slot-is-a-capability.md#adr-0007)) per inbound
+slot on first decode and writing through it. A command value it cannot pack to the wire
+(a malformed value-type value) is **counted as `encode_fail` and skipped, never crashing
 the drain** — the floor backstops the unsent command, but the cause stays legible (a
 counter, not a distant floor firing).
 
-### Virtual robot (the sim transport · plant · driver)
+### Virtual robot (the sim transport · plant · driver) {#term-virtual-robot}
 
 Running a robot's **real host stack with no hardware**, by swapping the one thing that
 _is_ the hardware boundary — the **transport** the **LinkOwner** owns. A **sim transport**
 (`BBMCUHub.Sim.Transport`, a third `Host.Transport` beside production UART and the test
 loopback) plays the whole hub tree against a **plant**, so everything above the transport
 — codec, freshness, the floor's meaning, the views, `bb_tui` — runs unchanged and cannot
-tell the robot is virtual (ADR-0008). The **plant** (`BBMCUHub.Sim.Plant`, a behaviour)
-is the **consumer-supplied dynamics**: given the latest per-slot commands and a `dt`, it
-advances a simulated world and returns the sensor values the hubs would have produced —
-spoken in **value-type values keyed by wire slot**, not robot structs (the same
-byte-/value-generic stance as **safe action**, ADR-0005). A **driver**
+tell the robot is virtual
+([ADR-0008](../adr/0008-virtual-robot-sim-in-the-loop.md#adr-0008)). The **plant**
+(`BBMCUHub.Sim.Plant`, a behaviour) is the **consumer-supplied dynamics**: given the
+latest per-slot commands and a `dt`, it advances a simulated world and returns the
+sensor values the hubs would have produced — spoken in **value-type values keyed by wire
+slot**, not robot structs (the same byte-/value-generic stance as [Safe
+action](#term-safe-action),
+[ADR-0005](../adr/0005-safe-action-is-a-value-type-value.md#adr-0005)). A **driver**
 (`BBMCUHub.Sim.Driver`) is the engine-agnostic real-time loop: a sibling process that owns
 the `~50 Hz` clock, reads the transport's captured commands, calls `Plant.step`, and
 injects the returned sensors up as wire bodies (so the sensor views see a fresh **seq**
-advance and **born-stale** is honored). The library ships these three engine-agnostic
-pieces; a **consumer** writes the plant — segby's is a MuJoCo plant
+advance and [born-stale](#term-fresh-for-born-stale) is honored). The library ships these
+three engine-agnostic pieces; a **consumer** writes the plant — segby's is a MuJoCo plant
 (`SegbyV1.Sim.MujocoPlant`) over a `Port` to a headless Python child whose native
-`launch_passive` viewer renders the bot in 3D beside the terminal `bb_tui` (ADR-0003 split:
-library building blocks, example plant). It **narrows the sim-to-real gap** — develop and
-de-risk control (balance gains, teleop, the pitch→wheel sign) against faithful dynamics
-before the bench — but does **not** replace the bench's silicon truths (motor/encoder sign,
-pin map, FOC alignment), since the sim runs with whatever sign you _modeled_. Distinct from
-the test **VirtualHub** (the deterministic, frozen-clock, real-C-floor _assertion_ seam):
-the virtual robot is the interactive, real-clock, physics-backed _dev_ seam; both share
-the philosophy "simulate at the transport" and nothing else.
+`launch_passive` viewer renders the bot in 3D beside the terminal `bb_tui`
+([ADR-0003](../adr/0003-library-example-split.md#adr-0003) split: library building
+blocks, example plant). It **narrows the sim-to-real gap** — develop and de-risk control
+(balance gains, teleop, the pitch→wheel sign) against faithful dynamics before the bench
+— but does **not** replace the bench's silicon truths (motor/encoder sign, pin map, FOC
+alignment), since the sim runs with whatever sign you _modeled_. Distinct from the test
+**VirtualHub** (the deterministic, frozen-clock, real-C-floor _assertion_ seam): the
+virtual robot is the interactive, real-clock, physics-backed _dev_ seam; both share the
+philosophy "simulate at the transport" and nothing else.
 
-### Component (the BeamBots view)
+### Component (the BeamBots view) {#term-component}
 
 A thin `BB.Sensor` / `BB.Actuator` that surfaces a hub's port to BeamBots. A _view_: it
 reads/writes slots through the LinkOwner and carries the hub contract in its
@@ -406,7 +403,7 @@ socket and names no transport, so it runs unchanged whether the port is on the r
 own I²C or a CAN leaf three hops down. A sensor view publishes only when born-stale
 freshness passes; an **actuator view is the single writer of its command slot**.
 
-### Observer (the observability plane)
+### Observer (the observability plane) {#term-observer}
 
 A **host-side** consumer that **samples** a **slot**'s latest value at its **own
 independent cadence** for the observability plane (a UI monitor, an event/metrics
@@ -481,11 +478,12 @@ a disk log, an event database, a metrics exporter, a custom UI). Wiring a _speci
 dashboard onto it — e.g. pointing `bb_tui` at an observer's slow republish topic instead of
 the broad `[:sensor]`/`[:actuator]` firehose it subscribes to by default — is a **consumer
 use case**, demonstrated in the worked example, not something the framework's observer
-design bends around.
+design bends around
+([ADR-0004](../adr/0004-observer-plane.md#adr-0004)).
 _Avoid_: calling an observer a "view" or a "Component" (the control-plane counterpart);
 assuming an observer is always low-frequency (it owns its rate, fast or slow).
 
-### Probe (the diagnostic read)
+### Probe (the diagnostic read) {#term-probe}
 
 A **test/diagnostic affordance**, not a running-system component: a single,
 flush-robust expression that returns the **authoritative, freshness-gated, decoded**
@@ -506,7 +504,7 @@ diagnostic_ used by tests and at the bench. (A probe resembles a sample-state ob
 whose "sink" is its return value, but the distinction — continuous plane component vs.
 on-demand test tool — is the point of the separate term.)
 
-### Control plane · observability plane
+### Control plane · observability plane {#term-control-observability-plane}
 
 Two planes over the same **slots**. The **control plane** is everything that acts on the
 robot's truth at control rate — the **Components** (views), the BeamBots controllers/laws,
@@ -518,7 +516,7 @@ plane. Keeping them separate is why a slow dashboard — or a high-frequency log
 perturbs the loop nor is throttled by it; each observer's cadence is decoupled from the
 main loop and from every other observer.
 
-### Firmware hook
+### Firmware hook {#term-firmware-hook}
 
 The thin device-specific seam a user implements on the MCU: a small set of well-known C
 functions the **generated** per-hub glue calls — `<hub>_device_setup()` (init pins/
@@ -533,18 +531,20 @@ a user owes is legible, resolved at link time. Generating from the IR means a us
 hub gets its glue generated identically to a stock one — a device hook is _never_
 hand-glued. Two rules the chassis enforces for the hooks: `<hub>_device_setup()` may
 run as long as it needs (the task watchdog is armed **after** setup, so a slow FOC
-`initFOC`/i2c settle never boot-loops the chip — §08), and every `_read`/`_drive`
+`initFOC`/i2c settle never boot-loops the chip —
+[§10](design.md#10-firmware-the-per-port-scheduler)), and every `_read`/`_drive`
 tick must be **bounded** (no spin/blocking; a read that can't complete returns
 nothing and goes stale, legible).
 _Avoid_: hand-written `main_*.cpp` (the pre-generation baseline).
 
-### SAFeD (Safe-by-Default, elaborate later)
+### SAFeD (Safe-by-Default, elaborate later) {#term-safed}
 
 The rule for deferred work: a stub must default to the _safe_ behaviour (disarmed, stale,
-refused) so elaborating it later only ever _adds_ permission, never removes a guarantee.
-Deferred items are named in the text, not hidden. Notable v1 holes left explicit: node
-identity is **trust-on-first-use** (a mis-flashed/duplicate board is undetected until the
-deferred `fw_id` check), and right-rate enforcement (wire-budget + conflation) is deferred
-— v1 permits right-rate but does not yet enforce it. The **firmware hook** is resolved by
-well-known link-time names (Shape 1); a registerable `HubDevice` vtable (runtime device
-swap, host-mocked hubs) is a deferred extension the generated glue does not preclude.
+refused) so that elaborating it later only ever _adds_ permission, never removes a
+guarantee. Deferred items are named in the text, not hidden. Notable v1 holes left
+explicit: node identity is **trust-on-first-use** (a mis-flashed/duplicate board is
+undetected until the deferred `fw_id` check), and right-rate enforcement (wire-budget +
+conflation) is deferred — v1 permits right-rate but does not yet enforce it. The
+**firmware hook** is resolved by well-known link-time names (Shape 1); a registerable
+`HubDevice` vtable (runtime device swap, host-mocked hubs) is a deferred extension the
+generated glue does not preclude.

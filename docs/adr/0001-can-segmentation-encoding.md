@@ -1,5 +1,7 @@
 # CAN segmentation rides the reserved id bits, with an end-to-end CRC trailer
 
+<a id="adr-0001"></a>
+
 A logical body (`NODE·PORT·SEQ·[T_DEV]·PAYLOAD·CRC16`) is often wider than a CAN
 data field (8 B on the ESP32's classic-CAN TWAI; the IMU body is 54 B). We
 segment it across CAN frames, and we put the fragment metadata

@@ -85,7 +85,7 @@ bench/QEMU: the watchdog boot-loop and motor-sign calibration.
 </details>
 
 <details>
-<summary>Glossary terms used below (all defined fully in <a href="../CONTEXT.md">CONTEXT.md</a>)</summary>
+<summary>Glossary terms used below (all defined fully in <a href="design/CONTEXT.md">CONTEXT.md</a>)</summary>
 
 - **hub** — one microcontroller node; the only node type. It reads sensors, drives
   actuators, and forwards for child hubs, so the same shape nests into a tree.
@@ -101,7 +101,7 @@ bench/QEMU: the watchdog boot-loop and motor-sign calibration.
   the root hub is the one that declares `parent: :host` and owns the host UART.
 
 The architecture, its rationale, and the `§` section numbers live in
-[`docs/hub-design.html`](hub-design.html).
+[`docs/design/design.md`](design/design.md).
 
 </details>
 
@@ -639,7 +639,7 @@ WDT boot-loop and motor-sign calibration.
 
 - [`README.md`](../README.md) — reference: the consumer-vs-library table, the seams,
   the port-flow diagram.
-- [`CONTEXT.md`](../CONTEXT.md) — the domain glossary (Hub, Value-type, Link, Floor,
-  Safe action, Firmware hook, …).
-- [`docs/hub-design.html`](hub-design.html) — the full architecture, its
+- [`docs/design/CONTEXT.md`](design/CONTEXT.md) — the domain glossary (Hub,
+  Value-type, Link, Floor, Safe action, Firmware hook, …).
+- [`docs/design/design.md`](design/design.md) — the full architecture, its
   rationale, and the `§` sections.

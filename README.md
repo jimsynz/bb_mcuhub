@@ -39,7 +39,7 @@ bot in a MuJoCo physics simulation with a 3-D viewer, no chassis required.**
 > **slot** is one `(node, port)` cell in the host's registry holding a port's
 > latest value plus its seq. **Born-stale** means a reading is untrusted until
 > its seq is seen advancing — freshness is earned, never assumed. Full glossary
-> in [`CONTEXT.md`](CONTEXT.md).
+> in [`docs/design/CONTEXT.md`](docs/design/CONTEXT.md).
 
 ---
 
@@ -209,7 +209,8 @@ mixing, the wheel-velocity loop, and the disarm safe-state are all developed and
 de-risked here — against faithful dynamics, crashing for free — before a board
 is ever powered. See [`examples/segby_v1/sim/`](https://github.com/lostbean/bb_mcuhub/tree/main/examples/segby_v1/sim) for the
 full setup; the design rationale (the sim seam, drive-by-speed, disarm = host
-silence) is in [`docs/hub-design.html`](docs/hub-design.html).
+silence) is in [`docs/design/design.md`](docs/design/design.md) §09 and
+[`docs/design/segby-v1/design.md`](docs/design/segby-v1/design.md) §05.
 
 ---
 
@@ -606,13 +607,13 @@ consumer's device hooks.
 
 ## Where to go next
 
-- [`CONTEXT.md`](CONTEXT.md) — the domain glossary (hub, floor, seq, value-type,
-  slot, the frame…).
+- [`docs/design/CONTEXT.md`](docs/design/CONTEXT.md) — the domain glossary (hub,
+  floor, seq, value-type, slot, the frame…).
 - [`docs/NEW-ROBOT.md`](docs/NEW-ROBOT.md) — build your own robot, the ordered
   seven-file walkthrough.
-- [`docs/hub-design.html`](docs/hub-design.html) — the architecture and full
-  rationale (an HTML page: download/clone and open it in a browser — GitHub
-  shows only its source).
+- [`docs/design/design.md`](docs/design/design.md) — the architecture and full
+  rationale (an HTML page: download/clone and open [`docs/design/design.html`](docs/design/design.html)
+  in a browser — GitHub shows only the markdown source).
 - [`examples/segby_v1/`](https://github.com/lostbean/bb_mcuhub/tree/main/examples/segby_v1) — the worked example, with its own
   [`BRINGUP.md`](https://github.com/lostbean/bb_mcuhub/blob/main/examples/segby_v1/BRINGUP.md) for on-hardware bring-up.
 - [`firmware/README.md`](firmware/README.md) — the C chassis: what a firmware

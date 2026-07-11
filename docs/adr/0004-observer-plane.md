@@ -1,5 +1,7 @@
 # Observability is a separate plane: observers sample the slots, decoupled from the control loop
 
+<a id="adr-0004"></a>
+
 Monitoring, logging, and dashboards form an **observability plane** that is
 architecturally separate from the **control plane** (the Components/views, the
 controllers/laws, the command path, the floor). The two share the host

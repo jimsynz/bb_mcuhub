@@ -10,3 +10,8 @@ pre-commit:
     format:
       run: nix fmt -- {staged_files}
       stage_fixed: true
+    design-gate:
+      glob: "docs/design/**/design.md"
+      run: for f in {staged_files}; do scripts/design-render "$f" --check || exit 1; done
+    layer-integrity:
+      run: scripts/layer-integrity .

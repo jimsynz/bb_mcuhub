@@ -1,5 +1,7 @@
 # A robot can run virtually: a sim transport closes the host loop over a physics engine, no hardware
 
+<a id="adr-0008"></a>
+
 A bb_mcuhub robot can be run **without any hardware** by swapping one thing — the
 **transport** the `LinkOwner` owns (§07) — for a `BBMCUHub.Sim` transport that plays
 the whole hub tree against a **physics engine**. The sim transport feeds each

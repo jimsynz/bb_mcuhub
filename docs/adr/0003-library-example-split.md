@@ -1,5 +1,7 @@
 # `bb_mcuhub` is a reusable library; `segby_v1` is a consumer example
 
+<a id="adr-0003"></a>
+
 The hub gateway is split into a **publishable library** (`:bb_mcuhub`, at the repo
 root) and a **separate example application** (`:segby_v1`, at `examples/segby_v1/`)
 that depends on the library exactly as a real downstream consumer would — a Mix
